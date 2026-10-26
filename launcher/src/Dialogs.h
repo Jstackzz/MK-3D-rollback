@@ -21,6 +21,7 @@ public:
     explicit LoginDialog(ServerClient* server, const QString& lastName, QWidget* parent = nullptr);
     bool remember() const;
     QString name() const;
+    void askForNewAccount();  // opened by itself on a PC with no account yet: a new one, and why it is asked
 
 private:
     void setRegistering(bool on);
@@ -29,6 +30,7 @@ private:
 
     ServerClient* server_;
     QLabel* title_;
+    QLabel* intro_;
     QLabel* error_;
     QLineEdit* name_;
     QLineEdit* password_;

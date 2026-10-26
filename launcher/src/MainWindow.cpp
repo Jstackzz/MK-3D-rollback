@@ -85,7 +85,10 @@ MainWindow::MainWindow(const LaunchOptions& opts, QWidget* parent)
     connect(server_, &ServerClient::stateChanged, this, [this](ServerClient::State st) {
         updateFooter();
         updateAccountButton();
-        if (st == ServerClient::State::Online) cliLogin();
+        if (st == ServerClient::State::Online) {
+            cliLogin();
+            QTimer::singleShot(0, this, &MainWindow::askForAccount);  // out of the socket's signal first
+        }
     });
     connect(server_, &ServerClient::message, this, &MainWindow::onServerMessage);
     connect(server_, &ServerClient::connectionError, this, [this](const QString& text) {
@@ -364,7 +367,25 @@ void MainWindow::onAccountButton() {
         connectServer();
         return;
     }
+    openAccountDialog(false);
+}
+
+// a launcher that never signed in on this PC opens the account window by itself the first time it is connected in a
+// run, to make one; not for the command line's sign-in or the development runs that open with a task
+void MainWindow::askForAccount() {
+    if (askedForAccount_ || !opts_.user.isEmpty() || opts_.localTest || !opts_.extractImage.isEmpty()) return;
+    if (server_->state() != ServerClient::State::Online) return;
+    if (!cfg::get(QStringLiteral("account/token")).toString().isEmpty() ||
+        !cfg::get(QStringLiteral("account/name")).toString().isEmpty())
+        return;
+    askedForAccount_ = true;
+    applog::write(QStringLiteral("account: none on this PC yet, asking for one"));
+    openAccountDialog(true);
+}
+
+void MainWindow::openAccountDialog(bool firstTime) {
     LoginDialog dlg(server_, cfg::get(QStringLiteral("account/name")).toString(), this);
+    if (firstTime) dlg.askForNewAccount();
     winutil::useDarkTitleBar(&dlg);
     if (dlg.exec() == QDialog::Accepted) {
         cfg::set(QStringLiteral("account/remember"), dlg.remember());

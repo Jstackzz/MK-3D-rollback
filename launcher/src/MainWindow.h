@@ -59,6 +59,8 @@ private:
     void updateFooter();
     void updateAccountButton();
     void onAccountButton();
+    void openAccountDialog(bool firstTime);
+    void askForAccount();
     void onServerMessage(const QJsonObject& msg);
     void onMatchFound(const QJsonObject& found);
     void showNotice(const QString& text, bool warn);
@@ -91,6 +93,7 @@ private:
     QString lastError_;
     QJsonObject online_;
     QPointer<MatchFoundDialog> matchDialog_;
+    bool askedForAccount_ = false;  // the account window opened by itself this run
     int cliLoginId_ = -1;
     bool cliTriedRegister_ = false;
     bool cliQueued_ = false;

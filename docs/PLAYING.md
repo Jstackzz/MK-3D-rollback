@@ -51,7 +51,8 @@ Play
 ----
 
 The launcher connects to the server this package was made for. The first time, it
-asks you to create an account: a name and a password, kept on that server.
+opens a window to create your account: a name and a password, kept on that
+server. If you close it, SIGN IN at the top right opens it again.
 
 If the launcher cannot connect (a package made without a server, or the host's
 address changed): open Settings, type the address your host gave you under
@@ -111,6 +112,9 @@ When something goes wrong
 - "The game's files are not there yet": build that game first (Build game).
 - The launcher or the game says the disc is a different release: it is not one of
   the releases above.
+- "This is not an Xbox disc image": the .iso is a broken or padded conversion
+  without the Xbox file system (some downloads carry one beside the good image).
+  Use the XISO version of the disc, often named .xiso.iso.
 - Logs: mk3d-launcher.log and the sessions folder beside the launcher, and each
   game's logs folder in games\<game>.
 

@@ -138,7 +138,9 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    `defaults.ini` beside the launcher (a player package's server) supplies
    any setting the settings file does not have.
 2. **Sign in** (top right): create an account or sign in; "remember me" keeps
-   a 30-day login token in the settings file.
+   a 30-day login token in the settings file. A launcher that never signed in
+   on this PC opens the window by itself, on *create account*, once a run when
+   it first connects (not with `--user`, `--local-test` or `--extract`).
 3. **Game selector** (Deadly Alliance / Deception / Armageddon) switches every
    page; modes and rosters come from `launcher/data/<game>.json`.
 4. **Ranked / Casual**: pick the mode and fighter, *Find match*. The game is

@@ -32,6 +32,10 @@ LoginDialog::LoginDialog(ServerClient* server, const QString& lastName, QWidget*
     title_ = ui::label(QString(), "PageTitle");
     ui::letterSpacing(title_, 3);
     v->addWidget(title_);
+    intro_ = new QLabel;
+    intro_->setWordWrap(true);
+    intro_->hide();
+    v->addWidget(intro_);
     auto* hint = ui::label(tr("Names are 3-16 letters, digits, '_' or '-'. Passwords have at least 6 characters."), "Muted");
     hint->setWordWrap(true);
     v->addWidget(hint);
@@ -76,6 +80,15 @@ LoginDialog::LoginDialog(ServerClient* server, const QString& lastName, QWidget*
 bool LoginDialog::remember() const { return remember_->isChecked(); }
 QString LoginDialog::name() const { return name_->text().trimmed(); }
 
+void LoginDialog::askForNewAccount() {
+    setRegistering(true);
+    intro_->setText(tr("Welcome! To play online you need an account on this server: choose a name and a password. "
+                       "Have one already? Choose \"I already have an account\". You can also do this later with "
+                       "SIGN IN at the top right."));
+    intro_->show();
+    name_->setFocus();
+}
+
 void LoginDialog::setRegistering(bool on) {
     registering_ = on;
     title_->setText(on ? tr("CREATE ACCOUNT") : tr("SIGN IN"));
@@ -83,6 +96,7 @@ void LoginDialog::setRegistering(bool on) {
     switch_->setText(on ? tr("I already have an account") : tr("Create a new account"));
     confirm_->setVisible(on);
     confirmLabel_->setVisible(on);
+    if (!on) intro_->hide();  // the welcome is about making one
     error_->clear();
 }
 

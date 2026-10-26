@@ -272,7 +272,9 @@ void QueuePage::updateButton() {
     if (p == P::Idle) {
         find_->setText(tr("FIND MATCH"));
         find_->setEnabled(server_->isLoggedIn());
-        if (!server_->isLoggedIn()) status_->setText(tr("Sign in to search for matches."));
+        const QString signIn = tr("Sign in to search for matches.");
+        if (!server_->isLoggedIn()) status_->setText(signIn);
+        else if (status_->text() == signIn) status_->clear();  // signed in since
         clock_.stop();
         timer_->clear();
     } else if (active && mine) {
