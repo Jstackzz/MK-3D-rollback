@@ -64,7 +64,10 @@ whether to trust it: compare it with your host's.
 - Lobby, to play someone you know: one of you presses Create lobby and gives the
   other the 5-letter code; the other presses Join code and types it. Both choose
   fighters and press Ready, then the host presses START.
-- Practice starts the game offline.
+- Single player, then PLAY, starts the whole game with its own menus, as on the
+  console: arcade, its practice mode and the rest. What you unlock and set is
+  saved in the game's folder (games\<game>\hdd). Online matches wait while it is
+  open: close the game (or Close the game in the launcher) to search for one.
 
 Both players need the same package: VERSION.txt lists fingerprints of its programs
 to compare.

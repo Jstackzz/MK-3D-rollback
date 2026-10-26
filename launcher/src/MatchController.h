@@ -2,7 +2,7 @@
 
 #include <functional>
 // Drives one player's online match from queue_join to match_result (docs/PROTOCOL.md 1.7-1.9,
-// section 2) and owns the game processes: the prelaunched one, practice, and the local test pair.
+// section 2) and owns the game processes: the prelaunched one, single player, and the local test pair.
 
 #include <QElapsedTimer>
 #include <QJsonObject>
@@ -27,7 +27,9 @@ struct QueueRequest {
 class MatchController : public QObject {
     Q_OBJECT
 public:
-    enum class Phase { Idle, Searching, Found, Connecting, Starting, Playing, Reporting, Practice, LocalTest };
+    // Finishing: the result is in, the game still plays the match's ending (finisher, winner's pose) until it is back
+    // at its hold point; no new match meanwhile, the game still holds the game port
+    enum class Phase { Idle, Searching, Found, Connecting, Starting, Playing, Reporting, Finishing, Solo, LocalTest };
     Q_ENUM(Phase)
 
     explicit MatchController(ServerClient* server, QObject* parent = nullptr);
@@ -46,8 +48,10 @@ public:
     void accept();
     void decline();
     bool prepareGame(const QString& gameId, QString* error);
-    bool startPractice(const QString& gameId, const QString& p1, const QString& p2, QString* error);
-    void stopPractice();
+    // the whole game with its own menus, no match: online play waits until it is closed
+    bool startSolo(const QString& gameId, QString* error);
+    void stopSolo();
+    bool soloRunning() const { return solo_ != nullptr; }
     bool startLocalTest(const QString& gameId, const QString& mode, const QString& p1, const QString& p2,
                         QString* error);
     void stopLocalTest();
@@ -89,6 +93,7 @@ private:
     ServerClient* server_;
     UdpRendezvous* udp_;
     GameProcess* game_ = nullptr;
+    GameProcess* solo_ = nullptr;
     GameProcess* localA_ = nullptr;
     GameProcess* localB_ = nullptr;
     Phase phase_ = Phase::Idle;
@@ -97,8 +102,7 @@ private:
     QJsonObject found_, go_, pendingResult_;
     QString pendingStart_;
     bool resultSent_ = false;
-    bool practiceRunning_ = false;
     QElapsedTimer searchClock_;
-    QTimer parkTimer_, keepaliveTimer_, startTimeout_;
+    QTimer parkTimer_, keepaliveTimer_, startTimeout_, finishTimeout_;
     QString localStartA_, localStartB_, localResultA_, localResultB_;
 };

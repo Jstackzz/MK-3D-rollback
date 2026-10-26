@@ -1,5 +1,5 @@
 #pragma once
-// Ranked / Casual queue pages, Practice (with the local two-instance test) and the Leaderboard.
+// Ranked / Casual queue pages, Single player (with the local two-instance test) and the Leaderboard.
 
 #include <QJsonObject>
 #include <QTimer>
@@ -52,17 +52,21 @@ private:
     QJsonObject stats_;
 };
 
-class PracticePage : public Page {
+// the whole game with its own menus (arcade, its practice mode, the side modes), and in a source build the two-game
+// local test
+class SinglePlayerPage : public Page {
     Q_OBJECT
 public:
-    explicit PracticePage(MatchController* controller, QWidget* parent = nullptr);
+    explicit SinglePlayerPage(MatchController* controller, QWidget* parent = nullptr);
     void setGame(const QString& gameId) override;
 
 private:
     void refreshTestRoster();
+    void updateButtons();
     MatchController* controller_;
-    QComboBox* p1_;
-    QComboBox* p2_;
+    QLabel* title_;
+    QPushButton* play_;
+    QPushButton* close_;
     QComboBox* testMode_;
     QComboBox* testP1_;
     QComboBox* testP2_;

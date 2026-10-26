@@ -11,7 +11,7 @@ Native PC ports with rollback netplay for the original Xbox versions of the
 
 The target is the shape of Ekspym's Tekken 6 Native Online (October 2026):
 a native Windows build the player compiles from their own disc, a launcher
-with ranked, casual, lobby and practice modes, and rollback netplay. Tekken 6
+with ranked, casual, lobby and single player modes, and rollback netplay. Tekken 6
 got there by static recompilation of the Xbox 360 build with ReXGlue. The
 original Xbox now has the same kind of toolchain: TGP482's XboxXBERecomp has
 shipped native ports of BLACK, Splinter Cell: Double Agent and 007: From

@@ -99,6 +99,7 @@ bool GameProcess::start(const QString& exe, QString* error, bool netMode) {
     QFile::remove(cmdPath_);
     QFile::remove(statusPath_);
 
+    netMode_ = netMode;
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
     if (netMode) {
         env.insert(QStringLiteral("MK3D_NET"), QStringLiteral("1"));
@@ -204,7 +205,8 @@ void GameProcess::quit() {
     if (!isRunning() || quitting_) return;
     quitting_ = true;
     pendingCmd_.clear();
-    writeCommand(QStringLiteral("quit"));
+    if (netMode_) writeCommand(QStringLiteral("quit"));
+    else proc_->terminate();  // WM_CLOSE to its windows: the game closes as when the player closes it
     QTimer::singleShot(5000, this, [this] {
         if (isRunning()) kill();
     });

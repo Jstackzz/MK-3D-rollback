@@ -16,9 +16,10 @@ public:
     ~GameProcess() override;
 
     // Starts `exe` (a .py file is run with the configured Python, for the development stand-in).
-    // `netMode` false starts it plainly (first-launch compile), without MK3D_NET.
+    // `netMode` false starts it plainly (first-launch compile, single player), without MK3D_NET.
     bool start(const QString& exe, QString* error, bool netMode = true);
-    void quit();  // "quit" command, then kill after 5 s
+    // "quit" command (a plain game: its window is closed, as the player would), then kill after 5 s
+    void quit();
     void kill();
     bool isRunning() const;
 
@@ -52,6 +53,7 @@ private:
     QString status_;
     QString pendingCmd_;
     QElapsedTimer lastWrite_;
+    bool netMode_ = true;
     bool quitting_ = false;
     QByteArray outBuf_;
 };

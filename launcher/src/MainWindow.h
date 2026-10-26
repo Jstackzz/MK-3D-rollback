@@ -16,7 +16,7 @@ class MatchFoundDialog;
 class Page;
 class QueuePage;
 class BuildPage;
-class PracticePage;
+class SinglePlayerPage;
 class ServerClient;
 class SettingsPage;
 
@@ -100,5 +100,6 @@ private:
     bool cliLobbyBegun_ = false, cliLobbyJoined_ = false, cliLobbyInMatch_ = false;
     int cliLobbyDone_ = 0, cliLobbyReadyFor_ = -1, cliLobbyStarts_ = 0;  // matches over, ready sent for, starts sent
     QTimer* cliLobbyPoll_ = nullptr;
+    QJsonObject cliLastLobby_;  // the lobby's last state, looked at again once the controller is idle
     bool darkApplied_ = false;
 };

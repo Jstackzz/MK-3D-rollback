@@ -151,9 +151,13 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    `status.txt`, and parks the game again.
 5. **Lobby**: create (optional password, best of 1/3/5), join from the list or
    by 5-letter code, pick a fighter, chat, *Ready*; the host starts.
-6. **Practice**: offline training (`start ... mode=practice`). The
-   **Local test** box starts two instances on this PC (UDP 7001/7002) with
-   matching start lines, no server needed.
+6. **Single player**: *PLAY* starts the game plainly (no `MK3D_NET`), so it
+   runs its own menus as on the console, its practice mode included; *Close
+   the game* closes its window as the player would. While it is open the match
+   controller refuses online play ("Close your single-player game first"), so
+   one game at a time writes the save. In a source build the **Local test** box
+   starts two instances on this PC (UDP 7001/7002) with matching start lines,
+   no server needed; a player package hides it.
 7. **Leaderboard**: top 100 by Elo per game and mode.
 8. **Build game**: pick your disc image (`.iso` / `.xiso.iso`), *EXTRACT AND
    BUILD*. The launcher reads the image's Xbox file system itself
@@ -212,7 +216,7 @@ Command-line options for development and automation:
 | `--queue casual\|ranked --game mkd --mode kombat --character Scorpion` | search right after signing in |
 | `--auto-accept N` | accept a found match after N seconds |
 | `--lobby host\|join --lobby-name NAME --game mkd --mode kombat --character Scorpion` | host a lobby of that name and start its match once both are ready, or join it by name and mark ready |
-| `--page ranked\|casual\|lobby\|practice\|leaderboard\|build\|controls\|settings` | start page |
+| `--page ranked\|casual\|lobby\|single\|leaderboard\|build\|controls\|settings` | start page (`practice`, its old name, opens `single`) |
 | `--local-test` | start the two-instance loopback test |
 | `--extract <image>` | open *Build game* and extract that image |
 

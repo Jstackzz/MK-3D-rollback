@@ -53,6 +53,8 @@ bool g_reported = false;      // result / desync / disconnected written for this
 uint64_t g_started_base = 0;  // matches started before this one (offline)
 int g_wins_needed = 2;
 std::atomic<bool> g_park{false};
+bool g_park_after_end = false;  // asked to park while the match's end still plays in sync
+std::chrono::steady_clock::time_point g_park_deadline;
 
 std::wstring Widen(const char* s) {
     std::wstring w;
@@ -184,6 +186,7 @@ void Rematch(const Command& c) {
 }
 
 void Park() {
+    g_park_after_end = false;
     g_in_match = false;
     g_fighting = false;
     net::Disable();
@@ -191,8 +194,33 @@ void Park() {
     g_park = true;  // the frame hook switches the game to the main menu
 }
 
+bool InSync() {
+    const net::Status ns = net::GetStatus();
+    return ns == net::Status::Lockstep || ns == net::Status::Rollback;
+}
+
+// The result goes out at the round that decides the match, and the launcher parks once both players reported it,
+// while the game still plays the match's end: the finisher, a fatality, the winner's pose. Both games leave the match
+// in sync together after that (netplay.cpp, MatchOver), so the park waits for it, and for 30 s at most.
+void RequestPark() {
+    if (g_in_match && g_online && g_reported && InSync()) {
+        g_park_after_end = true;
+        g_park_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+        LOGI("link: park once the match's end has played");
+        return;
+    }
+    Park();
+}
+
 // the match's state, written when it changes
 void Update() {
+    if (g_park_after_end) {
+        if (!InSync() || std::chrono::steady_clock::now() > g_park_deadline) {
+            LOGI("link: the match's end has played");
+            Park();
+        }
+        return;
+    }
     if (!g_in_match) {
         if (game::AtHoldPoint()) WriteStatus("ready");
         return;
@@ -243,7 +271,7 @@ void Loop() {
             LOGI("link: command %s", line.c_str());
             Command c = Parse(line);
             if (c.verb == "start") Start(c);
-            else if (c.verb == "park") Park();
+            else if (c.verb == "park") RequestPark();
             else if (c.verb == "rematch") Rematch(c);
             else if (c.verb == "quit") {
                 WriteStatus("quitting");

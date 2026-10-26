@@ -22,6 +22,7 @@ param(
     [string]$InputB = '',
     [int]$Matches = 1,           # lobby: matches to play there one after the other (the games park and start again)
     [switch]$Relay,              # the server relays every match (--relay-only): the relay path, on one PC
+    [int]$Pads = 2,              # controllers each game reports at least (<GAME>_PADS); 0: only what is plugged in, as a player's PC
     [int]$Port = 7777            # the server's TCP port (UDP Port + 1), the games' Port + 10 and + 11; the work folder
                                  # is build\online-e2e (build\online-e2e-<Port> for another port), so runs side by side
                                  # need their own
@@ -78,7 +79,7 @@ if (-not $InputB) { $InputB = $attacks }
 $vars = @('MK3D_DEV_PASSWORD', "${x}_INPUT", "${x}_PADS", "${x}_EVENT_LOG", "${x}_NET_LOG", 'SDL_ASSERT')
 $env:MK3D_DEV_PASSWORD = 'e2e-password-123'
 Set-Item "env:${x}_INPUT" $InputA
-Set-Item "env:${x}_PADS" '2'
+Set-Item "env:${x}_PADS" "$Pads"
 Set-Item "env:${x}_EVENT_LOG" '1'
 Set-Item "env:${x}_NET_LOG" "$work\net-{side}.log"
 $env:SDL_ASSERT = 'always_ignore'

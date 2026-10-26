@@ -32,8 +32,8 @@
 #include "WinUtil.h"
 
 namespace {
-enum PageIndex { kRanked, kCasual, kLobby, kPractice, kLeaderboard, kBuild, kControls, kSettings };
-const char* kPageNames[] = {"ranked", "casual", "lobby", "practice", "leaderboard", "build", "controls", "settings"};
+enum PageIndex { kRanked, kCasual, kLobby, kSingle, kLeaderboard, kBuild, kControls, kSettings };
+const char* kPageNames[] = {"ranked", "casual", "lobby", "single", "leaderboard", "build", "controls", "settings"};
 }  // namespace
 
 MainWindow::MainWindow(const LaunchOptions& opts, QWidget* parent)
@@ -64,7 +64,7 @@ MainWindow::MainWindow(const LaunchOptions& opts, QWidget* parent)
     casual_ = new QueuePage(false, server_, controller_);
     settings_ = new SettingsPage(server_);
     build_ = new BuildPage;
-    pages_ = {ranked_, casual_, new LobbyPage(server_, controller_), new PracticePage(controller_),
+    pages_ = {ranked_, casual_, new LobbyPage(server_, controller_), new SinglePlayerPage(controller_),
               new LeaderboardPage(server_), build_, new ControlsPage, settings_};
     for (Page* p : pages_) stack_->addWidget(p);
     v->addWidget(stack_, 1);
@@ -129,6 +129,9 @@ MainWindow::MainWindow(const LaunchOptions& opts, QWidget* parent)
         phaseText_->setText(text);
         if (p != MatchController::Phase::Found && matchDialog_) matchDialog_->done(2);
         if (p == MatchController::Phase::Starting) QApplication::alert(this);
+        // --lobby: the next match's ready waited for the game to finish the last one
+        if (p == MatchController::Phase::Idle && !opts_.lobby.isEmpty() && !cliLastLobby_.isEmpty())
+            cliLobbyMessage(cliLastLobby_);
     });
     connect(controller_, &MatchController::gameStatusChanged, this, [this](const QString& s) {
         gameText_->setText(tr("Game: %1").arg(s));
@@ -147,9 +150,10 @@ MainWindow::MainWindow(const LaunchOptions& opts, QWidget* parent)
     const QString pageName = opts_.page.isEmpty() ? cfg::get(QStringLiteral("ui/page"), QStringLiteral("ranked")).toString() : opts_.page;
     for (int i = 0; i < kSettings + 1; ++i)
         if (pageName == QLatin1String(kPageNames[i])) startPage = i;
+    if (pageName == QLatin1String("practice")) startPage = kSingle;  // its name before 0.1.3
     if (opts_.queue == QLatin1String("casual")) startPage = kCasual;
     if (opts_.queue == QLatin1String("ranked")) startPage = kRanked;
-    if (opts_.localTest) startPage = kPractice;
+    if (opts_.localTest) startPage = kSingle;
     if (!opts_.extractImage.isEmpty()) startPage = kBuild;
     selectPage(startPage);
     if (opts_.localTest)
@@ -241,7 +245,7 @@ QWidget* MainWindow::buildNav() {
     h->setSpacing(2);
     navGroup_ = new QButtonGroup(this);
     navGroup_->setExclusive(true);
-    const QStringList names = {tr("RANKED"), tr("CASUAL"), tr("LOBBY"), tr("PRACTICE"), tr("LEADERBOARD"),
+    const QStringList names = {tr("RANKED"), tr("CASUAL"), tr("LOBBY"), tr("SINGLE PLAYER"), tr("LEADERBOARD"),
                                tr("BUILD GAME"), tr("CONTROLS"), tr("SETTINGS")};
     for (int i = 0; i < names.size(); ++i) {
         auto* b = new QPushButton(names[i]);
@@ -529,6 +533,7 @@ void MainWindow::cliLobbyMessage(const QJsonObject& msg) {
         return;
     }
     if (type != QLatin1String("lobby")) return;
+    cliLastLobby_ = msg;
     const QJsonObject lobby = msg.value(QStringLiteral("lobby")).toObject();
     const QJsonArray members = lobby.value(QStringLiteral("members")).toArray();
     if (lobby.value(QStringLiteral("state")).toString() == QLatin1String("in_match")) {
@@ -541,6 +546,7 @@ void MainWindow::cliLobbyMessage(const QJsonObject& msg) {
         applog::write(QStringLiteral("cli: lobby match %1 of %2 over").arg(cliLobbyDone_).arg(opts_.lobbyMatches));
     }
     if (members.size() < 2 || cliLobbyDone_ >= opts_.lobbyMatches) return;
+    if (controller_->phase() != MatchController::Phase::Idle) return;  // the game still plays the last match's end
     bool all_ready = true, me_ready = false;
     for (const auto& v : members) {
         const QJsonObject m = v.toObject();

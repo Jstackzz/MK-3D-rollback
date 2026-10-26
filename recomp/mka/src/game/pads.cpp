@@ -8,6 +8,7 @@
 //                       times count from the first controller read; holds default to 0.15 s
 #include "game/pads.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
@@ -66,6 +67,9 @@ bool ParseButton(const std::string& name, uint16_t& buttons, uint8_t& analog) {
 
 void Load() {
     if (const char* n = std::getenv("MKA_PADS")) g_forced_pads = std::atoi(n);
+    // the launcher's matches need player 2's controller: the other player's online, the autopilot's on the select
+    // screen; with none plugged in the game stops after the picks ("controller disconnected", port 2)
+    if (link::Active()) g_forced_pads = std::max(g_forced_pads, 2);
     const char* s = std::getenv("MKA_INPUT");
     if (!s) return;
     std::string all(s);

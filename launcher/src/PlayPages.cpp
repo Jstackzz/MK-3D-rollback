@@ -133,7 +133,7 @@ QueuePage::QueuePage(bool ranked, ServerClient* server, MatchController* control
     });
     connect(controller_, &MatchController::phaseChanged, this, &QueuePage::onPhase);
     connect(controller_, &MatchController::logLine, this, [this](const QString& t) {
-        if (controller_->lastRequest().ranked == ranked_ && controller_->phase() != MatchController::Phase::Practice &&
+        if (controller_->lastRequest().ranked == ranked_ && controller_->phase() != MatchController::Phase::Solo &&
             controller_->phase() != MatchController::Phase::LocalTest)
             log_->line(t);
     });
@@ -282,7 +282,7 @@ void QueuePage::updateButton() {
         find_->setEnabled(true);
         if (!clock_.isActive()) clock_.start();
     } else {
-        find_->setText(p == P::Playing || p == P::Starting ? tr("IN MATCH") : tr("BUSY"));
+        find_->setText(p == P::Playing || p == P::Starting || p == P::Finishing ? tr("IN MATCH") : tr("BUSY"));
         find_->setEnabled(false);
         clock_.stop();
         timer_->clear();
@@ -291,41 +291,44 @@ void QueuePage::updateButton() {
     find_->style()->polish(find_);
 }
 
-// --- PracticePage ----------------------------------------------------------------------------------
+// --- SinglePlayerPage ------------------------------------------------------------------------------
 
-PracticePage::PracticePage(MatchController* controller, QWidget* parent) : Page(parent), controller_(controller) {
+SinglePlayerPage::SinglePlayerPage(MatchController* controller, QWidget* parent) : Page(parent), controller_(controller) {
     auto* root = new QVBoxLayout(this);
     root->setContentsMargins(28, 20, 28, 16);
     root->setSpacing(14);
-    root->addWidget(ui::pageHeader(tr("Practice"),
-                                   tr("Offline training on this PC: pick your fighter and the dummy, then start. "
-                                      "The game opens at its training hold point.")));
+    root->addWidget(ui::pageHeader(tr("Single player"),
+                                   tr("The whole game on this PC with its own menus, as on the console: arcade, "
+                                      "practice, its other modes. What you unlock and set is saved in the game's "
+                                      "folder.")));
     auto* columns = new QHBoxLayout;
     columns->setSpacing(16);
     root->addLayout(columns);
 
     QVBoxLayout* solo = nullptr;
-    columns->addWidget(ui::card(tr("Training"), &solo), 1);
-    auto* form = new QFormLayout;
-    p1_ = new QComboBox;
-    p2_ = new QComboBox;
-    form->addRow(tr("You"), p1_);
-    form->addRow(tr("Dummy"), p2_);
-    solo->addLayout(form);
+    columns->addWidget(ui::card(tr("Play"), &solo), 1);
+    title_ = ui::label(QString(), "Big");
+    title_->setWordWrap(true);
+    solo->addWidget(title_);
     auto* row = new QHBoxLayout;
-    auto* start = new QPushButton(tr("START PRACTICE"));
-    start->setObjectName(QStringLiteral("Primary"));
-    auto* stop = new QPushButton(tr("Leave practice"));
-    row->addWidget(start, 1);
-    row->addWidget(stop);
+    play_ = new QPushButton(tr("PLAY"));
+    play_->setObjectName(QStringLiteral("Primary"));
+    close_ = new QPushButton(tr("Close the game"));
+    row->addWidget(play_, 1);
+    row->addWidget(close_);
     solo->addLayout(row);
     exeInfo_ = ui::label(QString(), "Muted");
     exeInfo_->setWordWrap(true);
     solo->addWidget(exeInfo_);
+    auto* onlineNote = ui::label(tr("Online matches wait while it is open: close the game to search for one."), "Muted");
+    onlineNote->setWordWrap(true);
+    solo->addWidget(onlineNote);
     solo->addStretch();
 
     QVBoxLayout* dev = nullptr;
-    columns->addWidget(ui::card(tr("Local test (development)"), &dev), 1);
+    QFrame* devCard = ui::card(tr("Local test (development)"), &dev);
+    devCard->setVisible(!paths::isPackage());  // a player package has no use for it
+    columns->addWidget(devCard, 1);
     auto* devInfo = ui::label(tr("Starts two game instances on this PC connected over loopback "
                                  "(UDP %1 and %2) with matching start lines. No server involved.")
                                   .arg(cfg::localTestPort(1)).arg(cfg::localTestPort(2)),
@@ -353,14 +356,14 @@ PracticePage::PracticePage(MatchController* controller, QWidget* parent) : Page(
     log_ = new LogView;
     root->addWidget(log_, 1);
 
-    connect(start, &QPushButton::clicked, this, [this] {
+    connect(play_, &QPushButton::clicked, this, [this] {
         QString err;
-        if (!controller_->startPractice(gameId_, p1_->currentData().toString(), p2_->currentData().toString(), &err)) {
+        if (!controller_->startSolo(gameId_, &err)) {
             log_->line(err);
-            QMessageBox::warning(this, tr("Practice"), err);
+            QMessageBox::warning(this, tr("Single player"), err);
         }
     });
-    connect(stop, &QPushButton::clicked, controller_, &MatchController::stopPractice);
+    connect(close_, &QPushButton::clicked, controller_, &MatchController::stopSolo);
     connect(test, &QPushButton::clicked, this, [this] {
         QString err;
         if (!controller_->startLocalTest(gameId_, testMode_->currentData().toString(), testP1_->currentData().toString(),
@@ -370,31 +373,34 @@ PracticePage::PracticePage(MatchController* controller, QWidget* parent) : Page(
         }
     });
     connect(testStop, &QPushButton::clicked, controller_, &MatchController::stopLocalTest);
-    connect(p1_, &QComboBox::currentIndexChanged, this, [this] {
-        cfg::set(QStringLiteral("ui/%1/practice/p1").arg(gameId_), p1_->currentData());
-    });
-    connect(p2_, &QComboBox::currentIndexChanged, this, [this] {
-        cfg::set(QStringLiteral("ui/%1/practice/p2").arg(gameId_), p2_->currentData());
-    });
-    connect(testMode_, &QComboBox::currentIndexChanged, this, &PracticePage::refreshTestRoster);
+    connect(testMode_, &QComboBox::currentIndexChanged, this, &SinglePlayerPage::refreshTestRoster);
     connect(controller_, &MatchController::logLine, this, [this](const QString& t) {
         const auto p = controller_->phase();
-        if (p == MatchController::Phase::Practice || p == MatchController::Phase::LocalTest ||
-            t.startsWith(QLatin1String("Local test")) || t.startsWith(QLatin1String("Practice")))
+        if (p == MatchController::Phase::Solo || p == MatchController::Phase::LocalTest ||
+            t.startsWith(QLatin1String("Local test")) || t.startsWith(QLatin1String("Single player")))
             log_->line(t);
     });
     connect(controller_, &MatchController::gameStatusChanged, this, [this](const QString& s) {
         status_->setText(tr("Game: %1").arg(s));
     });
+    connect(controller_, &MatchController::phaseChanged, this, &SinglePlayerPage::updateButtons);
+    updateButtons();
 }
 
-void PracticePage::setGame(const QString& gameId) {
+void SinglePlayerPage::updateButtons() {
+    const bool open = controller_->soloRunning();
+    const bool idle = controller_->phase() == MatchController::Phase::Idle;
+    play_->setText(open ? tr("PLAYING") : tr("PLAY"));
+    play_->setEnabled(!open && idle);
+    play_->setToolTip(!open && !idle ? tr("Busy: %1").arg(controller_->phaseText()) : QString());
+    close_->setEnabled(open);
+}
+
+void SinglePlayerPage::setGame(const QString& gameId) {
     Page::setGame(gameId);
     const Game* g = gameOf(gameId);
     if (!g) return;
-    const QList<Character> roster = g->roster(QStringLiteral("practice"));
-    fillCharacters(p1_, roster, cfg::get(QStringLiteral("ui/%1/practice/p1").arg(gameId)).toString());
-    fillCharacters(p2_, roster, cfg::get(QStringLiteral("ui/%1/practice/p2").arg(gameId)).toString(), 1);
+    title_->setText(g->title);
     {
         const QSignalBlocker block(testMode_);
         testMode_->clear();
@@ -406,7 +412,7 @@ void PracticePage::setGame(const QString& gameId) {
                                              : tr("Game not built yet: %1 (see Build game)").arg(QDir::toNativeSeparators(exe)));
 }
 
-void PracticePage::refreshTestRoster() {
+void SinglePlayerPage::refreshTestRoster() {
     const Game* g = gameOf(gameId_);
     if (!g) return;
     const QList<Character> roster = g->roster(testMode_->currentData().toString());

@@ -502,6 +502,11 @@ The three display variables (Settings, *Display*) override what the game's
 `settings.toml` says (`mk3d::link::ApplyLauncherDisplay`, the games'
 `GameInfo::init`); a game started by hand keeps its `settings.toml` alone.
 
+With `MK3D_NET=1` a game reports a controller on port 2 whether one is plugged
+in or not (each game's `pads.cpp`): the autopilot picks player 2 there, and
+online the other player's inputs play it. Without it the game stops after the
+picks with "controller disconnected" on port 2.
+
 The working directory is the folder of the game executable. The launcher
 creates one session folder per game process
 (`<launcher dir>\sessions\<game>-<yyyyMMdd-hhmmss>-<instance>`) and puts game
@@ -535,7 +540,7 @@ one was taken, or after 2 s; a newer untaken command replaces the older one
 |---|---|
 | `start game=mkd mode=kombat side=1 local_port=7001 remote=1.2.3.4:7002 delay=2 seed=123456 p1=Scorpion p2=SubZero rounds=3 ranked=1 match=<id>` | start an online match from the hold point |
 | `start game=mkd mode=practice side=1 p1=Scorpion p2=SubZero` | start offline practice (no network keys) |
-| `park` | leave the current match or practice and return to the hold point |
+| `park` | leave the current match or practice and return to the hold point; after a result while the match's end (finisher, fatality, winner's pose) still plays in sync, once both games have left the match together (30 s at most) |
 | `rematch [seed=N] [match=<id>]` | play again against the same peer with the same settings (new seed and id when given) |
 | `quit` | exit the process cleanly |
 
