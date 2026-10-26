@@ -18,6 +18,7 @@
 #include <QVBoxLayout>
 
 #include "AppPaths.h"
+#include "ControlsPage.h"
 #include "Dialogs.h"
 #include "GameData.h"
 #include "GameProcess.h"
@@ -31,8 +32,8 @@
 #include "WinUtil.h"
 
 namespace {
-enum PageIndex { kRanked, kCasual, kLobby, kPractice, kLeaderboard, kBuild, kSettings };
-const char* kPageNames[] = {"ranked", "casual", "lobby", "practice", "leaderboard", "build", "settings"};
+enum PageIndex { kRanked, kCasual, kLobby, kPractice, kLeaderboard, kBuild, kControls, kSettings };
+const char* kPageNames[] = {"ranked", "casual", "lobby", "practice", "leaderboard", "build", "controls", "settings"};
 }  // namespace
 
 MainWindow::MainWindow(const LaunchOptions& opts, QWidget* parent)
@@ -64,7 +65,7 @@ MainWindow::MainWindow(const LaunchOptions& opts, QWidget* parent)
     settings_ = new SettingsPage(server_);
     build_ = new BuildPage;
     pages_ = {ranked_, casual_, new LobbyPage(server_, controller_), new PracticePage(controller_),
-              new LeaderboardPage(server_), build_, settings_};
+              new LeaderboardPage(server_), build_, new ControlsPage, settings_};
     for (Page* p : pages_) stack_->addWidget(p);
     v->addWidget(stack_, 1);
     v->addWidget(buildFooter());
@@ -238,7 +239,7 @@ QWidget* MainWindow::buildNav() {
     navGroup_ = new QButtonGroup(this);
     navGroup_->setExclusive(true);
     const QStringList names = {tr("RANKED"), tr("CASUAL"), tr("LOBBY"), tr("PRACTICE"), tr("LEADERBOARD"),
-                               tr("BUILD GAME"), tr("SETTINGS")};
+                               tr("BUILD GAME"), tr("CONTROLS"), tr("SETTINGS")};
     for (int i = 0; i < names.size(); ++i) {
         auto* b = new QPushButton(names[i]);
         b->setObjectName(QStringLiteral("NavButton"));

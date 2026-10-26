@@ -132,7 +132,9 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    folder and executable (defaults: `games\<game>` and the executable in it
    beside the launcher of a player package, else `recomp/<game>` and
    `recomp/<game>/out/build/release/<MKD|MKA|MKDA>.exe`), input delay (0-4),
-   region, max ping, the game UDP port (default 7001) and display options. A
+   region, max ping, the game UDP port (default 7001) and the display (window
+   mode, resolution, v-sync: borderless at the monitor's own resolution unless
+   changed; a game takes them over its `settings.toml` when it starts). A
    `defaults.ini` beside the launcher (a player package's server) supplies
    any setting the settings file does not have.
 2. **Sign in** (top right): create an account or sign in; "remember me" keeps
@@ -162,10 +164,20 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    that again by hand). Before any game start, a player package's
    `toolchain\` (clang and lld, kept once) is hard-linked into the game's
    compiler folder, and a game without its files is not started.
+9. **Controls**: which keys press each button of the original Xbox controller
+   (two at most; click one and press the new key, Esc cancels, *No key*
+   clears it; a key given to another button leaves the one that had it) and
+   what each button of a PC controller presses, named by where it sits (the
+   bottom face button is Xbox A, PlayStation cross, Switch B). Saved at each
+   change to `controls.toml` beside the settings file; the launcher hands its
+   path to every game it starts (`XBE_CONTROLS`), and a running game reads it
+   again within a second (runtime patch 0016). Without the file the games keep
+   the layout of patch 0013.
 
 Files next to the exe (or `%LOCALAPPDATA%\MK3D\MK3D Online` when that folder
-is read-only): `mk3d-launcher.ini`, `mk3d-launcher.log` and `sessions\`, one
-folder per game process with its `cmd.txt`, `status.txt` and `game.log`.
+is read-only): `mk3d-launcher.ini`, `controls.toml`, `mk3d-launcher.log` and
+`sessions\`, one folder per game process with its `cmd.txt`, `status.txt` and
+`game.log`.
 
 Matches bind the game UDP port on every interface, so a player across the
 internet reaches this one even when the server runs on this PC; `[dev]
@@ -198,7 +210,7 @@ Command-line options for development and automation:
 | `--queue casual\|ranked --game mkd --mode kombat --character Scorpion` | search right after signing in |
 | `--auto-accept N` | accept a found match after N seconds |
 | `--lobby host\|join --lobby-name NAME --game mkd --mode kombat --character Scorpion` | host a lobby of that name and start its match once both are ready, or join it by name and mark ready |
-| `--page ranked\|casual\|lobby\|practice\|leaderboard\|build\|settings` | start page |
+| `--page ranked\|casual\|lobby\|practice\|leaderboard\|build\|controls\|settings` | start page |
 | `--local-test` | start the two-instance loopback test |
 | `--extract <image>` | open *Build game* and extract that image |
 

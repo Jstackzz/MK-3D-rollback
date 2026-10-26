@@ -126,6 +126,16 @@ for p in recomp/patches/xboxxberecomp-*.patch; do git -C external/XboxXBERecomp 
   processor's FMA3: two PCs in a rollback match compute the same bits. Within
   1 ulp of the C runtime's (a million random inputs per function); `sqrt`,
   `fmod`, `ldexp` and `frexp` are exact and stay the C runtime's.
+- `0016-controls`: what each key and each controller button presses comes
+  from a controls file (`XBE_CONTROLS`, else `controls.toml` in the exe's
+  folder or a folder above it; the launcher's Controls page writes it):
+  `[keys]` lists each Xbox button's keys, `[buttons]` the Xbox button each
+  button of a PC controller presses (by SDL's positions: south, east, west,
+  north, the shoulders and triggers, the d-pad, start, back, the stick clicks,
+  misc, four paddles, the touchpad), `keyboard = false` turns the keyboard
+  off. Read again within a second of a change; a broken file keeps the
+  controls it had, a missing one means the layout of 0013. Netplay is
+  untouched: a remap only changes the pad the game reads on this PC.
 
 `tools/py/lib_audit.py <game dir> <xbsdb symbols>` lists the XDK library
 functions the game calls that still run console code against host objects,

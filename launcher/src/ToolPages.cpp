@@ -16,6 +16,7 @@
 #include <QMessageBox>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QScrollArea>
 #include <QSpinBox>
 #include <QStorageInfo>
@@ -45,6 +46,17 @@ QWidget* pathRow(QLineEdit* edit, QPushButton* browse) {
     h->addWidget(edit, 1);
     h->addWidget(browse);
     return w;
+}
+
+// the resolution box's text as the games read MK3D_RESOLUTION: "desktop" or WIDTHxHEIGHT; empty while it is neither
+QString gameResolution(const QString& text) {
+    const QString t = text.trimmed();
+    if (t.isEmpty() || t.compare(QLatin1String("desktop"), Qt::CaseInsensitive) == 0) return QStringLiteral("desktop");
+    static const QRegularExpression size(QStringLiteral("^(\\d{3,5})\\s*[xX\\x{00D7}*]\\s*(\\d{3,5})$"));
+    const QRegularExpressionMatch m = size.match(t);
+    const int w = m.captured(1).toInt(), h = m.captured(2).toInt();
+    if (!m.hasMatch() || w < 320 || h < 240 || w > 16384 || h > 16384) return {};
+    return QStringLiteral("%1x%2").arg(w).arg(h);
 }
 }  // namespace
 
@@ -416,15 +428,20 @@ SettingsPage::SettingsPage(ServerClient* server, QWidget* parent) : Page(parent)
     mode->setCurrentIndex(qMax(0, mode->findData(cfg::displayMode())));
     auto* res = new QComboBox;
     res->setEditable(true);
-    res->addItems({QStringLiteral("1280x720"), QStringLiteral("1600x900"), QStringLiteral("1920x1080"),
-                   QStringLiteral("2560x1440"), QStringLiteral("3840x2160")});
-    res->setCurrentText(cfg::resolution());
+    res->addItem(tr("Desktop"), QStringLiteral("desktop"));
+    for (const char* size : {"1280x720", "1600x900", "1920x1080", "2560x1440", "3840x2160"})
+        res->addItem(QLatin1String(size), QLatin1String(size));
+    if (const int at = res->findData(cfg::resolution()); at >= 0) res->setCurrentIndex(at);
+    else res->setCurrentText(cfg::resolution());
     auto* vsync = new QCheckBox(tr("V-sync"));
     vsync->setChecked(cfg::vsync());
     df->addRow(tr("Window"), mode);
     df->addRow(tr("Resolution"), res);
     df->addRow(QString(), vsync);
-    df->addRow(QString(), ui::label(tr("Passed to the game as MK3D_DISPLAY / MK3D_RESOLUTION / MK3D_VSYNC."), "Muted"));
+    auto* displayNote = ui::label(tr("A game takes these when it starts. Desktop is your monitor's own resolution (a "
+                                     "window opens at 1280x720 then); type any other size as 1600x1200."), "Muted");
+    displayNote->setWordWrap(true);
+    df->addRow(QString(), displayNote);
     grid->addWidget(displayBox, 1, 1);
 
     // games
@@ -500,7 +517,9 @@ SettingsPage::SettingsPage(ServerClient* server, QWidget* parent) : Page(parent)
     });
     connect(strict, &QCheckBox::toggled, this, [](bool on) { cfg::set(QStringLiteral("online/strict"), on); });
     connect(mode, &QComboBox::currentIndexChanged, this, [mode] { cfg::set(QStringLiteral("display/mode"), mode->currentData()); });
-    connect(res, &QComboBox::currentTextChanged, this, [](const QString& t) { cfg::set(QStringLiteral("display/resolution"), t); });
+    connect(res, &QComboBox::currentTextChanged, this, [](const QString& t) {
+        if (const QString size = gameResolution(t); !size.isEmpty()) cfg::set(QStringLiteral("display/resolution"), size);
+    });
     connect(vsync, &QCheckBox::toggled, this, [](bool on) { cfg::set(QStringLiteral("display/vsync"), on); });
     connect(python, &QLineEdit::editingFinished, this, [python] { cfg::set(QStringLiteral("tools/python"), python->text().trimmed()); });
     connect(repo, &QLineEdit::editingFinished, this, [repo] {

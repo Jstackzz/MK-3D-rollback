@@ -78,17 +78,27 @@ your router.
 Controls
 --------
 
-A controller works as on the Xbox. The keyboard plays as player 1 while the game
-window is in front: arrows or WASD move, J I K L are X Y A B, Space is the right
-trigger, O the left trigger, U and P are white and black, Enter is START and
-Backspace is BACK.
+A controller works as on the Xbox: Xbox, PlayStation and Switch controllers,
+with LB and RB as the Xbox's white and black buttons. The keyboard plays as
+player 1 while the game window is in front: arrows or WASD move, J I K L are
+X Y A B, Space is the right trigger, O the left trigger, U and P are white and
+black, Enter is START and Backspace is BACK.
+
+To change them, open Controls in the launcher: click a key to give a button
+another one (two keys each at most), and choose what each button of your
+controller presses. A game that is running picks up the change at once, and it
+works the same in online matches: it only changes what your own keys and
+buttons press. Which button punches or kicks is each game's own controller
+setting; online, Armageddon plays with its default one.
 
 
 Settings
 --------
 
 The Settings page has the server address, region, maximum ping, input delay, the
-game's UDP port, and the window mode and resolution.
+game's UDP port, and the display: borderless (fills the screen), fullscreen or
+a window, the resolution (Desktop is your monitor's own) and v-sync. A game
+takes them when it starts.
 
 
 When something goes wrong

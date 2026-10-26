@@ -1,0 +1,434 @@
+diff --git a/runtime/core/input.cpp b/runtime/core/input.cpp
+index 95b161c..9790c56 100644
+--- a/runtime/core/input.cpp
++++ b/runtime/core/input.cpp
+@@ -1,14 +1,26 @@
+ // controllers through SDL: Xbox, PlayStation and Switch pads read into the console controller's report; the keyboard
+-// plays on port 0 too while the game's window has the focus (XBE_KEYBOARD=0 turns that off)
++// plays on port 0 too while the game's window has the focus (XBE_KEYBOARD=0 turns that off). What each key and each
++// controller button presses comes from the controls file (XBE_CONTROLS names it, else controls.toml in the exe's folder
++// or a folder above it), read again within a second of a change; without one, the layout in Defaults.
+ #include "core/input.h"
+ 
+ #include <algorithm>
++#include <cctype>
++#include <chrono>
+ #include <cstdlib>
++#include <filesystem>
++#include <fstream>
+ #include <iterator>
+ #include <mutex>
++#include <optional>
++#include <sstream>
++#include <string>
++#include <string_view>
+ #include <utility>
++#include <vector>
+ 
+ #include <SDL3/SDL.h>
++#include <toml++/toml.hpp>
+ 
+ #ifdef _WIN32
+ #ifndef WIN32_LEAN_AND_MEAN
+@@ -32,6 +44,273 @@ std::mutex g_lock;
+ bool g_sdl = false;
+ SDL_Gamepad* g_pads[4] = {};
+ 
++// What a key or a controller button can press: the console controller's digital buttons (Pad::buttons' bits), then
++// its analog buttons (Pad::analog), named as in the controls file.
++enum Control { kUp, kDown, kLeft, kRight, kStart, kBack, kLeftThumb, kRightThumb,
++               kA, kB, kX, kY, kBlack, kWhite, kLeftTrigger, kRightTrigger, kControls };
++const char* const kControlNames[kControls] = {"up", "down", "left", "right", "start", "back", "left_thumb", "right_thumb",
++                                              "a", "b", "x", "y", "black", "white", "left_trigger", "right_trigger"};
++constexpr uint8_t kDigitalThreshold = 30;  // an analog press counts on a digital button above this (XInput's)
++
++// A controller's buttons by where they sit (SDL's south is Xbox A, PlayStation cross, Nintendo B) and its triggers,
++// with what each presses when the file does not say
++struct Source {
++    const char* name;
++    SDL_GamepadButton button;  // SDL_GAMEPAD_BUTTON_INVALID for a trigger
++    SDL_GamepadAxis axis;      // SDL_GAMEPAD_AXIS_INVALID for a button
++    int control;               // -1 nothing
++};
++constexpr SDL_GamepadButton kNoButton = SDL_GAMEPAD_BUTTON_INVALID;
++constexpr SDL_GamepadAxis kNoAxis = SDL_GAMEPAD_AXIS_INVALID;
++const Source kSources[] = {
++    {"south", SDL_GAMEPAD_BUTTON_SOUTH, kNoAxis, kA},
++    {"east", SDL_GAMEPAD_BUTTON_EAST, kNoAxis, kB},
++    {"west", SDL_GAMEPAD_BUTTON_WEST, kNoAxis, kX},
++    {"north", SDL_GAMEPAD_BUTTON_NORTH, kNoAxis, kY},
++    {"right_shoulder", SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, kNoAxis, kBlack},
++    {"left_shoulder", SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, kNoAxis, kWhite},
++    {"left_trigger", kNoButton, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, kLeftTrigger},
++    {"right_trigger", kNoButton, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, kRightTrigger},
++    {"dpad_up", SDL_GAMEPAD_BUTTON_DPAD_UP, kNoAxis, kUp},
++    {"dpad_down", SDL_GAMEPAD_BUTTON_DPAD_DOWN, kNoAxis, kDown},
++    {"dpad_left", SDL_GAMEPAD_BUTTON_DPAD_LEFT, kNoAxis, kLeft},
++    {"dpad_right", SDL_GAMEPAD_BUTTON_DPAD_RIGHT, kNoAxis, kRight},
++    {"start", SDL_GAMEPAD_BUTTON_START, kNoAxis, kStart},
++    {"back", SDL_GAMEPAD_BUTTON_BACK, kNoAxis, kBack},
++    {"left_stick", SDL_GAMEPAD_BUTTON_LEFT_STICK, kNoAxis, kLeftThumb},
++    {"right_stick", SDL_GAMEPAD_BUTTON_RIGHT_STICK, kNoAxis, kRightThumb},
++    {"misc", SDL_GAMEPAD_BUTTON_MISC1, kNoAxis, -1},
++    {"paddle1", SDL_GAMEPAD_BUTTON_RIGHT_PADDLE1, kNoAxis, -1},
++    {"paddle2", SDL_GAMEPAD_BUTTON_RIGHT_PADDLE2, kNoAxis, -1},
++    {"paddle3", SDL_GAMEPAD_BUTTON_LEFT_PADDLE1, kNoAxis, -1},
++    {"paddle4", SDL_GAMEPAD_BUTTON_LEFT_PADDLE2, kNoAxis, -1},
++    {"touchpad", SDL_GAMEPAD_BUTTON_TOUCHPAD, kNoAxis, -1},
++};
++constexpr int kSourceCount = int(std::size(kSources));
++
++struct Controls {
++    bool keyboard = true;
++    std::vector<int> keys[kControls];  // Windows virtual keys
++    int presses[kSourceCount];         // the control each controller button presses, -1 nothing
++};
++
++// arrows or WASD move (the d-pad), J I K L are the face buttons X Y A B (the four attacks of a fighting game's
++// default layout), Space the right trigger (block), O the left trigger, U and P white and black, Enter START,
++// Backspace BACK; a controller as on the console, its shoulder buttons standing in for white and black
++Controls Defaults() {
++    Controls c;
++#ifdef _WIN32
++    c.keys[kUp] = {VK_UP, 'W'};
++    c.keys[kDown] = {VK_DOWN, 'S'};
++    c.keys[kLeft] = {VK_LEFT, 'A'};
++    c.keys[kRight] = {VK_RIGHT, 'D'};
++    c.keys[kStart] = {VK_RETURN};
++    c.keys[kBack] = {VK_BACK};
++    c.keys[kA] = {'K'};
++    c.keys[kB] = {'L'};
++    c.keys[kX] = {'J'};
++    c.keys[kY] = {'I'};
++    c.keys[kBlack] = {'P'};
++    c.keys[kWhite] = {'U'};
++    c.keys[kLeftTrigger] = {'O'};
++    c.keys[kRightTrigger] = {VK_SPACE};
++#endif
++    for (int i = 0; i < kSourceCount; i++) c.presses[i] = kSources[i].control;
++    return c;
++}
++
++std::filesystem::path g_controls_file;  // empty: none
++std::filesystem::file_time_type g_controls_time{};
++bool g_controls_read = false;  // the file's controls hold, not the defaults
++Controls g_controls = Defaults();
++std::chrono::steady_clock::time_point g_controls_checked{};
++
++bool SameText(std::string_view a, std::string_view b) {
++    return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](char x, char y) {
++               return std::tolower(static_cast<unsigned char>(x)) == std::tolower(static_cast<unsigned char>(y));
++           });
++}
++
++bool Digits(std::string_view s) {
++    return !s.empty() && std::all_of(s.begin(), s.end(), [](char c) { return std::isdigit(static_cast<unsigned char>(c)); });
++}
++
++int ControlFromName(std::string_view s) {
++    for (int i = 0; i < kControls; i++)
++        if (SameText(s, kControlNames[i])) return i;
++    return -1;
++}
++
++int SourceFromName(std::string_view s) {
++    for (int i = 0; i < kSourceCount; i++)
++        if (SameText(s, kSources[i].name)) return i;
++    return -1;
++}
++
++#ifdef _WIN32
++// Keys in the file: a letter or a digit, F1-F24, Num0-Num9, these, or a virtual key code as 0xNN. Signs are named
++// after a US keyboard; the virtual key is what counts, whatever the layout prints on it.
++const std::pair<const char*, int> kKeyNames[] = {
++    {"Up", VK_UP}, {"Down", VK_DOWN}, {"Left", VK_LEFT}, {"Right", VK_RIGHT},
++    {"Space", VK_SPACE}, {"Enter", VK_RETURN}, {"Backspace", VK_BACK}, {"Tab", VK_TAB}, {"CapsLock", VK_CAPITAL},
++    {"Shift", VK_SHIFT}, {"LShift", VK_LSHIFT}, {"RShift", VK_RSHIFT},
++    {"Ctrl", VK_CONTROL}, {"LCtrl", VK_LCONTROL}, {"RCtrl", VK_RCONTROL},
++    {"Insert", VK_INSERT}, {"Delete", VK_DELETE}, {"Home", VK_HOME}, {"End", VK_END},
++    {"PageUp", VK_PRIOR}, {"PageDown", VK_NEXT},
++    {"NumMultiply", VK_MULTIPLY}, {"NumAdd", VK_ADD}, {"NumSubtract", VK_SUBTRACT}, {"NumDecimal", VK_DECIMAL},
++    {"NumDivide", VK_DIVIDE},
++    {"Semicolon", VK_OEM_1}, {"Equals", VK_OEM_PLUS}, {"Comma", VK_OEM_COMMA}, {"Minus", VK_OEM_MINUS},
++    {"Period", VK_OEM_PERIOD}, {"Slash", VK_OEM_2}, {"Grave", VK_OEM_3}, {"LBracket", VK_OEM_4},
++    {"Backslash", VK_OEM_5}, {"RBracket", VK_OEM_6}, {"Apostrophe", VK_OEM_7}, {"Oem8", VK_OEM_8},
++    {"Oem102", VK_OEM_102},
++};
++
++int KeyFromName(std::string_view s) {
++    if (s.size() == 1 && std::isalnum(static_cast<unsigned char>(s[0])))
++        return std::toupper(static_cast<unsigned char>(s[0]));
++    for (const auto& [name, vk] : kKeyNames)
++        if (SameText(s, name)) return vk;
++    if (s.size() >= 2 && (s[0] == 'F' || s[0] == 'f') && Digits(s.substr(1))) {
++        const int n = std::atoi(std::string(s.substr(1)).c_str());
++        if (n >= 1 && n <= 24) return VK_F1 + n - 1;
++    }
++    if (s.size() == 4 && SameText(s.substr(0, 3), "Num") && Digits(s.substr(3))) return VK_NUMPAD0 + (s[3] - '0');
++    if (s.size() > 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
++        char* end = nullptr;
++        const std::string hex(s.substr(2));
++        const long v = std::strtol(hex.c_str(), &end, 16);
++        if (end && !*end && v > 0 && v < 0xFF) return int(v);
++    }
++    return 0;
++}
++#endif
++
++std::string Utf8(const std::filesystem::path& p) {
++    const auto s = p.u8string();  // char8_t from C++20 on
++    return std::string(s.begin(), s.end());
++}
++
++enum class Read { Ok, CannotOpen, Bad };
++
++// the file's controls over the defaults: [keys] each control's keys, [buttons] the control each controller button
++// presses ("" nothing), keyboard = false turns the keyboard off
++Read ReadControls(const std::filesystem::path& file, Controls& c) {
++    std::ifstream in(file, std::ios::binary);
++    if (!in) return Read::CannotOpen;
++    std::ostringstream text;
++    text << in.rdbuf();
++    const std::string name = Utf8(file);
++    toml::table t;
++    try {
++        t = toml::parse(text.str(), name);
++    } catch (const toml::parse_error& e) {
++        LOGR("input: %s line %u: %s; the controls stay as they were", name.c_str(), unsigned(e.source().begin.line),
++             std::string(e.description()).c_str());
++        return Read::Bad;
++    }
++    if (const std::optional<bool> on = t["keyboard"].value<bool>()) c.keyboard = *on;
++#ifdef _WIN32
++    if (const toml::table* keys = t["keys"].as_table())
++        for (const auto& [control_name, value] : *keys) {
++            const int control = ControlFromName(control_name.str());
++            if (control < 0) {
++                LOGR("input: %s: [keys] has no %s", name.c_str(), std::string(control_name.str()).c_str());
++                continue;
++            }
++            std::vector<int>& list = c.keys[control];
++            list.clear();
++            auto add = [&](const toml::node& n) {
++                const std::optional<std::string> key = n.value<std::string>();
++                if (const int vk = key ? KeyFromName(*key) : 0) list.push_back(vk);
++                else LOGR("input: %s: %s: not a key", name.c_str(), key ? key->c_str() : "?");
++            };
++            if (const toml::array* a = value.as_array()) {
++                for (const toml::node& n : *a) add(n);
++            } else {
++                add(value);
++            }
++        }
++#endif
++    if (const toml::table* buttons = t["buttons"].as_table())
++        for (const auto& [source_name, value] : *buttons) {
++            const int source = SourceFromName(source_name.str());
++            if (source < 0) {
++                LOGR("input: %s: [buttons] has no %s", name.c_str(), std::string(source_name.str()).c_str());
++                continue;
++            }
++            const std::string target = value.value_or(std::string());
++            const int control = target.empty() ? -1 : ControlFromName(target);
++            if (!target.empty() && control < 0) LOGR("input: %s: %s: no such button", name.c_str(), target.c_str());
++            c.presses[source] = control;
++        }
++    return Read::Ok;
++}
++
++std::filesystem::path FindControls() {
++#ifdef _WIN32
++    if (const wchar_t* v = _wgetenv(L"XBE_CONTROLS"); v && *v) return v;
++#else
++    if (const char* v = std::getenv("XBE_CONTROLS"); v && *v) return v;
++#endif
++    std::filesystem::path dir = app::ExeDir();
++    for (int i = 0; i < 6; i++) {
++        std::error_code ec;
++        if (std::filesystem::is_regular_file(dir / "controls.toml", ec)) return dir / "controls.toml";
++        if (!dir.has_parent_path() || dir.parent_path() == dir) break;
++        dir = dir.parent_path();
++    }
++    return {};
++}
++
++// g_lock held: finds the file at the first call, then looks at it again once a second
++void WatchControls() {
++    static bool found = false;
++    const auto now = std::chrono::steady_clock::now();
++    if (!found) {
++        found = true;
++        g_controls_file = FindControls();
++        if (g_controls_file.empty()) LOGR("input: no controls file, the default controls");
++    } else if (now - g_controls_checked < std::chrono::seconds(1)) {
++        return;
++    }
++    g_controls_checked = now;
++    if (g_controls_file.empty()) return;
++    std::error_code ec;
++    const std::filesystem::file_time_type time = std::filesystem::last_write_time(g_controls_file, ec);
++    if (ec) {
++        if (g_controls_read) {
++            LOGR("input: %s is gone, the default controls", Utf8(g_controls_file).c_str());
++            g_controls = Defaults();
++            g_controls_read = false;
++        } else if (g_controls_time == std::filesystem::file_time_type{}) {
++            LOGR("input: the default controls until %s is written", Utf8(g_controls_file).c_str());
++        }
++        g_controls_time = std::filesystem::file_time_type::min();  // said once
++        return;
++    }
++    if (time == g_controls_time) return;
++    Controls c = Defaults();
++    switch (ReadControls(g_controls_file, c)) {
++        case Read::CannotOpen: return;  // being replaced: the next look reads it
++        case Read::Bad: g_controls_time = time; return;
++        case Read::Ok: break;
++    }
++    g_controls_time = time;
++    g_controls = std::move(c);
++    g_controls_read = true;
++    LOGR("input: controls from %s%s", Utf8(g_controls_file).c_str(), g_controls.keyboard ? "" : ", keyboard off");
++}
++
++// a press of v (0-255) on a control: a digital button is down above the threshold, an analog one takes the strongest
++// of what presses it
++void Press(Pad& p, int control, uint8_t v) {
++    if (control < kA) {
++        if (v > kDigitalThreshold) p.buttons |= uint16_t(1u << control);
++    } else {
++        p.analog[control - kA] = std::max(p.analog[control - kA], v);
++    }
++}
++
+ void AddPad(SDL_JoystickID id) {
+     for (SDL_Gamepad* pad : g_pads)
+         if (pad && SDL_GetGamepadID(pad) == id) return;
+@@ -65,9 +344,40 @@ void UpdatePads() {
+     }
+ }
+ 
++#ifdef _WIN32
++bool KeyboardOn() {
++    static const bool allowed = [] {
++        const char* v = std::getenv("XBE_KEYBOARD");
++        return !v || std::atoi(v) != 0;
++    }();
++    return allowed && g_controls.keyboard;
++}
++
++bool OurWindowInFront() {
++    HWND w = GetForegroundWindow();
++    DWORD pid = 0;
++    if (w) GetWindowThreadProcessId(w, &pid);
++    return pid == GetCurrentProcessId();
++}
++
++// the keyboard as the controller on port 0, merged with a pad there; only while one of this process's windows is in
++// front, so typing elsewhere never reaches the game
++void MergeKeyboard(Pad& p) {
++    p.connected = true;  // a PC always has its keyboard
++    if (!OurWindowInFront()) return;
++    for (int c = 0; c < kControls; c++)
++        for (int vk : g_controls.keys[c])
++            if (GetAsyncKeyState(vk) & 0x8000) Press(p, c, 0xFF);
++}
++#endif
++
+ }  // namespace
+ 
+ void Init() {
++    {
++        std::lock_guard lock(g_lock);
++        WatchControls();
++    }
+     if (g_sdl) return;  // started already for the game code window
+     // WGI reads the triggers apart and HIDAPI takes PlayStation and Switch pads. Reads come from the guest's threads,
+     // so SDL's own thread takes the device notices.
+@@ -92,62 +402,25 @@ void Init() {
+     }
+ }
+ 
+-#ifdef _WIN32
+-// The keyboard as the controller on port 0, merged with a pad there: arrows or WASD move (the d-pad), J I K L are the
+-// face buttons X Y A B (the four attacks of a fighting game's default layout), Space the right trigger (block), O the
+-// left trigger, U and P white and black, Enter START, Backspace BACK. Only while one of this process's windows is in
+-// front, so typing elsewhere never reaches the game.
+-bool KeyboardOn() {
+-    static const bool on = [] {
+-        const char* v = std::getenv("XBE_KEYBOARD");
+-        return !v || std::atoi(v) != 0;
+-    }();
+-    return on;
+-}
+-
+-bool OurWindowInFront() {
+-    HWND w = GetForegroundWindow();
+-    DWORD pid = 0;
+-    if (w) GetWindowThreadProcessId(w, &pid);
+-    return pid == GetCurrentProcessId();
+-}
+-
+-void MergeKeyboard(Pad& p) {
+-    p.connected = true;  // a PC always has its keyboard
+-    if (!OurWindowInFront()) return;
+-    auto down = [](int vk) { return (GetAsyncKeyState(vk) & 0x8000) != 0; };
+-    // d-pad up, down, left, right, start, back
+-    const int dpad[6][2] = {{VK_UP, 'W'}, {VK_DOWN, 'S'}, {VK_LEFT, 'A'}, {VK_RIGHT, 'D'}, {VK_RETURN, 0}, {VK_BACK, 0}};
+-    for (int i = 0; i < 6; i++)
+-        if (down(dpad[i][0]) || (dpad[i][1] && down(dpad[i][1]))) p.buttons |= uint16_t(1 << i);
+-    // analog buttons: A B X Y black white, left trigger, right trigger
+-    const int analog[8] = {'K', 'L', 'J', 'I', 'P', 'U', 'O', VK_SPACE};
+-    for (int i = 0; i < 8; i++)
+-        if (down(analog[i])) p.analog[i] = 0xFF;
+-}
+-#endif
+-
+ Pad Poll(int port) {
+     Pad p;
+     {
+         std::lock_guard lock(g_lock);
+         UpdatePads();
++        WatchControls();
+         if (SDL_Gamepad* pad = port >= 0 && port < 4 ? g_pads[port] : nullptr) {
+             p.connected = true;
+-            constexpr SDL_GamepadButton kButtons[] = {
+-                SDL_GAMEPAD_BUTTON_DPAD_UP,   SDL_GAMEPAD_BUTTON_DPAD_DOWN,  SDL_GAMEPAD_BUTTON_DPAD_LEFT,
+-                SDL_GAMEPAD_BUTTON_DPAD_RIGHT, SDL_GAMEPAD_BUTTON_START,     SDL_GAMEPAD_BUTTON_BACK,
+-                SDL_GAMEPAD_BUTTON_LEFT_STICK, SDL_GAMEPAD_BUTTON_RIGHT_STICK};
+-            for (int i = 0; i < 8; i++) p.buttons |= uint16_t(SDL_GetGamepadButton(pad, kButtons[i]) << i);
+-            // A B X Y black white
+-            constexpr SDL_GamepadButton kAnalog[] = {SDL_GAMEPAD_BUTTON_SOUTH, SDL_GAMEPAD_BUTTON_EAST,
+-                                                     SDL_GAMEPAD_BUTTON_WEST,  SDL_GAMEPAD_BUTTON_NORTH,
+-                                                     SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER};
+-            for (int i = 0; i < 6; i++) p.analog[i] = SDL_GetGamepadButton(pad, kAnalog[i]) ? 0xFF : 0;
++            for (int i = 0; i < kSourceCount; i++) {
++                const Source& s = kSources[i];
++                const int control = g_controls.presses[i];
++                if (control < 0) continue;
++                // a trigger's 0 to 32767 into 0 to 255
++                const uint8_t v = s.axis != kNoAxis ? uint8_t(std::max(int(SDL_GetGamepadAxis(pad, s.axis)), 0) >> 7)
++                                  : SDL_GetGamepadButton(pad, s.button) ? uint8_t(0xFF)
++                                                                        : uint8_t(0);
++                Press(p, control, v);
++            }
+             auto axis = [&](SDL_GamepadAxis a) { return int(SDL_GetGamepadAxis(pad, a)); };
+-            // 0 to 32767 into 0 to 255
+-            p.analog[6] = uint8_t(std::max(axis(SDL_GAMEPAD_AXIS_LEFT_TRIGGER), 0) >> 7);
+-            p.analog[7] = uint8_t(std::max(axis(SDL_GAMEPAD_AXIS_RIGHT_TRIGGER), 0) >> 7);
+             // SDL's sticks have y down
+             // not plain negation: -32768 has no positive
+             p.lx = int16_t(axis(SDL_GAMEPAD_AXIS_LEFTX));
+@@ -155,10 +428,10 @@ Pad Poll(int port) {
+             p.rx = int16_t(axis(SDL_GAMEPAD_AXIS_RIGHTX));
+             p.ry = int16_t(-1 - axis(SDL_GAMEPAD_AXIS_RIGHTY));
+         }
+-    }
+ #ifdef _WIN32
+-    if (port == 0 && KeyboardOn()) MergeKeyboard(p);
++        if (port == 0 && KeyboardOn()) MergeKeyboard(p);
+ #endif
++    }
+     if (app::kGame.pad) app::kGame.pad(port, p);
+     return p;
+ }

@@ -29,6 +29,7 @@
 #include <string>
 #include <thread>
 
+#include "app/app.h"
 #include "core/log.h"
 #include "cpu/x86_ops.h"
 #include "mk3d/game.h"
@@ -287,6 +288,39 @@ bool SuppressPhysicalPads() {
     if (!g_on) return false;
     // the player's controller reaches the game only while the match runs
     return !(g_in_match && g_fighting && !g_reported) || game::AutopilotActive();
+}
+
+void ApplyLauncherDisplay() {
+    const char* mode = std::getenv("MK3D_DISPLAY");
+    const char* res = std::getenv("MK3D_RESOLUTION");
+    const char* vsync = std::getenv("MK3D_VSYNC");
+    if (!mode && !res && !vsync) return;  // started by hand: the settings file alone
+    app::Settings& s = app::Get();
+    if (mode) {
+        if (!std::strcmp(mode, "windowed")) s.display_mode = app::DisplayMode::Windowed;
+        else if (!std::strcmp(mode, "borderless")) s.display_mode = app::DisplayMode::Borderless;
+        else if (!std::strcmp(mode, "fullscreen")) s.display_mode = app::DisplayMode::Fullscreen;
+        else LOGR("link: MK3D_DISPLAY=%s is no display mode", mode);
+    }
+    if (res && !std::strcmp(res, "desktop")) {
+        s.width = s.height = 0;
+    } else if (res) {
+        char* end = nullptr;
+        const unsigned long w = std::strtoul(res, &end, 10);
+        const unsigned long h = (*end == 'x' || *end == 'X') ? std::strtoul(end + 1, &end, 10) : 0;
+        if (!*end && w >= 320 && h >= 240 && w <= 16384 && h <= 16384) {
+            s.width = uint32_t(w);
+            s.height = uint32_t(h);
+        } else {
+            LOGR("link: MK3D_RESOLUTION=%s is no resolution", res);
+        }
+    }
+    // a window the desktop's size would not fit on it with its frame
+    if (s.display_mode == app::DisplayMode::Windowed && (!s.width || !s.height)) {
+        s.width = 1280;
+        s.height = 720;
+    }
+    if (vsync) s.vsync = std::atoi(vsync) != 0;
 }
 
 }  // namespace mk3d::link

@@ -75,7 +75,8 @@ Read [docs/ROADMAP.md](docs/ROADMAP.md) for the milestones and
 
 Any controller SDL knows (Xbox, PlayStation, Switch pads, most fight sticks)
 plays as the original Xbox controller; the first one plugged in is player 1.
-The keyboard also plays as player 1 while the game's window is in front:
+The keyboard also plays as player 1 while the game's window is in front. The
+defaults:
 
 | keys | Xbox controller |
 |---|---|
@@ -86,8 +87,12 @@ The keyboard also plays as player 1 while the game's window is in front:
 | U, P | white, black |
 | Enter, Backspace | START, BACK |
 
-`XBE_KEYBOARD=0` turns the keyboard off. In online matches START and BACK are
-not sent, so one player cannot pause the other's game.
+LB and RB stand in for the Xbox's white and black buttons. The launcher's
+*Controls* page changes both: which keys press each button, and what each
+button of a controller presses (saved in `controls.toml`, which a running game
+reads again within a second). `XBE_KEYBOARD=0` turns the keyboard off. In
+online matches START and BACK are not sent, so one player cannot pause the
+other's game.
 
 ## License
 

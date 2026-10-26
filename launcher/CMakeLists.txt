@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(mk3d_launcher VERSION 0.1.0 LANGUAGES CXX)
+project(mk3d_launcher VERSION 0.1.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -23,6 +23,8 @@ qt_add_executable(MK3DLauncher WIN32
     src/PlayPages.cpp src/PlayPages.h
     src/LobbyPage.cpp src/LobbyPage.h
     src/ToolPages.cpp src/ToolPages.h
+    src/Controls.cpp src/Controls.h
+    src/ControlsPage.cpp src/ControlsPage.h
     src/Xiso.cpp src/Xiso.h
     src/Upnp.cpp src/Upnp.h
     src/MainWindow.cpp src/MainWindow.h

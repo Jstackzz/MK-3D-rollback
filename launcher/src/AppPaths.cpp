@@ -116,8 +116,9 @@ int maxPing() { return get(QStringLiteral("online/max_ping"), 150).toInt(); }
 bool strict() { return get(QStringLiteral("online/strict"), false).toBool(); }
 int inputDelay() { return qBound(0, get(QStringLiteral("online/delay"), 2).toInt(), 4); }
 int gamePort() { return get(QStringLiteral("online/game_port"), 7001).toInt(); }
-QString displayMode() { return get(QStringLiteral("display/mode"), QStringLiteral("windowed")).toString(); }
-QString resolution() { return get(QStringLiteral("display/resolution"), QStringLiteral("1280x720")).toString(); }
+// as a game the launcher does not start: borderless at the monitor's own resolution
+QString displayMode() { return get(QStringLiteral("display/mode"), QStringLiteral("borderless")).toString(); }
+QString resolution() { return get(QStringLiteral("display/resolution"), QStringLiteral("desktop")).toString(); }
 bool vsync() { return get(QStringLiteral("display/vsync"), true).toBool(); }
 bool udpLoopback() { return get(QStringLiteral("dev/udp_loopback"), false).toBool(); }
 bool upnp() { return get(QStringLiteral("online/upnp"), true).toBool(); }

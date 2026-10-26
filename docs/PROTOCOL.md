@@ -493,9 +493,14 @@ environment variables and two small text files in a per-session folder.
 | `MK3D_STATUS` | `<session>\status.txt` |
 | `MK3D_INSTANCE` | `1` normally; `1` and `2` for the two instances of a local test |
 | `MK3D_LOG` | `<session>\game.log` (suggested log destination) |
-| `MK3D_DISPLAY` | `windowed`, `borderless` or `fullscreen` (advisory) |
-| `MK3D_RESOLUTION` | e.g. `1920x1080` (advisory) |
-| `MK3D_VSYNC` | `0` or `1` (advisory) |
+| `MK3D_DISPLAY` | `windowed`, `borderless` or `fullscreen` |
+| `MK3D_RESOLUTION` | `desktop` (the monitor's own) or e.g. `1920x1080`; a window at `desktop` opens at 1280x720 |
+| `MK3D_VSYNC` | `0` or `1` |
+| `XBE_CONTROLS` | the launcher's `controls.toml`: what keys and controller buttons press (runtime patch 0016) |
+
+The three display variables (Settings, *Display*) override what the game's
+`settings.toml` says (`mk3d::link::ApplyLauncherDisplay`, the games'
+`GameInfo::init`); a game started by hand keeps its `settings.toml` alone.
 
 The working directory is the folder of the game executable. The launcher
 creates one session folder per game process

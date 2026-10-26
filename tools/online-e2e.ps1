@@ -36,7 +36,8 @@ New-Item -ItemType Directory -Force -Path "$work\a", "$work\b", "$work\server" |
 Copy-Item (Join-Path $root 'build\server-dev\server-cert.pem'), (Join-Path $root 'build\server-dev\server-key.pem') "$work\server\"
 $fp = (Get-Content (Join-Path $root 'build\launcher-dev\mk3d-launcher.ini') | Where-Object { $_ -like 'fingerprint=*' }) -replace '^fingerprint=', ''
 # a package's launcher finds its games itself; any other gets the executable
-$gamesIni = if ($Exe) { "[games]`r`n$Game\exe=$((Join-Path $root $Exe) -replace '\\', '/')" } else { '' }
+$exePath = if ([IO.Path]::IsPathRooted($Exe)) { $Exe } else { Join-Path $root $Exe }
+$gamesIni = if ($Exe) { "[games]`r`n$Game\exe=$($exePath -replace '\\', '/')" } else { '' }
 foreach ($p in @(@('a', ($Port + 10)), @('b', ($Port + 11)))) {
     $ini = @"
 [server]
@@ -54,6 +55,10 @@ game_port=$($p[1])
 
 [account]
 remember=false
+
+[display]
+mode=windowed
+resolution=960x720
 
 [dev]
 udp_loopback=true

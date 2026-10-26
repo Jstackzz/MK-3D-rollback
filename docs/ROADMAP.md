@@ -15,7 +15,7 @@ and Deadly Alliance on the same pipeline.
 | N2-N4 native build, arcade and versus playable | done | done | done |
 | N5 rollback (sync test, two-game netplay) | done | done | done |
 | N6 launcher: casual, ranked, lobby | done (versus, Chess, Puzzle Kombat) | done (versus, Motor Kombat) | done (versus) |
-| N7 quality | keyboard play, START/BACK kept out of online matches | START/BACK kept out | START/BACK kept out |
+| N7 quality | keyboard play, keys and buttons remappable (launcher Controls page), START/BACK kept out of online matches | remappable, START/BACK kept out | remappable, START/BACK kept out |
 | player package (no Python, no repository) | built and played (casual, lobby) from a fresh unpack | built and played (casual) from a fresh unpack | built and played (casual) from a fresh unpack |
 
 Netplay, rollback and the launcher link are shared by the three games
