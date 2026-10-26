@@ -1,7 +1,9 @@
 // Autopilot: drives the front end to a chosen mode and characters by pressing buttons the way a player would,
 // watching game state instead of trusting fixed timings (boot and load times vary from run to run).
 //
-//   MKDA_AUTOPILOT=versus|arcade|practice
+//   MKDA_AUTOPILOT=versus|arcade|practice    or konquest|krypt|profile|options|kontent, which have no character
+//                                            select: the autopilot is done once the menu took the item; or menu:
+//                                            done at the main menu (KONQUEST and THE KRYPT take a loaded profile)
 //   MKDA_P1, MKDA_P2=<character>             who each side picks (default: what the cursor starts on): the game's
 //                                            name, the launcher's roster id (SubZero, BoRaiCho) or the index; all
 //                                            characters are unlocked when either is given, or with MKDA_UNLOCK_ALL=1
@@ -33,7 +35,9 @@
 
 #include "core/log.h"
 #include "game/events.h"
+#include "game/frame.h"
 #include "kernel/kernel.h"
+#include "mk3d/netplay.h"
 
 namespace mkda::autopilot {
 namespace {
@@ -98,21 +102,34 @@ std::string Name(int id) {
     return p ? kernel::ReadCString(p, 32) : "?";
 }
 
+// the main menu's items in order (research/mkda-rev1/notes.md, sub_000E3CC0)
 int ItemFor(int mode) {
     switch (mode) {
         case int(kModeArcade): return 0;
         case int(kModeVersus): return 1;
         case int(kModePractice): return 2;
+        case int(kModeKonquest): return 3;
+        case int(kModeKrypt): return 4;
+        case int(kModeProfile): return 5;
+        case int(kModeOptions): return 6;
+        case int(kModeKontent): return 7;
         default: return -1;
     }
 }
 
+// the modes that go on to character select
+bool Fights(int mode) { return mode == int(kModeArcade) || mode == int(kModeVersus) || mode == int(kModePractice); }
+
+// MKDA_AUTOPILOT=menu: done once the main menu is up, for a script to take it from there (KONQUEST and THE KRYPT
+// need a profile loaded first: LT at the main menu, the profile, then its kode)
+constexpr int kMenuOnly = -2;
+
 const bool g_loaded = [] {
     const char* s = std::getenv("MKDA_AUTOPILOT");
     if (!s) return false;
-    g_req.mode = ModeByName(s);
-    if (ItemFor(g_req.mode) < 0) {
-        LOGE("autopilot: unknown mode %s (versus, arcade, practice)", s);
+    g_req.mode = _stricmp(s, "menu") == 0 ? kMenuOnly : ModeByName(s);
+    if (g_req.mode != kMenuOnly && ItemFor(g_req.mode) < 0) {
+        LOGE("autopilot: unknown mode %s (versus, arcade, practice, konquest, krypt, profile, options, kontent, menu)", s);
         return false;
     }
     if (const char* p = std::getenv("MKDA_P1")) g_req.names[0] = p;
@@ -125,11 +142,78 @@ const bool g_loaded = [] {
     return true;
 }();
 
+// a fighter's health (float, 1.0 full) held to [low, high] while it is above zero
+void ClampHealth(uint32_t va, float low, float high) {
+    uint32_t bits = kernel::R32(va);
+    float h;
+    std::memcpy(&h, &bits, 4);
+    if (h <= 0.0f || h > 1.0f || (h >= low && h <= high)) return;
+    h = h < low ? low : high;
+    std::memcpy(&bits, &h, 4);
+    kernel::W32(va, bits);
+}
+
+// MKDA_TEST_ONE_HIT=1 (tests): in arcade the opponent, P2, is kept at 1% health and P1 at half or more, so P2 goes
+// down from the first hit (or loses on time) and a scripted run gets through the whole ladder to its bosses and ending
+const bool g_one_hit = [] {
+    if (!std::getenv("MKDA_TEST_ONE_HIT")) return false;
+    OnFrameStart([](uint64_t) {
+        if (GameMode() != kModeArcade || kernel::R32(kMainTask) != kFightTask) return;
+        ClampHealth(kHealth[0], 0.5f, 1.0f);
+        ClampHealth(kHealth[1], 0.0f, 0.01f);
+    });
+    return true;
+}();
+
 // a short press every cycle seconds, the first press seconds of each
 bool Pulse(double t, double cycle, double press) { return t - int(t / cycle) * cycle < press; }
 
+// players picking on the select screen get the characters only: an alternate costume one of them chose would differ
+// on the other PC, whose autopilot picks the character as it comes over netplay
+bool PlayersPick() { return g_req.by_player[0] || g_req.by_player[1]; }
+
 void Unlock() {
-    for (uint32_t m : kUnlockDefaults) kernel::W32(m, 0xFFFFFFFF);
+    kernel::W32(kUnlockDefaults[0], 0xFFFFFFFF);
+    if (!PlayersPick()) kernel::W32(kUnlockDefaults[1], 0xFFFFFFFF);
+}
+
+// An online match whose players pick on the select screen: this PC's player picks for their side with their own
+// controller (the pads route it to that side's port, LocalPickPort), and the pick goes to the other game with the
+// HELLOs (net::SetLocalPick); the other side waits for the other player's pick, then the autopilot makes it.
+constexpr int kWaitPick = -2;            // characters[]: the other player has not picked yet
+constexpr double kPlayerPickTime = 75;   // seconds this PC's player has, then the autopilot takes the cursor's
+bool g_local_pick_sent = false;
+bool g_local_forced = false;             // the time ran out: the autopilot picks for this PC's player
+
+void ResetPlayerPicks() {
+    g_local_pick_sent = g_local_forced = false;
+    for (int i = 0; i < 2; i++)
+        if (g_req.by_player[i]) g_req.characters[i] = i == g_req.local_side ? -1 : kWaitPick;
+}
+
+// this PC's player's pick, once made, to the other game; the other player's, once it came, to the autopilot
+void ExchangePicks(double t) {
+    const int me = g_req.local_side;
+    if (me < 0) return;
+    if (g_req.by_player[me] && !g_local_pick_sent && kernel::R32(kPlayerState[me]) == 3) {
+        const uint32_t words[2] = {kernel::R32(kCharacter[me]), 0};
+        mk3d::net::SetLocalPick(words, 2);
+        g_local_pick_sent = true;
+        LOGI("autopilot: this player picked %s (%u)", Name(int(words[0])).c_str(), words[0]);
+    }
+    if (g_req.by_player[me] && !g_local_forced && !g_local_pick_sent && t > kPlayerPickTime) {
+        g_local_forced = true;
+        LOGI("autopilot: no pick after %.0f s: this player gets the cursor's", kPlayerPickTime);
+    }
+    const int other = me ^ 1;
+    if (g_req.by_player[other] && g_req.characters[other] == kWaitPick) {
+        uint32_t words[4];
+        int n = 4;
+        if (mk3d::net::PeerPick(words, n) && n > 0 && int(words[0]) < kCharacters) {
+            g_req.characters[other] = int(words[0]);
+            LOGI("autopilot: the other player picked %s (%u)", Name(int(words[0])).c_str(), words[0]);
+        }
+    }
 }
 
 // the grid slot that picks a character, -1 when none does; hidden ones need DOWN held while picking
@@ -171,6 +255,10 @@ Press Decide(int character, int cursor_player) {
 
 // one port's character select; port 0 is P1, port 1 P2 (practice: port 0 picks both, the opponent second)
 void Select(int port, input::Pad& pad, double t) {
+    if (g_req.characters[port] == kWaitPick) {  // the other player has not picked: keep the screen awake
+        if (Pulse(t, 8.0, 0.08)) pad.buttons |= (long(t / 8) & 1) ? kLeft : kRight;
+        return;
+    }
     long cycle = long(t / 0.25);
     Press& p = g_press[port];
     if (cycle != p.cycle) {
@@ -184,6 +272,8 @@ void Select(int port, input::Pad& pad, double t) {
                 p = Decide(g_req.characters[which], 0);
                 p.cycle = cycle;
             }
+        } else if (port == g_req.local_side && g_req.by_player[port] && !g_local_forced) {
+            // this PC's player picks for this side with their own controller
         } else if (kernel::R32(kPlayerState[port]) == 2) {
             p = Decide(g_req.characters[port], port);
             p.cycle = cycle;
@@ -270,7 +360,16 @@ int ModeForName(const std::string& mode) {
 void Rematch() {
     std::lock_guard<std::mutex> lock(g_lock);
     g_base_fights = FightSetups();
+    ResetPlayerPicks();  // players who pick on the select screen pick again
     Enter(Phase::Select);
+}
+
+int LocalPickPort() {
+    std::lock_guard<std::mutex> lock(g_lock);
+    const int me = g_req.local_side;
+    if (g_phase != Phase::Select || me < 0 || !g_req.by_player[me] || g_local_forced || Since() < 1.5) return -1;
+    if (kernel::R32(kMainTask) != kSelectTask || kernel::R32(kPlayerState[me]) == 3) return -1;  // not up, or picked
+    return me;
 }
 
 void Restart(const Request& req) {
@@ -308,6 +407,12 @@ void Apply(int port, input::Pad& pad) {
             if (g_base_menus == 0 && port == 0 && Pulse(t, 0.7, 0.1)) pad.buttons |= kStart;  // boot only
             return;
         case Phase::Settle:
+            if (t > 1.5 && g_req.mode == kMenuOnly) {
+                if (g_req.unlock_all) Unlock();
+                LOGI("autopilot: at the main menu");
+                Enter(Phase::Done);
+                return;
+            }
             if (t > 1.5) {
                 for (int i = 0; i < 2; i++) {
                     int id = CharacterId(g_req.names[i]);
@@ -322,7 +427,11 @@ void Apply(int port, input::Pad& pad) {
                         LOGE("autopilot: unknown character %s for P%d", g_req.names[i].c_str(), i + 1);
                     else if (id >= 0)
                         LOGI("autopilot: P%d plays %s (%d)", i + 1, Name(id).c_str(), id);
+                    else if (g_req.by_player[i])
+                        LOGI("autopilot: P%d picks on the select screen%s", i + 1,
+                             i == g_req.local_side ? " (this PC's player)" : "");
                 }
+                ResetPlayerPicks();
                 if (g_req.unlock_all) Unlock();
                 g_item = ItemFor(g_req.mode);
                 if (g_req.mode == int(kModeVersus) && OpenPads() < 2) {
@@ -345,6 +454,11 @@ void Apply(int port, input::Pad& pad) {
                     Enter(Phase::Done);
                     return;
                 }
+                if (!Fights(g_req.mode)) {
+                    LOGI("autopilot: in mode %d", g_req.mode);
+                    Enter(Phase::Done);
+                    return;
+                }
                 g_base_fights = FightSetups();
                 Enter(Phase::Select);
                 return;
@@ -357,7 +471,8 @@ void Apply(int port, input::Pad& pad) {
                 p.cycle = cycle;
                 int cur = int(kernel::R32(kMenuSelection + kMainMenu * kMenuStride));
                 if (cur != g_item) p.buttons = g_item > cur ? kDown : kUp;
-                else p.a = 0xFF;
+                else if (Fights(g_req.mode)) p.a = 0xFF;
+                else p.buttons = kStart;  // the items that need a profile (sub_000CD9C0) take START, not A
             }
             if (Pulse(t, 0.25, 0.08)) {
                 pad.buttons |= p.buttons;
@@ -367,8 +482,10 @@ void Apply(int port, input::Pad& pad) {
         }
         case Phase::Select: {
             if (g_hold_at_select) return;
-            if (FightSetups() > g_base_fights || t > 120) {
-                if (FightSetups() <= g_base_fights) LOGE("autopilot: no fight after 120 s at character select");
+            // players picking on the select screen may take their time (75 s each, after that their cursor's)
+            const double limit = PlayersPick() ? 240 : 120;
+            if (FightSetups() > g_base_fights || t > limit) {
+                if (FightSetups() <= g_base_fights) LOGE("autopilot: no fight after %.0f s at character select", limit);
                 Enter(Phase::Done);
                 return;
             }
@@ -379,6 +496,7 @@ void Apply(int port, input::Pad& pad) {
             }
             if (t < 1.5) return;  // the select screen fades in
             if (g_req.unlock_all) Unlock();
+            if (port == 0) ExchangePicks(t);
             if (!AllPicked() && (kernel::R32(kMainTask) == kSelectTask)) {
                 Select(port, pad, t);
             } else if (port == 0 && Pulse(t, 0.7, 0.1)) {

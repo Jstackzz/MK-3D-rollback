@@ -58,6 +58,14 @@ bool GetSettled(Settled& out);
 // the C runtime's rand, counted for the state checks: the game's rand hook calls this with each result
 void CountRand(uint32_t value);
 
+// The players' own picks on the game's select screen, for a match whose launcher left a side to its player: this
+// game's player's pick goes out with every HELLO until the match starts in sync, the other player's comes back the
+// same way. The words are the game's (the character, then anything else both games must have alike, such as a
+// costume). Both belong to the match set up next and are cleared when it starts, so a rematch picks again.
+void SetLocalPick(const uint32_t* words, int n);
+// false until the other player's pick for the next match arrived; n: room in words, then the count
+bool PeerPick(uint32_t* words, int& n);
+
 struct Stats {
     uint32_t frames = 0, rollbacks = 0, replayed = 0, max_depth = 0, stalls = 0;
     double replay_ms = 0;  // time spent running frames again, total

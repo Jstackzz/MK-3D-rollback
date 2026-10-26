@@ -11,7 +11,8 @@ xdk = 4721
 out = "generated/game"
 partitions = 64
 code_sections = [".text", "D3D", "D3DX", "DSOUND", "XMV", "XPP"]  # no shader sections in this engine; XMV is the movie decoder
-continuations = [0xCAD3E]  # main (0xCABF0) calls _setjmp3(0x2D4C00) at 0xCAD39; tasks longjmp back to its main loop
+continuations = [0xCAD3E,  # main (0xCABF0) calls _setjmp3(0x2D4C00) at 0xCAD39; tasks longjmp back to its main loop
+                 0xE0575]  # the task walk sub_000E0390 after a task's Run: where a task's exit jumps (task_fibers.cpp)
 library = "MKDA.dll"  # <exe>.dll, which the executable delay loads
 
 # extra entry points

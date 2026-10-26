@@ -11,7 +11,13 @@ struct Request {
     std::string names[2];      // characters by name or index, empty for whatever the cursor starts on
     int characters[2] = {-1, -1};
     bool unlock_all = false;
+    int local_side = -1;       // online: this PC's player, 0 (P1) or 1 (P2)
+    bool by_player[2] = {};    // online: that side's player picks on the select screen (this PC's player with their
+                               // own controller, the other one on their PC: their pick comes over netplay)
 };
+
+// the port this PC's player steers their own side's cursor with now (they pick on the select screen), -1 otherwise
+int LocalPickPort();
 
 // still pressing buttons
 bool Active();

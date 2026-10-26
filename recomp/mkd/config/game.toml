@@ -8,7 +8,8 @@ xdk = 5849
 out = "generated/game"
 partitions = 64
 code_sections = [".text", "D3D", "D3DX", "XGRPH", "PSGSFD00", "PSGSFD_I", "PSGSFD_B", "PSGSFD_P", "XNET", "XONLINE", "DSOUND", "XPP"]  # PSGSFD*: CRI Sofdec movie decoder code
-continuations = [0xDFFBF]  # main's _setjmp(0x46CCC0) return point: the game longjmps back into its main loop
+continuations = [0xDFFBF,   # main's _setjmp(0x46CCC0) return point: the game longjmps back into its main loop
+                 0x13C08B]  # the task walk sub_0013BE80 after a task's Run: where a task's exit jumps (task_fibers.cpp)
 library = "MKD.dll"  # <exe>.dll, which the executable delay loads
 
 # extra entry points

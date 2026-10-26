@@ -21,10 +21,13 @@ bool ModeKnown(const std::string& mode);
 // such as the arena when no stage is named, then agrees too), stage is empty unless the launcher names one.
 struct Start {
     std::string mode;
-    std::string picks[2];  // roster ids, empty for the cursor's own
+    std::string picks[2];  // roster ids, empty for the cursor's own; online in a fight mode: that side's player picks
+                           // on the select screen (on their own PC; the other game takes it over netplay, SetLocalPick)
     uint32_t seed = 0;
     std::string stage;
     int wins_needed = 2;   // rounds a player must win (from the launcher's best of N)
+    bool online = false;
+    int side = 0;          // online: this PC's player, 0 (P1) or 1 (P2)
 };
 // from the hold point: the autopilot drives the front end to the mode with these picks; false when it cannot start
 bool Begin(const Start& start);

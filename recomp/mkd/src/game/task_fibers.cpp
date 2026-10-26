@@ -53,6 +53,7 @@ constexpr uint32_t kSchedEbp = 0x46DDCC;
 constexpr uint32_t kYieldRet = 0x46DDA8;
 constexpr uint32_t kHopEsp = 0x46DDC0;
 constexpr uint32_t kSetTime = 0x46DDA4;
+constexpr uint32_t kWalkResume = 0x13C08B;  // sub_0013BE80 after a task's Run, a continuation (game.toml)
 
 using kernel::R32;
 using kernel::W32;
@@ -95,6 +96,7 @@ TaskFiber g_tf[sfiber::kSlots];
 std::unordered_map<uint32_t, int> g_fibers;  // task -> fiber slot
 Running* g_running = nullptr;  // the task whose function is executing right now
 TaskFiber* g_running_fiber = nullptr;
+int g_outside_exits = 0;  // exits from outside a task's function, logged the first few times
 
 bool Trace() {
     static const bool on = std::getenv("MKD_TASK_TRACE") != nullptr;
@@ -371,6 +373,8 @@ void SetFunction(X86Context& ctx) {
 }
 
 // Exit (0x13C0B0): run the hook on the task's stack, then end the task; if it is still alive, destroy it.
+// Outside the task's function the engine does the same and jumps back to the scheduler's return point, the walk's
+// next task (sub_0013BE80 after its Run): the walk catches that jump at its continuation (game.toml).
 void ExitTask(X86Context& ctx) {
     uint32_t task = R32(kCurrentTask);
     bool alive = true;
@@ -379,7 +383,24 @@ void ExitTask(X86Context& ctx) {
         alive = R32(task + 0x04) != 0;
     }
     if (g_running && g_running->task == task) throw TaskExit{alive};
-    LOGE("tasks: exit of %08X outside its task", task);
+    const uint32_t ret = R32(kSchedRet);
+    if (ret != kWalkResume) {
+        LOGE("tasks: exit of %08X outside its function, the scheduler at %08X", task, ret);
+        return;
+    }
+    if (g_outside_exits++ < 4) LOGI("tasks: exit of %08X outside its function: back to the scheduler", task);
+    const uint32_t sched_esp = R32(kSchedEsp);
+    if (alive) {
+        W32(kDestroyFlag, 0);
+        const uint32_t cur = R32(kCurrentTask);  // read again, as the engine does
+        if (R32(cur + 0x04) != 0) {
+            ctx.esp = sched_esp;
+            kernel::CallGuest(ctx, R32(R32(cur) + 0x10), {cur});
+        }
+    }
+    ctx.esp = sched_esp;
+    ctx.ebp = R32(kSchedEbp);
+    throw X86Resume{ret, sched_esp};
 }
 
 }  // namespace

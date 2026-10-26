@@ -23,12 +23,16 @@ param(
     [int]$Matches = 1,           # lobby: matches to play there one after the other (the games park and start again)
     [switch]$Relay,              # the server relays every match (--relay-only): the relay path, on one PC
     [int]$Pads = 2,              # controllers each game reports at least (<GAME>_PADS); 0: only what is plugged in, as a player's PC
+    [switch]$PickInGame,         # both players pick on the game's own select screen (their scripts move the cursor
+                                 # and press A first); otherwise the launchers pick CharA and CharB
+    [switch]$MixedPicks,         # with -PickInGame: only A picks in the game, B's launcher picks CharB
     [int]$Port = 7777            # the server's TCP port (UDP Port + 1), the games' Port + 10 and + 11; the work folder
                                  # is build\online-e2e (build\online-e2e-<Port> for another port), so runs side by side
                                  # need their own
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
+if ($PickInGame) { $CharA = '-'; if (-not $MixedPicks) { $CharB = '-' } }  # lobby members pick in the game too
 $x = $Game.ToUpper()  # each game reads its own variables: MKD_*, MKA_*, MKDA_*
 if (-not $Exe -and -not $Launcher) { $Exe = "recomp\$Game\out\build\debug\$x.exe" }
 $work = Join-Path $root ($(if ($Port -eq 7777) { 'build\online-e2e' } else { "build\online-e2e-$Port" }))
@@ -53,6 +57,7 @@ region=eu
 max_ping=0
 delay=2
 game_port=$($p[1])
+pick_in_game=$(if ($PickInGame -and ($p[0] -eq 'a' -or -not $MixedPicks)) { 'true' } else { 'false' })
 
 [account]
 remember=false
@@ -74,14 +79,17 @@ $server = Start-Process -FilePath $py -ArgumentList $serverArgs `
     -WorkingDirectory $root -PassThru -WindowStyle Hidden -RedirectStandardOutput "$work\server\out.txt" -RedirectStandardError "$work\server\err.txt"
 Start-Sleep -Seconds 2
 $attacks = & $py -I -c "import itertools; seq=['RIGHT:0.4','X','X','Y','A','B','X','Y','X+Y','LEFT:0.3','B','A']; print(','.join(f'{25+i*0.33:.2f}:{s}' for i,s in enumerate(itertools.islice(itertools.cycle(seq),2500))))"
-if (-not $InputA) { $InputA = $attacks }
-if (-not $InputB) { $InputB = $attacks }
+# picking in the game the script starts when the player gets the cursor: each moves theirs, then confirms
+$pickA = if ($PickInGame) { '1.0:RIGHT,1.6:RIGHT,2.4:A,' } else { '' }
+$pickB = if ($PickInGame -and -not $MixedPicks) { '1.2:DOWN,2.0:LEFT,2.8:A,3.6:A,' } else { '' }
+if (-not $InputA) { $InputA = $pickA + $attacks }
+if (-not $InputB) { $InputB = $pickB + $attacks }
 $vars = @('MK3D_DEV_PASSWORD', "${x}_INPUT", "${x}_PADS", "${x}_EVENT_LOG", "${x}_NET_LOG", 'SDL_ASSERT')
 $env:MK3D_DEV_PASSWORD = 'e2e-password-123'
 Set-Item "env:${x}_INPUT" $InputA
 Set-Item "env:${x}_PADS" "$Pads"
 Set-Item "env:${x}_EVENT_LOG" '1'
-Set-Item "env:${x}_NET_LOG" "$work\net-{side}.log"
+Set-Item "env:${x}_NET_LOG" "$work\net-{side}-{match}.log"
 $env:SDL_ASSERT = 'always_ignore'
 $launcher = if ($Launcher) { (Resolve-Path $Launcher).Path } else { Join-Path $root 'build\launcher\MK3DLauncher.exe' }
 $stamp = Get-Date -Format 'HHmmss'

@@ -72,12 +72,16 @@ bool Begin(const Start& start) {
     req.names[0] = start.picks[0];
     req.names[1] = start.picks[1];
     req.unlock_all = true;
+    // online, a side the launcher left without a character: that player picks on the select screen
+    req.local_side = start.online ? start.side : -1;
+    for (int i = 0; i < 2; i++) req.by_player[i] = start.online && start.mode == "kombat" && start.picks[i].empty();
     PickArena(start.seed, start.stage);
     SetOptions(start.wins_needed);
     return autopilot::Begin(req);
 }
 
-// a versus match returns to its select screen, where the autopilot picks the same characters again
+// a versus match returns to its select screen, where the autopilot picks the same characters again (players who pick
+// on the select screen pick again)
 void Rematch(const Start& start) {
     PickArena(start.seed, start.stage);
     SetOptions(start.wins_needed);

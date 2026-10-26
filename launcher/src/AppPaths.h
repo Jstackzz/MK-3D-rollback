@@ -31,6 +31,8 @@ QString gameExe(const QString& gameId);
 QString region();
 int maxPing();
 bool strict();
+// the player picks their fighter on the game's own select screen in online matches, not in the launcher
+bool pickInGame();
 int inputDelay();
 int gamePort();
 QString displayMode();

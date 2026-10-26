@@ -143,14 +143,18 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    it first connects (not with `--user`, `--local-test` or `--extract`).
 3. **Game selector** (Deadly Alliance / Deception / Armageddon) switches every
    page; modes and rosters come from `launcher/data/<game>.json`.
-4. **Ranked / Casual**: pick the mode and fighter, *Find match*. The game is
+4. **Ranked / Casual**: pick the mode and fighter, *Find match*. With *Pick my
+   fighter on the game's own select screen* (`[online] pick_in_game`, on by
+   default) the launcher sends no fighter and the player picks in the game when
+   the match starts (docs/PROTOCOL.md 3.3). The game is
    started in the background and boots to its hold point while you search.
    When a match is found you have 15 s to accept; then the launcher punches
    the opponent on the game port, measures the ping, writes the `start` line
    into the game's `cmd.txt`, reports the result the game writes to
    `status.txt`, and parks the game again.
 5. **Lobby**: create (optional password, best of 1/3/5), join from the list or
-   by 5-letter code, pick a fighter, chat, *Ready*; the host starts.
+   by 5-letter code, pick a fighter (or *Pick in the game*), chat, *Ready*; the
+   host starts.
 6. **Single player**: *PLAY* starts the game plainly (no `MK3D_NET`), so it
    runs its own menus as on the console, its practice mode included; *Close
    the game* closes its window as the player would. While it is open the match

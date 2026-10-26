@@ -136,6 +136,11 @@ for p in recomp/patches/xboxxberecomp-*.patch; do git -C external/XboxXBERecomp 
   off. Read again within a second of a change; a broken file keeps the
   controls it had, a missing one means the layout of 0013. Netplay is
   untouched: a remap only changes the pad the game reads on this PC.
+- `0017-file-internal-information`: `NtQueryInformationFile` answers
+  `FileInternalInformation` (class 6) with an index per Xbox path. XAPI's
+  `GetFileInformationByHandle` asks for it; Deception's profile kollection
+  load does that before it reads the file, so without it every profile saved
+  in an earlier session failed to load ("no space for new profiles").
 
 `tools/py/lib_audit.py <game dir> <xbsdb symbols>` lists the XDK library
 functions the game calls that still run console code against host objects,

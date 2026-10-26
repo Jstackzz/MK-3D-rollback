@@ -36,6 +36,7 @@ private:
     QLabel* modeInfo_;
     CharacterPicker* picker_;
     QLabel* inGamePick_;
+    QCheckBox* pickInGame_;  // pick on the game's own select screen (modes the launcher picks for otherwise)
     QComboBox* region_;
     QComboBox* maxPing_;
     QCheckBox* strict_;

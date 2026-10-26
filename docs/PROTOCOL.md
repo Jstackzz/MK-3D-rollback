@@ -548,10 +548,31 @@ one was taken, or after 2 s; a newer untaken command replaces the older one
 `practice`); `side` (local player, 1 or 2); `local_port` (UDP port to bind);
 `remote` (peer `ip:port`); `delay` (input delay in frames); `seed` (32 bit,
 identical on both sides); `p1`/`p2` (roster ids, identical on both sides,
-`-` when the mode picks in the game); `rounds` (best of N); `ranked` (0 or
+`-` when the mode picks in the game: Chess Kombat's teams by the game; in
+`kombat` the player of that side picks on the game's own select screen with
+their own controller, and the other game takes the pick over netplay, see
+below); `rounds` (best of N); `ranked` (0 or
 1); `match` (id, echoed in status lines). Optional: `p1_name`, `p2_name`
 (account names), `stage` (absent = the game derives it from the seed). Both
 sides get the same line except for `side`, `local_port` and `remote`.
+
+**Picks on the game's select screen** (`kombat` with `p1` and/or `p2` = `-`,
+the launcher's "pick my fighter in the game", sent to the server as an empty
+`character`). The autopilot takes both games to the select screen as usual.
+There the player of a `-` side steers their own cursor with their own
+controller (port 0 and the keyboard, routed to port 2 when they are P2; B and
+BACK are held back, as they would leave the select screen and the match); the
+game passes their pick (the character, then whatever else both games must have
+alike: the costume flags in Deception and Armageddon) to the other game in its
+netplay HELLO packets, which carry the words of this game's pick once there is
+one (`u8 n, n x u32` after the header, for the match set up next: the barrier
+number in the header). The other game's autopilot makes that pick for that
+side. A side with a roster id is picked by the autopilot on both PCs, so the
+two ways mix. A player who has not picked after 75 s (40 s in Armageddon,
+whose select screen leaves after 45 s without a press) gets the cursor's
+fighter; a side waiting for the other player's pick moves its cursor every
+8 s to keep the screen up. A rematch picks again. Alternate costumes stay
+locked while players pick.
 
 ### 3.4 `status.txt` (game -> launcher)
 

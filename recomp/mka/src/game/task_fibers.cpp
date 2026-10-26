@@ -59,6 +59,7 @@ constexpr uint32_t kYieldRet = 0x5B8B3C;
 constexpr uint32_t kHopEsp = 0x5B8B54;
 constexpr uint32_t kSetTime = 0x5B8B38;
 constexpr uint32_t kDestroySlot = 0x0C;  // vtable offset of the destroy function
+constexpr uint32_t kWalkResume = 0x1C4FEE;  // sub_001C4DD0 after a task's Run, a continuation (game.toml)
 
 using kernel::R32;
 using kernel::W32;
@@ -101,6 +102,7 @@ TaskFiber g_tf[sfiber::kSlots];
 std::unordered_map<uint32_t, int> g_fibers;  // task -> fiber slot
 Running* g_running = nullptr;  // the task whose function is executing right now
 TaskFiber* g_running_fiber = nullptr;
+int g_outside_exits = 0;  // exits from outside a task's function, logged the first few times
 
 bool Trace() {
     static const bool on = std::getenv("MKA_TASK_TRACE") != nullptr;
@@ -375,6 +377,8 @@ void SetFunction(X86Context& ctx) {
 }
 
 // Exit (0x1C5010): run the hook on the task's stack, then end the task; if it is still alive, destroy it.
+// Outside the task's function the engine does the same and jumps back to the scheduler's return point, the walk's
+// next task (sub_001C4DD0 after its Run): the walk catches that jump at its continuation (game.toml).
 void ExitTask(X86Context& ctx) {
     uint32_t task = R32(kCurrentTask);
     bool alive = true;
@@ -383,7 +387,17 @@ void ExitTask(X86Context& ctx) {
         alive = R32(task + 0x04) != 0;
     }
     if (g_running && g_running->task == task) throw TaskExit{alive};
-    LOGE("tasks: exit of %08X outside its task", task);
+    const uint32_t ret = R32(kSchedRet);
+    if (ret != kWalkResume) {
+        LOGE("tasks: exit of %08X outside its function, the scheduler at %08X", task, ret);
+        return;
+    }
+    if (g_outside_exits++ < 4) LOGI("tasks: exit of %08X outside its function: back to the scheduler", task);
+    const uint32_t sched_esp = R32(kSchedEsp);
+    if (alive) Destroy(ctx, sched_esp);
+    ctx.esp = sched_esp;
+    ctx.ebp = R32(kSchedEbp);
+    throw X86Resume{ret, sched_esp};
 }
 
 }  // namespace

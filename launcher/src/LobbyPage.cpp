@@ -145,8 +145,12 @@ LobbyPage::LobbyPage(ServerClient* server, MatchController* controller, QWidget*
                        {QStringLiteral("delay"), cfg::inputDelay()}});
     });
     connect(character_, &QComboBox::activated, this, [this] {
-        const QString id = character_->currentData().toString();
-        cfg::set(QStringLiteral("ui/%1/%2/character").arg(s(lobby_, "game"), s(lobby_, "mode")), id);
+        const QString id = character_->currentData().toString();  // empty: picked on the game's select screen
+        if (id.isEmpty()) cfg::set(QStringLiteral("online/pick_in_game"), true);
+        else {
+            cfg::set(QStringLiteral("online/pick_in_game"), false);
+            cfg::set(QStringLiteral("ui/%1/%2/character").arg(s(lobby_, "game"), s(lobby_, "mode")), id);
+        }
         server_->send({{QStringLiteral("type"), QStringLiteral("lobby_character")}, {QStringLiteral("character"), id}});
     });
     connect(send, &QPushButton::clicked, this, &LobbyPage::sendChat);
@@ -178,8 +182,10 @@ void LobbyPage::refresh() {
 }
 
 QString LobbyPage::savedCharacter(const QString& game, const QString& mode) const {
-    QString id = cfg::get(QStringLiteral("ui/%1/%2/character").arg(game, mode)).toString();
     const Game* g = GameData::instance().game(game);
+    const GameMode* m = g ? g->mode(mode) : nullptr;
+    if (cfg::pickInGame() && !(m && m->picksInGame())) return QString();  // the game's own select screen
+    QString id = cfg::get(QStringLiteral("ui/%1/%2/character").arg(game, mode)).toString();
     if (id.isEmpty() && g) {
         const auto roster = g->roster(mode);
         if (!roster.isEmpty()) id = roster.first().id;
@@ -300,15 +306,22 @@ void LobbyPage::showLobby(const QJsonObject& lobby) {
             myChar = s(mem, "character");
         }
         const QString name = s(mem, "name") + (mem.value(QStringLiteral("host")).toBool() ? tr("  (host)") : QString());
-        const QStringList cells = {name, g ? g->characterName(s(mem, "character")) : s(mem, "character"),
+        const QString fighter = s(mem, "character");
+        const QStringList cells = {name,
+                                   fighter.isEmpty() || fighter == QLatin1String("-")
+                                       ? tr("picks in the game")
+                                       : (g ? g->characterName(fighter) : fighter),
                                    ready ? tr("READY") : tr("-")};
         for (int c = 0; c < cells.size(); ++c) members_->setItem(i, c, new QTableWidgetItem(cells[c]));
     }
     if (g && (newLobby || character_->count() == 0)) {
         const QSignalBlocker block(character_);
         character_->clear();
+        // the game's own select screen, with the player's own controller (cfg::pickInGame)
+        if (!(m && m->picksInGame())) character_->addItem(tr("Pick in the game"), QString());
         for (const auto& c : g->roster(s(lobby, "mode"))) character_->addItem(c.name, c.id);
     }
+    if (myChar == QLatin1String("-")) myChar.clear();
     const int ci = character_->findData(myChar);
     if (ci >= 0) {
         const QSignalBlocker block(character_);

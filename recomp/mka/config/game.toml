@@ -8,7 +8,8 @@ xdk = 5849
 out = "generated/game"
 partitions = 128
 code_sections = [".text", "D3D", "D3DX", "XGRPH", "XONLINE", "XNET", "PSFD00", "PSFD_I", "PSFD_B", "PSFD_P", "DSOUND", "XPP"]  # PSFD*: as in Deception (PSGSFD*), kept as code
-continuations = [0x19C863]  # main's _setjmp(0x5B8848) return point (call at 0x19C85E): the game longjmps back into its main loop
+continuations = [0x19C863,  # main's _setjmp(0x5B8848) return point (call at 0x19C85E): the game longjmps back into its main loop
+                 0x1C4FEE]  # the task walk sub_001C4DD0 after a task's Run: where a task's exit jumps (task_fibers.cpp)
 library = "MKA.dll"  # <exe>.dll, which the executable delay loads
 
 # extra entry points

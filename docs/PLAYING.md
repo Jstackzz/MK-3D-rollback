@@ -60,10 +60,14 @@ Server (name-or-address:7777) and the fingerprint they gave you, then Connect.
 With the fingerprint left empty, the launcher shows the server's and asks
 whether to trust it: compare it with your host's.
 
-- Casual and Ranked: choose the mode and your fighter, then Find match.
+- Casual and Ranked: choose the mode, then Find match. With "Pick my fighter on
+  the game's own select screen" ticked (the default) you choose your fighter in
+  the game when the match starts, with your own controller, while your opponent
+  does the same on their PC; the game shows their pick once they made it. Untick
+  it to choose your fighter in the launcher instead.
 - Lobby, to play someone you know: one of you presses Create lobby and gives the
   other the 5-letter code; the other presses Join code and types it. Both choose
-  fighters and press Ready, then the host presses START.
+  a fighter (or "Pick in the game") and press Ready, then the host presses START.
 - Single player, then PLAY, starts the whole game with its own menus, as on the
   console: arcade, its practice mode and the rest. What you unlock and set is
   saved in the game's folder (games\<game>\hdd). Online matches wait while it is
@@ -108,10 +112,15 @@ takes them when it starts.
 When something goes wrong
 -------------------------
 
-- Windows refuses to start the launcher and offers no "Run anyway": Smart App
-  Control (Windows 11) blocks programs without a publisher's signature, and it
-  has no exception list. Only switching it off in Windows Security lets them run;
-  that choice is yours.
+- "Could not start ...MKD.exe: An Application Control policy has blocked this
+  file", right after extracting a disc or when a match starts, or Windows
+  refuses to start the launcher and offers no "Run anyway": Smart App Control
+  (Windows 11) runs only programs signed by a publisher it knows, and it has no
+  exception list. The games can never be signed: every PC builds its own copy
+  of the game's code from its own disc. The launcher warns at startup when it is
+  on. To play, switch it off in Windows Security > App & browser control > Smart
+  App Control settings; on some versions of Windows 11 it can only be switched
+  back on by resetting Windows, so that choice is yours.
 - "The game's files are not there yet": build that game first (Build game).
 - The launcher or the game says the disc is a different release: it is not one of
   the releases above.

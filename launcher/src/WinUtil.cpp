@@ -94,4 +94,13 @@ void useDarkTitleBar(QWidget* window) {
     DwmSetWindowAttribute(reinterpret_cast<HWND>(window->winId()), kUseImmersiveDarkMode, &dark, sizeof dark);
 }
 
+int smartAppControl() {
+    if (qEnvironmentVariableIsSet("MK3D_SMART_APP_CONTROL")) return qEnvironmentVariableIntValue("MK3D_SMART_APP_CONTROL");
+    DWORD value = 0, size = sizeof value;
+    if (RegGetValueW(HKEY_LOCAL_MACHINE, L"SYSTEM\\CurrentControlSet\\Control\\CI\\Policy",
+                     L"VerifiedAndReputablePolicyState", RRF_RT_REG_DWORD, nullptr, &value, &size) != ERROR_SUCCESS)
+        return -1;
+    return static_cast<int>(value);
+}
+
 }  // namespace winutil

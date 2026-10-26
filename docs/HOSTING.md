@@ -57,9 +57,12 @@ installs the server as a service that starts at boot and restarts if it stops
 machine's own firewall (ufw, firewalld, or the iptables rules of Oracle's Ubuntu
 images), and prints the certificate fingerprint. Open the same two ports in the
 provider's network firewall too (a security list or security group). Running it
-again updates the server and keeps the accounts and the certificate. On the
-machine itself, `sudo sh server/deploy/install.sh <name>` from a clone of this
-repository does the same.
+again updates the server and keeps the accounts and the certificate. After a
+release every player must take (its games no longer meet the older ones online),
+add `-MinClient` with its version, for example `-MinClient 0.1.4`: older
+launchers are told to update when they connect, and later runs keep it. On the
+machine itself, `sudo sh server/deploy/install.sh <name> [<oldest launcher>]`
+from a clone of this repository does the same.
 
 ### Oracle Cloud Always Free, step by step
 

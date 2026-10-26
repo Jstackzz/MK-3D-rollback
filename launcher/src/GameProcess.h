@@ -36,6 +36,10 @@ public:
 
     static QHash<QString, QString> parseKeys(const QString& line);  // key=value tokens after the verb
 
+    // what to tell a player whose Windows blocks the games (`blocked`: it just did): Smart App Control and how to
+    // switch it off
+    static QString smartAppControlHelp(bool blocked = true);
+
 signals:
     void statusChanged(const QString& line);
     void outputLine(const QString& line);

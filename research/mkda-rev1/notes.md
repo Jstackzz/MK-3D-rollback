@@ -73,6 +73,17 @@ The config's `[xbe] xdk = 4721` makes `xbe_recomp` include `xdk/4721/layout.toml
 | scheduler ret / esp / ebp / ss | 0x46DDAC / BC / CC / D8 | 0x5B8B40 / 50 / 60 / 6C | 0x2D4F54 / 64 / 74 / 80 |
 | last yield ret / hop esp / SetFunction time | 0x46DDA8 / C0 / A4 | 0x5B8B3C / 54 / 38 | 0x2D4F50 / 68 / 4C |
 | task scheduler (per frame) | 0x13BE30 | 0x1C4D70 | 0xE0340 (list 0x32141C walked by 0xE0390) |
+| task walk / after a task's Run (continuation) | 0x13BE80 / 0x13C08B | 0x1C4DD0 / 0x1C4FEE | 0xE0390 / 0xE0575 |
+
+Deadly Alliance's walk calls a task's callback at +0x28 (if any) before its Run (0xE055A, returning to 0xE055D),
+then runs it if it is still alive. Projectiles and effects install one there (the fireball of Shang Tsung,
+sub_001358A0, set at 0x135658; also 0x5A580, 0xD3B30, 0xDD340, 0xDDAF0, 0xF5140, 0xF6920), and a projectile that
+is over ends itself from it through the exit 0xE0590, outside its task's function. The exit then does what it does
+anywhere: the hook at +0x2C, the destroy if still alive, and a jump to the scheduler's return point [0x2D4F54] with
+the stack [0x2D4F64], which is 0xE0575, the walk's next task. `task_fibers.cpp` reproduces that with a resume to
+the continuation 0xE0575 (`game.toml`); returning into the callback instead read guest 0x64 and crashed (0.1.3).
+Deception and Armageddon have no such callback, but Armageddon also reaches an exit outside a task's function (seen
+at the end of a versus match, as the select screen loads), so both games take the same path to their own walks.
 
 Main loop (continuation 0xCAD3E of `main` 0xCABF0): while [0x2D4C44] is 0: frame counters 0x42A888 (always) and
 0x42A8A0 (when [0x321424] is 0), sub_000D7F80, ..., sub_000CB1B0 / sub_000CB2C0, sub_00143030 (controllers),

@@ -56,10 +56,14 @@ QueuePage::QueuePage(bool ranked, ServerClient* server, MatchController* control
     modeInfo_ = ui::label(QString(), "Muted");
     modeInfo_->setWordWrap(true);
     left->addWidget(modeInfo_);
+    pickInGame_ = new QCheckBox(tr("Pick my fighter on the game's own select screen"));
+    pickInGame_->setChecked(cfg::pickInGame());
+    left->addWidget(pickInGame_);
     picker_ = new CharacterPicker;
     left->addWidget(picker_, 1);
-    inGamePick_ = ui::label(tr("Teams are picked inside the game for this mode."), "Muted");
+    inGamePick_ = ui::label(QString(), "Muted");
     inGamePick_->setAlignment(Qt::AlignCenter);
+    inGamePick_->setWordWrap(true);
     left->addWidget(inGamePick_, 1);
 
     auto* rightCol = new QVBoxLayout;
@@ -123,6 +127,10 @@ QueuePage::QueuePage(bool ranked, ServerClient* server, MatchController* control
     connect(region_, &QComboBox::currentIndexChanged, this, [this] { cfg::set(QStringLiteral("online/region"), region_->currentData()); });
     connect(maxPing_, &QComboBox::currentIndexChanged, this, [this] { cfg::set(QStringLiteral("online/max_ping"), maxPing_->currentData()); });
     connect(strict_, &QCheckBox::toggled, this, [](bool on) { cfg::set(QStringLiteral("online/strict"), on); });
+    connect(pickInGame_, &QCheckBox::toggled, this, [this](bool on) {
+        cfg::set(QStringLiteral("online/pick_in_game"), on);
+        refreshRoster();
+    });
     connect(find_, &QPushButton::clicked, this, [this] {
         const auto p = controller_->phase();
         if (p == MatchController::Phase::Idle) {
@@ -208,9 +216,18 @@ void QueuePage::refreshRoster() {
     const QString modeId = mode_->currentData().toString();
     const GameMode* m = g->mode(modeId);
     modeInfo_->setText(m ? m->description : QString());
-    const bool inGame = m && m->picksInGame();
+    {
+        const QSignalBlocker block(pickInGame_);
+        pickInGame_->setChecked(cfg::pickInGame());  // the other queue page may have changed it
+    }
+    const bool team = m && m->picksInGame();  // the mode's own (Chess Kombat's teams)
+    const bool inGame = team || pickInGame_->isChecked();
+    pickInGame_->setVisible(!team);
     picker_->setVisible(!inGame);
     inGamePick_->setVisible(inGame);
+    inGamePick_->setText(team ? tr("Teams are picked inside the game for this mode.")
+                              : tr("You pick your fighter on the game's select screen when the match starts, with "
+                                   "your own controller; your opponent picks on theirs."));
     picker_->setRoster(g->roster(modeId), cfg::get(QStringLiteral("ui/%1/%2/character").arg(gameId_, modeId)).toString());
     delayInfo_->setText(tr("Input delay %1 frame(s), game UDP port %2 (change in Settings)")
                             .arg(qMax(ranked_ ? 1 : 0, cfg::inputDelay())).arg(cfg::gamePort()));
@@ -244,7 +261,7 @@ bool QueuePage::startSearch(const QString& mode, const QString& character) {
     req.region = region_->currentData().toString();
     req.maxPing = maxPing_->currentData().toInt();
     req.strict = ranked_ && strict_->isChecked();
-    req.character = m->picksInGame() ? QString() : picker_->currentId();
+    req.character = m->picksInGame() || cfg::pickInGame() ? QString() : picker_->currentId();
     req.delay = qMax(ranked_ ? 1 : 0, cfg::inputDelay());
     QString error;
     if (!controller_->findMatch(req, &error)) {
@@ -253,7 +270,8 @@ bool QueuePage::startSearch(const QString& mode, const QString& character) {
         return false;
     }
     log_->line(tr("Searching: %1 %2 as %3 in %4, max ping %5").arg(g->shortName, m->name,
-               req.character.isEmpty() ? tr("in-game team") : picker_->currentName(),
+               m->picksInGame() ? tr("in-game team")
+                                : req.character.isEmpty() ? tr("a fighter picked in the game") : picker_->currentName(),
                GameData::regionName(req.region), maxPing_->currentText()));
     return true;
 }

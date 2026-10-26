@@ -5,6 +5,7 @@
 #include <QApplication>
 #include <QButtonGroup>
 #include <QCloseEvent>
+#include <QDesktopServices>
 #include <QHBoxLayout>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -171,6 +172,17 @@ MainWindow::MainWindow(const LaunchOptions& opts, QWidget* parent)
     updateAccountButton();
     if (cfg::get(QStringLiteral("server/auto_connect"), true).toBool() || !opts_.server.isEmpty())
         QTimer::singleShot(0, this, &MainWindow::connectServer);
+    // Smart App Control blocks every game this launcher starts: say so before the player builds or plays one
+    applog::write(QStringLiteral("Smart App Control: %1").arg(winutil::smartAppControl()));
+    if (winutil::smartAppControl() == 1) QTimer::singleShot(400, this, &MainWindow::warnSmartAppControl);
+}
+
+void MainWindow::warnSmartAppControl() {
+    QMessageBox box(QMessageBox::Warning, tr("Smart App Control is on"), GameProcess::smartAppControlHelp(false),
+                    QMessageBox::Ok, this);
+    QPushButton* open = box.addButton(tr("Open Windows Security"), QMessageBox::ActionRole);
+    box.exec();
+    if (box.clickedButton() == open) QDesktopServices::openUrl(QUrl(QStringLiteral("ms-settings:windowsdefender")));
 }
 
 QWidget* MainWindow::buildHeader() {

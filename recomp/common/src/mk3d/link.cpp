@@ -130,17 +130,20 @@ void Start(const Command& c) {
     g_wins_needed = rounds > 1 ? rounds / 2 + 1 : 1;
     g_match = Key(c, "match", mode == "practice" ? "practice" : "none");
     g_online = !Key(c, "remote").empty() && mode != "practice";
+    const int side = Key(c, "side", "1") == "2" ? 1 : 0;
     if (g_online) {
         net::Settings st;
         st.bind = uint16_t(std::atoi(Key(c, "local_port", "7001").c_str()));
         st.peer = Key(c, "remote");
-        st.side = Key(c, "side", "1") == "2" ? 1 : 0;
+        st.side = side;
         st.delay = std::atoi(Key(c, "delay", "2").c_str());
         st.loopback_only = st.peer.rfind("127.", 0) == 0;
-        if (const char* log = Env("NET_LOG")) {  // "{side}" becomes 0 or 1 (two games on one PC)
+        if (const char* log = Env("NET_LOG")) {  // "{side}" becomes 0 or 1 (two games on one PC), "{match}" the id
             st.log = log;
             size_t at = st.log.find("{side}");
             if (at != std::string::npos) st.log.replace(at, 6, std::to_string(st.side));
+            at = st.log.find("{match}");
+            if (at != std::string::npos) st.log.replace(at, 7, Key(c, "match", "none"));
         }
         net::Configure(st);
     } else {
@@ -153,6 +156,8 @@ void Start(const Command& c) {
     start.seed = uint32_t(std::strtoul(Key(c, "seed", "0").c_str(), nullptr, 10));
     start.stage = Key(c, "stage");
     start.wins_needed = g_wins_needed;
+    start.online = g_online;
+    start.side = side;
     g_start = start;
     g_in_match = true;
     g_fighting = false;
@@ -314,7 +319,8 @@ bool Active() { return g_on; }
 
 bool SuppressPhysicalPads() {
     if (!g_on) return false;
-    // the player's controller reaches the game only while the match runs
+    // the player's controller reaches the game only while the match runs (and on the select screen, for their own
+    // side's cursor when they pick there: the game's pads route it, autopilot LocalPickPort)
     return !(g_in_match && g_fighting && !g_reported) || game::AutopilotActive();
 }
 

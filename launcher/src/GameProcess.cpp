@@ -76,6 +76,16 @@ QHash<QString, QString> GameProcess::parseKeys(const QString& line) {
     return out;
 }
 
+QString GameProcess::smartAppControlHelp(bool blocked) {
+    return (blocked ? tr("Windows' Smart App Control blocked the game.")
+                    : tr("Windows' Smart App Control is on, and it will block the games.")) +
+           QLatin1Char(' ') +
+           tr("It only runs programs signed by a publisher it knows, and these games can never be: every PC builds "
+              "its own copy of the game's code from its own disc. To play, switch it off in Windows Security > App & "
+              "browser control > Smart App Control settings. (On some versions of Windows 11 it can only be "
+              "switched back on by resetting Windows.)");
+}
+
 bool GameProcess::start(const QString& exe, QString* error, bool netMode) {
     if (isRunning()) return true;
     const QFileInfo fi(exe);
@@ -149,7 +159,16 @@ bool GameProcess::start(const QString& exe, QString* error, bool netMode) {
     });
     proc_->start(program, args);
     if (!proc_->waitForStarted(10000)) {
-        if (error) *error = tr("Could not start %1: %2").arg(QDir::toNativeSeparators(program), proc_->errorString());
+        if (error) {
+            *error = tr("Could not start %1: %2").arg(QDir::toNativeSeparators(program), proc_->errorString());
+            // "An Application Control policy has blocked this file" (English Windows) or the policy reported on
+            if (winutil::smartAppControl() == 1 || proc_->errorString().contains(QLatin1String("Application Control")))
+                *error += QLatin1Char('\n') + smartAppControlHelp();
+        }
+        // one arg() call: Windows' messages can hold a %1 of their own, which a second call would fill
+        applog::write(QStringLiteral("game %1/%2: could not start %3: %4 (Smart App Control %5)")
+                          .arg(gameId_, QString::number(instance_), QDir::toNativeSeparators(program),
+                               proc_->errorString(), QString::number(winutil::smartAppControl())));
         delete proc_;
         proc_ = nullptr;
         return false;

@@ -23,8 +23,12 @@ public class DecompileFuncs extends GhidraScript {
             String text = args[i].startsWith("0x") ? args[i].substring(2) : args[i];
             Address addr = toAddr(Long.parseLong(text, 16));
             Function f = getFunctionContaining(addr);
+            if (f == null) {  // the analysis never reached it (code only called through pointers): make one there
+                disassemble(addr);
+                f = createFunction(addr, null);
+            }
             if (f == null) {
-                out.println("// no function contains " + args[i]);
+                out.println("// no function contains " + args[i] + ", and none could be made there");
                 continue;
             }
             if (!done.add(f)) continue;

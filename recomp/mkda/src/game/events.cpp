@@ -122,8 +122,9 @@ int ModeByName(const char* name) {
     struct {
         const char* name;
         int mode;
-    } modes[] = {{"arcade", int(kModeArcade)}, {"versus", int(kModeVersus)}, {"kombat", int(kModeVersus)},
-                 {"practice", int(kModePractice)}};
+    } modes[] = {{"arcade", int(kModeArcade)},     {"versus", int(kModeVersus)},   {"kombat", int(kModeVersus)},
+                 {"practice", int(kModePractice)}, {"konquest", int(kModeKonquest)}, {"krypt", int(kModeKrypt)},
+                 {"options", int(kModeOptions)},   {"profile", int(kModeProfile)}, {"kontent", int(kModeKontent)}};
     for (auto& m : modes)
         if (_stricmp(name, m.name) == 0) return m.mode;
     return -1;

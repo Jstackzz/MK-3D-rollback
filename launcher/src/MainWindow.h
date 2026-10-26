@@ -61,6 +61,7 @@ private:
     void onAccountButton();
     void openAccountDialog(bool firstTime);
     void askForAccount();
+    void warnSmartAppControl();  // it blocks the games: what it is and where to switch it off
     void onServerMessage(const QJsonObject& msg);
     void onMatchFound(const QJsonObject& found);
     void showNotice(const QString& text, bool warn);

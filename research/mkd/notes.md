@@ -275,16 +275,21 @@ Frame and input:
 
 Game state:
 - Game mode 0x61C414, written only by sub_001BC170: 13 front end, 0 arcade, 1 versus, 4 practice (health refills),
-  6 chess kombat, 7 konquest, 9 puzzle kombat.
+  6 puzzle kombat, 7 konquest, 9 chess kombat (10 during a chess battle, 12 on its game over screen).
 - Player records: P1 0x620FC4, P2 0x621030 (0x6C apart): +0 profile (-1 none), +4 port, +8 select state (2 =
   picked), +0xC health (float, 1.0 full; the HUD's animated copies are 0x471C44 / 0x471C48), +0x10 start health,
   +0x14 costume flags, +0x40 round wins (zeroed by the fight setup), +0x54 character, +0x58 fighter object.
+- The fighter objects are static, 0x710 bytes apart: P1 0x470C78, P2 0x471388. Right after P2's (0x471A98 on)
+  lies the select screen's state, the cursors 0x471B18 / 0x471B1C among it, and 0x471B08 / 0x471B0C, which depend
+  on how each cursor reached its pick: a state hash of P2's object must stop at 0x710 (netgame.cpp kFighterBytes),
+  or two games whose cursors moved differently (a player picking by hand, the other game's autopilot making the
+  same pick) seem to part at frame 0.
 - Fight setup sub_00083570 runs once per match, before the intro: the netplay barrier.
 - The C runtime's rand (0x29B8AC, srand 0x29B89F) is never seeded and is not called during a fight.
 
 Front end:
-- The main menu task sub_000E3770 dispatches on the menu action 0x46CDB8 (0x18 none): 6 arcade, 7 versus, 8 puzzle
-  kombat, 9 chess kombat, 0xB practice, 2 konquest. The menu UI sets it through sub_0014EF20(port, action), which
+- The main menu task sub_000E3770 dispatches on the menu action 0x46CDB8 (0x18 none): 6 arcade, 7 versus, 8 chess
+  kombat, 9 puzzle kombat, 0xB practice, 2 konquest. The menu UI sets it through sub_0014EF20(port, action), which
   also marks who takes part (sub_0016FBC0(record, 1)). VERSUS is greyed out without a second signed-in profile;
   `events.cpp` redirects the next arcade/versus/practice confirmation to a requested action with both players in.
 - Character select: cursor slots 0x471B1C (P1) and 0x471B18 (P2), 8 x 3 grid (chess 6 x 2, 0x471B24 == 2), slot to

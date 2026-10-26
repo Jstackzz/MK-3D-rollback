@@ -155,12 +155,17 @@ double ScriptTime() {
     auto now = std::chrono::steady_clock::now();
     if (!g_script_after_fight) return std::chrono::duration<double>(now - g_t0).count();
     if (!g_fight_clock.load()) {
-        if (FightSetups() == 0) return -1;
+        // it starts at the first fight setup, once the autopilot is done, or when it hands this PC's player the
+        // cursor on the select screen (an online match whose players pick there: the script is that player)
+        if (FightSetups() == 0 && (autopilot::Active() || autopilot::AtHoldPoint()) && autopilot::LocalPickPort() < 0)
+            return -1;
         static std::once_flag once;
         std::call_once(once, [now] {
             g_fight_t0 = now;
             g_fight_clock = true;
-            LOGI("pads: the script starts now (first fight setup)");
+            LOGI("pads: the script starts now (%s)", FightSetups()            ? "first fight setup"
+                                                     : autopilot::Active() ? "this player picks"
+                                                                           : "the autopilot is done");
         });
     }
     return std::chrono::duration<double>(now - g_fight_t0).count();
@@ -230,8 +235,19 @@ void PadHook(int port, input::Pad& pad) {
                 if (p.analog_mask & (1u << i)) pad.analog[i] = 0xFF;
         }
     }
-    // the launcher's autopilot drives the menus: the player's own controller reaches the game in the match only
-    if (mk3d::link::SuppressPhysicalPads()) {
+    // the launcher's autopilot drives the menus: the player's own controller reaches the game in the match only, and
+    // on the select screen of an online match whose players pick there, where it steers their own side's cursor: the
+    // controller on port 0 (the keyboard's too) goes to port 1 when they are P2
+    const int pick_port = autopilot::LocalPickPort();
+    if (pick_port >= 0) {
+        static input::Pad player;
+        if (port == 0) player = pad;
+        const bool connected = pad.connected;
+        pad = port == pick_port ? player : input::Pad{};
+        pad.analog[1] = 0;      // B would leave the select screen (and the match with it)
+        pad.buttons &= ~0x20u;  // as BACK would
+        pad.connected = connected || port == pick_port;
+    } else if (mk3d::link::SuppressPhysicalPads()) {
         pad.buttons = 0;
         for (auto& a : pad.analog) a = 0;
     }

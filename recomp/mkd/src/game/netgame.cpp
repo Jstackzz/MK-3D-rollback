@@ -59,10 +59,15 @@ uint32_t HashBlock(uint32_t h, uint32_t va, uint32_t size) {
     return h;
 }
 
+// The two fighter objects are 0x710 apart (0x470C78, 0x471388); past P2's lies the select screen's state (the cursors
+// 0x471B18 / 0x471B1C and what each cursor did), which differs between the two games when a player picks there
+// with their own controller while the other game's autopilot makes the same pick another way.
+constexpr uint32_t kFighterBytes = 0x710;
+
 // a fighter object's values (player record + 0x58), pointers left out
 uint32_t FighterHash(uint32_t record) {
     uint32_t obj = kernel::R32(record + 0x58);
-    return obj ? HashBlock(2166136261u, obj, 0x800) : 0;
+    return obj ? HashBlock(2166136261u, obj, kFighterBytes) : 0;
 }
 
 // what a side mode match is made of: Chess Kombat's game (0x46CEDC: 0x1BC bytes, its board +0x38 0x1454 bytes, each
@@ -277,8 +282,8 @@ void LogState(FILE* f) {
 
 // the two fighter objects and the game state block 0x620000..0x622000
 void CheckBlocks(std::vector<std::pair<uint32_t, uint32_t>>& out) {
-    out.push_back({kernel::R32(kP1Record + 0x58), 0x800});
-    out.push_back({kernel::R32(kP2Record + 0x58), 0x800});
+    out.push_back({kernel::R32(kP1Record + 0x58), kFighterBytes});
+    out.push_back({kernel::R32(kP2Record + 0x58), kFighterBytes});
     out.push_back({0x620000, 0x2000});
 }
 

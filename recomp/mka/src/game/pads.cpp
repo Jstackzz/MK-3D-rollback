@@ -6,6 +6,8 @@
 //                       buttons joined with '+': A B X Y BLACK WHITE LT RT UP DOWN LEFT RIGHT START BACK LS RS
 //                       e.g. MKA_INPUT=8:START,10:A,12:DOWN,12.5:A,p2@14:A
 //                       times count from the first controller read; holds default to 0.15 s
+//                       (with MKA_AUTOPILOT the times count from when it is done instead, the first fight setup or
+//                       the mode it went to, so a script can attack once the autopilot has reached a fight)
 #include "game/pads.h"
 
 #include <algorithm>
@@ -38,6 +40,11 @@ std::vector<Press> g_script;
 int g_forced_pads = 0;
 std::chrono::steady_clock::time_point g_t0;
 PadFilter g_filter = nullptr;
+
+// with the autopilot on, a script's times count from when it is done (set once it ran)
+bool g_script_after_autopilot = false;
+std::atomic<bool> g_script_clock{false};
+std::chrono::steady_clock::time_point g_script_t0;
 
 struct Injected {
     uint16_t buttons = 0;
@@ -105,7 +112,27 @@ void Load() {
         }
         if (ok) g_script.push_back(p);
     }
-    LOGI("pads: %zu scripted presses, %d forced pads", g_script.size(), g_forced_pads);
+    g_script_after_autopilot = autopilot::Active() && !g_script.empty();
+    LOGI("pads: %zu scripted presses%s, %d forced pads", g_script.size(),
+         g_script_after_autopilot ? " (timed from when the autopilot is done)" : "", g_forced_pads);
+}
+
+// seconds on the script's clock, or -1 while it has not started
+double ScriptTime() {
+    auto now = std::chrono::steady_clock::now();
+    if (!g_script_after_autopilot) return std::chrono::duration<double>(now - g_t0).count();
+    if (!g_script_clock.load()) {
+        // or when it hands this PC's player the cursor on the select screen (an online match whose players pick
+        // there: the script is that player)
+        if ((autopilot::Active() || autopilot::AtHoldPoint()) && autopilot::LocalPickPort() < 0) return -1;
+        static std::once_flag once;
+        std::call_once(once, [now] {
+            g_script_t0 = now;
+            g_script_clock = true;
+            LOGI("pads: the script starts now (%s)", autopilot::Active() ? "this player picks" : "the autopilot is done");
+        });
+    }
+    return std::chrono::duration<double>(now - g_script_t0).count();
 }
 
 }  // namespace
@@ -160,16 +187,28 @@ void PadHook(int port, input::Pad& pad) {
              kernel::R32(b + kPortPressed), kernel::R32(0x4CE334), kernel::R32(0x4CE338), kernel::R32(0x4CE33C));
     }
     if (!g_script.empty()) {
-        double t = std::chrono::duration<double>(std::chrono::steady_clock::now() - g_t0).count();
+        double t = ScriptTime();
         for (const Press& p : g_script) {
-            if (p.port != port || t < p.at || t >= p.until) continue;
+            if (t < 0 || p.port != port || t < p.at || t >= p.until) continue;
             pad.connected = true;
             pad.buttons |= p.buttons;
             for (int i = 0; i < 8; i++)
                 if (p.analog_mask & (1u << i)) pad.analog[i] = 0xFF;
         }
     }
-    if (link::SuppressPhysicalPads()) {  // the launcher's autopilot drives the menus, the player only the match
+    // the launcher's autopilot drives the menus: the player's own controller reaches the game in the match only, and
+    // on the select screen of an online match whose players pick there, where it steers their own side's cursor: the
+    // controller on port 0 (the keyboard's too) goes to port 1 when they are P2
+    const int pick_port = autopilot::LocalPickPort();
+    if (pick_port >= 0) {
+        static input::Pad player;
+        if (port == 0) player = pad;
+        const bool connected = pad.connected;
+        pad = port == pick_port ? player : input::Pad{};
+        pad.analog[1] = 0;      // B would leave the select screen (and the match with it)
+        pad.buttons &= ~0x20u;  // as BACK would
+        pad.connected = connected || port == pick_port;
+    } else if (link::SuppressPhysicalPads()) {
         pad.buttons = 0;
         for (auto& a : pad.analog) a = 0;
     }

@@ -1,0 +1,19 @@
+﻿diff --git a/runtime/kernel/files.cpp b/runtime/kernel/files.cpp
+index 4fc756d..cc318a9 100644
+--- a/runtime/kernel/files.cpp
++++ b/runtime/kernel/files.cpp
+@@ -582,6 +582,14 @@ KERNEL_EXPORT(211, NtQueryInformationFile, 5) {
+             W64(out, f->pos);
+             IoStatus(iosb, kSuccess, 8);
+             return kSuccess;
++        case 6: {  // FileInternalInformation: the index GetFileInformationByHandle reports, one per Xbox path (Deception
++                   // checks a save this way before reading it)
++            uint64_t index = 1469598103934665603ull;
++            for (char c : f->xbox) index = (index ^ uint8_t(std::tolower(uint8_t(c)))) * 1099511628211ull;
++            W64(out, index);
++            IoStatus(iosb, kSuccess, 8);
++            return kSuccess;
++        }
+         case 34:  // FileNetworkOpenInformation
+             if (f->entry) FillNetworkInfo(out, *f->entry);
+             else FillNetworkInfo(out, f->host);

@@ -2,7 +2,8 @@
 // the configuration, netgame.h for what each game supplies.
 //
 // Packets (little endian): u32 magic "MKDR", u8 type, u8 side, u16 barrier sequence, then
-//   1 HELLO   nothing                     sent while running locally, so each side knows the other is there
+//   1 HELLO   [u8 n, n x u32]             sent while running locally, so each side knows the other is there; with the
+//             words of this game's player's pick on the select screen once there is one (SetLocalPick)
 //   2 READY   u32 seed, u8 n, n x u32     "my match is about to be set up": the seed this game proposes and the game's
 //             own words (its mode, picks, frame counters, a side mode's setup: netgame.h ReadyWords); the barrier ends
 //             when both have one
@@ -322,7 +323,28 @@ void Send(const Writer& w) {
     g_outbox.push_back({Clock::now() + std::chrono::milliseconds(g_cfg.lag + extra), std::vector<uint8_t>(w.b, w.b + w.n)});
 }
 
-void SendHello() { Send(Header(kHello)); }
+// the players' picks on the select screen for the next match (SetLocalPick / PeerPick)
+constexpr int kMaxPickWords = 8;
+std::mutex g_pick_lock;
+std::vector<uint32_t> g_my_pick, g_their_pick;
+bool g_their_pick_in = false;
+
+void ClearPicks() {
+    std::lock_guard<std::mutex> lock(g_pick_lock);
+    g_my_pick.clear();
+    g_their_pick.clear();
+    g_their_pick_in = false;
+}
+
+void SendHello() {
+    Writer w = Header(kHello);
+    std::lock_guard<std::mutex> lock(g_pick_lock);
+    if (!g_my_pick.empty()) {
+        w.U8(uint8_t(g_my_pick.size()));
+        for (uint32_t v : g_my_pick) w.U32(v);
+    }
+    Send(w);
+}
 
 std::vector<uint32_t> g_my_words;  // this game's READY words at the barrier now
 
@@ -439,6 +461,15 @@ void Receive() {
             UpdateContiguous();
         } else if (type == kCheck && n >= 16 && seq == g_seq) {
             g_their_checks[u32(8)] = u32(12);
+        } else if (type == kHello && n >= 9 && seq == g_seq && !InSync()) {
+            // the other player's pick for the match set up next
+            int count = std::min<int>(b[8], kMaxPickWords);
+            std::lock_guard<std::mutex> lock(g_pick_lock);
+            g_their_pick.clear();
+            for (int i = 0; i < count && 9 + i * 4 + 4 <= n; i++) g_their_pick.push_back(u32(9 + i * 4));
+            if (!g_their_pick_in && !g_their_pick.empty())
+                LOGI("netplay: the other player picked %08X (match %u)", g_their_pick[0], unsigned(seq));
+            g_their_pick_in = !g_their_pick.empty();
         }
     }
 }
@@ -572,6 +603,7 @@ void Checks(uint32_t frame, bool agreed) {
 // --- the match in sync starts
 
 void StartSync(X86Context& ctx) {
+    ClearPicks();  // the match set up: the next one picks again
     g_seq++;
     g_frame = 0;
     game::RngFrame(g_seed, 0);
@@ -1063,9 +1095,27 @@ const bool g_registered = [] {
 bool Enabled() { return g_status.load() != int(Status::Off); }
 
 void Configure(const Settings& st) {
+    ClearPicks();
     std::lock_guard<std::mutex> lock(g_pending_lock);
     g_pending_close = false;
     g_pending = st;
+}
+
+void SetLocalPick(const uint32_t* words, int n) {
+    {
+        std::lock_guard<std::mutex> lock(g_pick_lock);
+        g_my_pick.assign(words, words + std::max(0, std::min(n, kMaxPickWords)));
+    }
+    g_last_hello = Clock::time_point{};  // out with the next frame's HELLO
+    LOGI("netplay: this player picked %08X", n > 0 ? words[0] : 0);
+}
+
+bool PeerPick(uint32_t* words, int& n) {
+    std::lock_guard<std::mutex> lock(g_pick_lock);
+    if (!g_their_pick_in) return false;
+    n = std::min(n, int(g_their_pick.size()));
+    for (int i = 0; i < n; i++) words[i] = g_their_pick[i];
+    return true;
 }
 
 void Disable() {

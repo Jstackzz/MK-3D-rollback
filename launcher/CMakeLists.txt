@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(mk3d_launcher VERSION 0.1.3 LANGUAGES CXX)
+project(mk3d_launcher VERSION 0.1.4 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -40,7 +40,7 @@ target_compile_definitions(MK3DLauncher PRIVATE
     MK3D_LAUNCHER_VERSION="${PROJECT_VERSION}"
     UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN
 )
-target_link_libraries(MK3DLauncher PRIVATE Qt6::Widgets Qt6::Network dwmapi)
+target_link_libraries(MK3DLauncher PRIVATE Qt6::Widgets Qt6::Network dwmapi advapi32)
 set_target_properties(MK3DLauncher PROPERTIES OUTPUT_NAME "MK3DLauncher")
 
 if(MSVC)
