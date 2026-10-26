@@ -34,7 +34,7 @@ PENDING_STATES = ("found", "accepted", "punching")
 NEEDS_LOGIN = {
     "logout", "queue_join", "queue_leave", "match_accept", "match_decline", "ping_report", "match_state",
     "result", "lobby_create", "lobby_list", "lobby_join", "lobby_leave", "lobby_chat", "lobby_character",
-    "lobby_ready", "lobby_start", "admin_notice",
+    "lobby_ready", "lobby_start", "admin_notice", "series_ready",
 }
 RESULT_OUTCOMES = ("desync", "disconnected", "error")
 
@@ -65,7 +65,13 @@ class ServerConfig:
     login_fail_window: float = 300.0
     chat_interval: float = 0.5
     default_rounds: int = 3
-    relay: bool = True            # two players who cannot reach each other play through this server's UDP port
+    set_wins: int = 2             # a ranked set goes to the first to win this many matches
+    rematch_timeout: float = 30.0  # casual: both choose a rematch within this, or the series ends
+    set_next_timeout: float = 90.0  # ranked: both games ready for the set's next match within this, or the one
+                                    # that is not loses the set (the last match's ending plays first)
+    set_rejoin_grace: float = 20.0  # a player whose launcher drops between two matches has this long to be back
+    series_max_no_contest: int = 3  # matches in a row that do not count end the series (a set without Elo change)
+    relay: bool = True           # two players who cannot reach each other play through this server's UDP port
     relay_only: bool = False      # development: every match through the relay (one-PC tests of it)
     relay_rate: float = 400.0     # packets a second each player may send through the relay (a game sends ~120)
     relay_burst: float = 800.0
@@ -162,6 +168,7 @@ class Match:
     started: float | None = None
     game_state: str = ""
     relay: tuple[tuple[str, int], tuple[str, int]] | None = None  # the two endpoints the relay joins
+    series: Series | None = None
 
     def player_for(self, account_id: int | None) -> MatchPlayer | None:
         for p in self.players:
@@ -170,6 +177,50 @@ class Match:
         return None
 
     def other(self, p: MatchPlayer) -> MatchPlayer:
+        return self.players[1] if p is self.players[0] else self.players[0]
+
+
+@dataclass(eq=False)
+class SeriesPlayer:
+    account_id: int
+    name: str
+    side: int
+    character: str
+    delay: int
+    max_ping: int
+    region: str
+    elo: int | None
+    wins: int = 0
+    ready: bool = False
+    choice: str = ""  # casual, once ready: "rematch" (the same fighters) or "select" (both pick again)
+
+
+@dataclass(eq=False)
+class Series:
+    """The matches two players play one after another from a queue match. Casual: another one whenever both want a
+    rematch. Ranked: a set, won by the first to win `need` matches; Elo moves once, at its end, and a player who
+    leaves before then (declines the next match, lets its time run out, searches again) loses it."""
+    id: str
+    game: str
+    mode: str
+    ranked: bool
+    need: int  # matches that win a ranked set; 0 casual
+    players: list[SeriesPlayer]
+    created: float
+    state: str = "between"  # between matches (both must be ready for the next), playing, over
+    deadline: float = 0.0
+    match: Match | None = None
+    played: int = 0
+    no_contests: int = 0  # in a row
+    last_picks: tuple[str, str] | None = None  # P1's and P2's fighters in the last agreed match (game character ids)
+
+    def player_for(self, account_id: int | None) -> SeriesPlayer | None:
+        for p in self.players:
+            if p.account_id == account_id:
+                return p
+        return None
+
+    def other(self, p: SeriesPlayer) -> SeriesPlayer:
         return self.players[1] if p is self.players[0] else self.players[0]
 
 
@@ -303,6 +354,8 @@ class Server:
         self.by_udp_token: dict[str, Session] = {}
         self.queue: dict[int, QueueEntry] = {}
         self.matches: dict[str, Match] = {}
+        self.series: dict[str, Series] = {}
+        self.series_of: dict[int, Series] = {}  # by account: a player is in one series at a time
         self.lobbies: dict[str, Lobby] = {}
         self.relay_routes: dict[tuple[str, int], RelayRoute] = {}
         self.ping_cache = PingCache()
@@ -345,6 +398,7 @@ class Server:
             "lobby_character": self.on_lobby_character,
             "lobby_ready": self.on_lobby_ready,
             "lobby_start": self.on_lobby_start,
+            "series_ready": self.on_series_ready,
             "leaderboard": self.on_leaderboard,
         }
 
@@ -464,6 +518,7 @@ class Server:
                 self._cancel_match(m, "ping_timeout", blame={p.side for p in m.players if p.ping is None})
             elif m.state == "playing":
                 self._finalize(m, now)
+        self._tick_series(now)
         for ep in [ep for ep, r in self.relay_routes.items() if r.expires is not None and r.expires < now]:
             del self.relay_routes[ep]
         self._run_matchmaking(now)
@@ -679,6 +734,10 @@ class Server:
             "type": "account", "name": s.name, "token": token, "token_expires": int(expires or 0),
             "udp_token": s.udp_token, "admin": s.admin, "profile": self._profile(row),
         })
+        series = self.series_of.get(account_id)
+        sp = series.player_for(account_id) if series is not None else None
+        if series is not None and sp is not None:  # back in the middle of one
+            s.send(self._series_msg(series, sp, now))
         self._mark_online()
         log.info("login %s from %s (launcher %s)", s.name, s.ip, s.client_version)
 
@@ -700,6 +759,13 @@ class Server:
                     p.session = None  # a playing match stays open for the other report
         if s.account_id is not None and self.by_account.get(s.account_id) is s:
             del self.by_account[s.account_id]
+            # between two matches of a series the launcher has a moment to come back (a ranked set is lost otherwise)
+            series = self.series_of.get(s.account_id)
+            sp = series.player_for(s.account_id) if series is not None else None
+            if series is not None and sp is not None and series.state == "between":
+                sp.ready = False
+                series.deadline = min(series.deadline, time.time() + self.cfg.set_rejoin_grace)
+                self._send_series(series)
         if s.udp_token is not None:
             self.by_udp_token.pop(s.udp_token, None)
             s.udp_token = None
@@ -797,6 +863,7 @@ class Server:
             server_rtt = None
         if s.lobby is not None or s.match is not None:
             raise P.ProtocolError("busy", "Leave the lobby or finish the match first.")
+        self._quit_series(s)
         now = time.time()
         rating = self.db.rating(s.account_id, game, mode)["elo"]
         entry = QueueEntry(
@@ -1078,6 +1145,8 @@ class Server:
         log.info("match %s cancelled: %s", m.id, reason)
         if m.lobby is not None:
             self._lobby_match_over(m.lobby, m)
+        elif m.series is not None:
+            self._series_match_cancelled(m, blame, now)
         self._mark_online()
 
     def on_match_state(self, s: Session, msg: dict[str, Any]) -> None:
@@ -1117,6 +1186,10 @@ class Server:
                 "p1_rounds": P.get_int(msg, "p1_rounds", lo=0, hi=99),
                 "p2_rounds": P.get_int(msg, "p2_rounds", lo=0, hi=99),
             }
+            with suppress(P.ProtocolError):  # optional, never a reason to refuse a result
+                fighters = (P.get_character(msg, "p1_char"), P.get_character(msg, "p2_char"))
+                if all(fighters):  # what a casual rematch with the same fighters starts with
+                    report["fighters"] = fighters
         now = time.time()
         p.result = report
         self.db.add_report(m.id, p.account_id, p.side, report, now)
@@ -1136,7 +1209,6 @@ class Server:
         p1, p2 = m.players
         r1, r2 = p1.result, p2.result
         winner = p1_rounds = p2_rounds = None
-        elo_info: dict[str, Any] | None = None
         fields: dict[str, Any] = {"ended": now}
         if r1 is None or r2 is None:
             status = "unconfirmed"
@@ -1149,14 +1221,8 @@ class Server:
             status = "disputed"
         if status == "agreed":
             w, lose = (p1, p2) if winner == 1 else (p2, p1)
-            if m.ranked:
-                changes = self.db.record_ranked(w.account_id, lose.account_id, m.game, m.mode, now)
-                elo_info = {}
-                for p, prefix in ((p1, "p1"), (p2, "p2")):
-                    before, after = changes[p.account_id]
-                    elo_info[p.name] = {"before": before, "after": after, "delta": after - before}
-                    fields[f"{prefix}_elo_before"] = before
-                    fields[f"{prefix}_elo_after"] = after
+            if m.ranked:  # the match counts; Elo moves when the set ends (_end_series)
+                self.db.record_ranked_match(w.account_id, lose.account_id, m.game, m.mode, now)
             else:
                 self.db.record_casual(w.account_id, lose.account_id, m.game, m.mode, now)
             fields.update(winner=winner, p1_rounds=p1_rounds, p2_rounds=p2_rounds)
@@ -1171,8 +1237,6 @@ class Server:
         self.db.update_match(m.id, **fields)
         out: dict[str, Any] = {"type": "match_result", "match": m.id, "status": status, "winner": winner,
                                "p1_rounds": p1_rounds, "p2_rounds": p2_rounds, "ranked": m.ranked}
-        if elo_info is not None:
-            out["elo"] = elo_info
         for p in m.players:
             sess = self.by_account.get(p.account_id)
             if sess is not None:
@@ -1181,7 +1245,237 @@ class Server:
                 sess.send(dict(out))
         if m.lobby is not None:
             self._lobby_match_over(m.lobby, m)
+        elif m.from_queue or m.series is not None:
+            fighters = None
+            if status == "agreed" and r1.get("fighters") == r2.get("fighters"):
+                fighters = r1.get("fighters")
+            self._series_after_match(m, status, winner, now, fighters)
         self._mark_online()
+
+    # --- series: casual rematches, ranked sets ---------------------------------------------------
+
+    def _series_msg(self, series: Series, p: SeriesPlayer, now: float) -> dict[str, Any]:
+        o = series.other(p)
+        return {
+            "type": "series", "series": series.id, "game": series.game, "mode": series.mode, "ranked": series.ranked,
+            "state": series.state, "need": series.need, "played": series.played, "opponent": o.name,
+            "you": p.wins, "them": o.wins, "you_ready": p.ready, "them_ready": o.ready,
+            "you_choice": p.choice, "them_choice": o.choice, "same_fighters": series.last_picks is not None,
+            "seconds_left": max(0, round(series.deadline - now)) if series.state == "between" else None,
+        }
+
+    def _send_series(self, series: Series, extra: dict[str, Any] | None = None) -> None:
+        now = time.time()
+        for p in series.players:
+            sess = self.by_account.get(p.account_id)
+            if sess is not None:
+                sess.send({**self._series_msg(series, p, now), **(extra or {})})
+
+    def _new_series(self, m: Match, now: float) -> Series:
+        for p in m.players:
+            old = self.series_of.get(p.account_id)
+            if old is not None:
+                self._end_series(old, "void", now=now)
+        series = Series(
+            id=secrets.token_hex(6), game=m.game, mode=m.mode, ranked=m.ranked,
+            need=self.cfg.set_wins if m.ranked else 0, created=now,
+            players=[SeriesPlayer(account_id=p.account_id, name=p.name, side=p.side, character=p.character,
+                                  delay=p.delay, max_ping=p.max_ping, region=p.region, elo=p.elo)
+                     for p in m.players],
+        )
+        self.series[series.id] = series
+        for p in series.players:
+            self.series_of[p.account_id] = series
+        log.info("%s %s: %s vs %s (%s/%s)", "set" if series.ranked else "series", series.id, series.players[0].name,
+                 series.players[1].name, series.game, series.mode)
+        return series
+
+    def _series_after_match(self, m: Match, status: str, winner: int | None, now: float,
+                            fighters: tuple[str, str] | None = None) -> None:
+        series = m.series if m.series is not None else self._new_series(m, now)
+        if series.state == "over":  # a player left it while the other's report was outstanding
+            return
+        series.match = None
+        series.played += 1
+        series.last_picks = fighters
+        if status == "agreed" and winner in (1, 2):
+            sp = series.player_for(m.players[winner - 1].account_id)
+            if sp is not None:
+                sp.wins += 1
+            series.no_contests = 0
+        else:
+            series.no_contests += 1
+        champion = next((p for p in series.players if series.need and p.wins >= series.need), None)
+        # a player who searched again or went to a lobby while the other report was outstanding has left it
+        gone = next((p for p in series.players if self._moved_on(p.account_id)), None)
+        if champion is not None:
+            self._end_series(series, "won", winner=champion, now=now)
+        elif gone is not None:
+            self._leave_series(series, gone, now)
+        elif series.no_contests >= self.cfg.series_max_no_contest:
+            self._end_series(series, "void", now=now)
+        else:
+            self._series_between(series, now)
+
+    def _moved_on(self, account_id: int) -> bool:
+        sess = self.by_account.get(account_id)
+        return sess is not None and (sess.queue is not None or sess.lobby is not None or sess.match is not None)
+
+    def _series_between(self, series: Series, now: float) -> None:
+        series.state = "between"
+        for p in series.players:
+            p.ready = False
+            p.choice = ""
+        series.deadline = now + (self.cfg.set_next_timeout if series.ranked else self.cfg.rematch_timeout)
+        self._send_series(series)
+
+    def _series_match_cancelled(self, m: Match, blame: set[int] | frozenset[int], now: float) -> None:
+        series = m.series
+        if series is None or series.state == "over" or series.match is not m:
+            return
+        series.match = None
+        gone = [series.player_for(p.account_id) for p in m.players if p.side in blame]
+        if len(gone) == 1 and gone[0] is not None:
+            self._leave_series(series, gone[0], now)  # the one who did not show up for it
+            return
+        series.no_contests += 1
+        if series.no_contests >= self.cfg.series_max_no_contest:
+            self._end_series(series, "void", now=now)
+        else:
+            self._series_between(series, now)
+
+    def _series_picks(self, series: Series) -> tuple[str, str]:
+        """P1's and P2's characters in a series' next match ("" picks on the select screen). Casual: the last match's
+        fighters when both want a rematch, the select screen for both when either wants to select (or when the last
+        match's fighters are not known: the characters they queued with). A ranked set keeps the queued ones."""
+        p1, p2 = sorted(series.players, key=lambda p: p.side)
+        if series.ranked:
+            return p1.character, p2.character
+        if all(p.choice == "rematch" for p in series.players):
+            return series.last_picks or (p1.character, p2.character)
+        return "", ""
+
+    def _next_series_match(self, series: Series, now: float) -> None:
+        sessions = [self.by_account.get(p.account_id) for p in series.players]
+        if any(sess is None or sess.match is not None for sess in sessions):
+            return  # one of them is not here: the deadline decides
+        picks = self._series_picks(series)
+        players = sorted(
+            (MatchPlayer(side=p.side, account_id=p.account_id, name=p.name, session=sess,
+                         character=picks[p.side - 1], delay=p.delay, max_ping=p.max_ping, region=p.region,
+                         elo=p.elo if series.ranked else None, accepted=True)
+             for p, sess in zip(series.players, sessions)),
+            key=lambda mp: mp.side,
+        )
+        m = Match(id=secrets.token_hex(6), game=series.game, mode=series.mode, ranked=series.ranked, players=players,
+                  created=now, from_queue=False, series=series, rounds=self.cfg.default_rounds, state="accepted",
+                  deadline=now + self.cfg.udp_timeout)
+        series.state = "playing"
+        series.match = m
+        self._register_match(m)
+        for p in players:
+            assert p.session is not None
+            p.session.send({
+                "type": "match_found", "match": m.id, "game": m.game, "mode": m.mode, "ranked": m.ranked,
+                "side": p.side, "accept_timeout": 0, "accept_required": False, "lobby": None, "series": series.id,
+                "opponent": self._opponent(m, m.other(p)),
+            })
+        log.info("%s %s: match %s (%d played)", "set" if series.ranked else "series", series.id, m.id, series.played)
+        self._send_series(series)
+
+    def _leave_series(self, series: Series, p: SeriesPlayer, now: float) -> None:
+        """A player leaves: a ranked set with a match counted is lost, whatever its score (one match won and gone
+        gains nothing); one where nothing counted yet (the first match desynced) ends without a rating change; a
+        casual series just ends."""
+        if not series.ranked:
+            self._end_series(series, "left", left=p, now=now)
+        elif any(pl.wins for pl in series.players):
+            self._end_series(series, "forfeit", left=p, now=now)
+        else:
+            self._end_series(series, "void", left=p, now=now)
+
+    def _end_series(self, series: Series, outcome: str, *, winner: SeriesPlayer | None = None,
+                    left: SeriesPlayer | None = None, now: float | None = None) -> None:
+        """won (a set's winner reached its wins), forfeit (ranked: `left` left the set and loses it), left (casual),
+        timeout (casual: no rematch in time; ranked: neither game came back), void (matches kept not counting, or a
+        set was left before any of its matches counted)."""
+        if series.state == "over":
+            return
+        assert self.db is not None
+        now = now or time.time()
+        series.state = "over"
+        self.series.pop(series.id, None)
+        for p in series.players:
+            if self.series_of.get(p.account_id) is series:
+                del self.series_of[p.account_id]
+        if outcome == "forfeit" and left is not None:
+            winner = series.other(left)
+        extra: dict[str, Any] = {"outcome": outcome, "winner": winner.name if winner else None,
+                                 "left": left.name if left else None}
+        changes = None
+        if series.ranked:
+            if winner is not None:
+                loser = series.other(winner)
+                changes = self.db.record_ranked_set(winner.account_id, loser.account_id, series.game, series.mode, now)
+                extra["elo"] = {p.name: {"before": changes[p.account_id][0], "after": changes[p.account_id][1],
+                                         "delta": changes[p.account_id][1] - changes[p.account_id][0]}
+                                for p in series.players}
+            p1, p2 = sorted(series.players, key=lambda p: p.side)
+            self.db.log_set(series.id, series.game, series.mode, p1.account_id, p2.account_id, series.created, now,
+                            outcome, winner.account_id if winner else None, p1.wins, p2.wins, changes)
+            log.info("SET %s over: %s, %s %d-%d %s%s", series.id, outcome, p1.name, p1.wins, p2.wins, p2.name,
+                     f", {winner.name} wins it" if winner else ", no rating change")
+        else:
+            log.info("series %s over: %s after %d matches", series.id, outcome, series.played)
+        m = series.match
+        series.match = None
+        if m is not None and m.state in PENDING_STATES:
+            self._cancel_match(m, "series_over", blame={m.player_for(left.account_id).side} if left else set())
+        self._send_series(series, extra)
+
+    def _quit_series(self, s: Session) -> None:
+        """Searching again or going to a lobby leaves the series the player is in (losing a ranked set)."""
+        series = self.series_of.get(s.account_id) if s.account_id is not None else None
+        p = series.player_for(s.account_id) if series is not None else None
+        if series is not None and p is not None:
+            self._leave_series(series, p, time.time())
+
+    def on_series_ready(self, s: Session, msg: dict[str, Any]) -> None:
+        series = self.series_of.get(s.account_id) if s.account_id is not None else None
+        if series is None or msg.get("series") != series.id:
+            raise P.ProtocolError("no_such_series", "That series is over.")
+        p = series.player_for(s.account_id)
+        assert p is not None
+        now = time.time()
+        if not P.get_bool(msg, "ready"):
+            self._reply(s, msg, {"type": "series_left", "series": series.id})
+            self._leave_series(series, p, now)
+            return
+        choice = msg.get("choice", "rematch")
+        if choice not in ("rematch", "select"):
+            raise P.ProtocolError("bad_request", "choice must be rematch or select.")
+        if series.state == "between":
+            if s.match is not None or s.lobby is not None or s.queue is not None:
+                raise P.ProtocolError("busy", "Leave the queue, lobby or match first.")
+            p.ready = True
+            p.choice = choice
+        self._reply(s, msg, {"type": "series_ack", "series": series.id})
+        if series.state != "between":
+            return
+        if all(pl.ready for pl in series.players):
+            self._next_series_match(series, now)
+        else:
+            self._send_series(series)
+
+    def _tick_series(self, now: float) -> None:
+        for series in list(self.series.values()):
+            if series.state != "between" or now < series.deadline:
+                continue
+            waiting = [p for p in series.players if not p.ready]
+            if series.ranked and len(waiting) == 1:
+                self._leave_series(series, waiting[0], now)  # the other was there for the next match
+            else:
+                self._end_series(series, "timeout", now=now)
 
     # --- lobbies ----------------------------------------------------------------------------------
 
@@ -1217,6 +1511,7 @@ class Server:
         if s.queue is not None or s.lobby is not None or s.match is not None:
             raise P.ProtocolError("busy", "Leave the queue, lobby or match first.")
         game, mode = P.get_game_mode(msg)
+        self._quit_series(s)
         default_name = f"{s.name}'s lobby"
         name = P.get_str(msg, "name", default=default_name, max_len=128).strip()[: P.LOBBY_NAME_MAX] or default_name
         password = P.get_str(msg, "password", default="", max_len=64)
@@ -1252,6 +1547,7 @@ class Server:
         password = P.get_str(msg, "password", default="", max_len=64)
         if lobby.password and not hmac.compare_digest(lobby.password.encode(), password.encode()):
             raise P.ProtocolError("bad_lobby_password", "Wrong lobby password.")
+        self._quit_series(s)
         lobby.members.append(LobbyMember(s, P.get_character(msg)))
         s.lobby = lobby
         log.info("lobby %s: %s joined", lobby.id, s.name)

@@ -184,6 +184,13 @@ P2 0x2CE780 / 0x2CE77C / 0x2CE7A4 / 0x2CE784; slots 2 and 3 follow, unassigned p
 0x2EFBFC. Button map: 17 entries {analog, mask} at 0x281438, logical bits at 0x266B50 + i * 12. New presses are
 (current ^ previous) & current, as in Deception.
 
+The sticks never become a direction here (2026-10-26): the pad update only packs the four thumbstick shorts into the
+sticks word (a byte each, 0x80 / 0x7F centred), and the only reader of a player's word besides it is sub_00075E30
+(the camera of sub_00130320). Deception (sub_0006AC90, from its pad update) and Armageddon (sub_0007B9F0, from
+sub_0026A9C0) OR the left stick into the d-pad's logical bits past a deadzone byte of 48 (0x3EBB24 / 0x54E5EC) with a
+threshold of 0.0, so a controller's stick moved a fighter there and did nothing in this game. pads.cpp
+StickPressesDpad now presses the d-pad from the left stick with the same deadzone (48 * 256 of the pad's 16 bits).
+
 ## Game layer for netplay (2026-10-25)
 
 Deception's game layer (frame hooks, events, autopilot) for this game, in `recomp/mkda/src/game`:
@@ -353,7 +360,12 @@ sources and include directory.
   they differ). `Reseed`: sub_000EC810(seed), 0x2E8404 = 0, and the C runtime's rand state (_getptd sub_001CA1EE +
   0x14) = seed. `MatchOver`: the mode changed, the front end (main menu or select task), or the attract task
   0x238E0 (a round nobody touched). Checks hash health, wins, characters, mode, round, time, winner and both fighter
-  objects (0xE2C bytes, pointers left out); rand sub_001C60C4 is counted (`mk3d::net::CountRand`).
+  objects (0xE2C bytes, pointers left out); rand sub_001C60C4 is counted (`mk3d::net::CountRand`) from the
+  barrier's reseed on. Some arenas draw from it while they load (two bursts of 105 as their props arrive, then 7 a
+  frame from frame 15): one game's loader finished the bursts in the setup frame, the other's at its frames 1 and 8,
+  so the draws (how many, the last) go in a check only once neither game is loading (netplay.cpp `Checks`); a check
+  that counted them from the sync's first frame, keeping the last value of the match before, parted two games at
+  frame 0 that played alike.
 - `linkgame.cpp` (`mk3d/linkgame.h`): the autopilot's launcher API; the arena comes from the launcher's seed before
   the fight loads (the arena list 0x24D800 filtered by the built-in open mask 0x273584, 10 arenas; seed % n, or the
   named stage), set through the engine's own chosen arena 0x42C754 right before the pick sub_0006F570

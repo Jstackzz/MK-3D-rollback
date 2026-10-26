@@ -1,6 +1,7 @@
 #pragma once
-// Ranked / Casual queue pages, Single player (with the local two-instance test) and the Leaderboard.
+// Ranked / Kasual queue pages, Single player (with the local two-instance test) and the Leaderboard.
 
+#include <QElapsedTimer>
 #include <QJsonObject>
 #include <QTimer>
 
@@ -27,6 +28,11 @@ private:
     void updateStats();
     void updateButton();
     void onPhase(MatchController::Phase phase, const QString& text);
+    // the series after a match: a Kasual rematch, or the ranked set's score and its next match
+    void onSeries(const QJsonObject& series);
+    void updateSeries();
+    QString seriesOverText(const QJsonObject& series) const;
+    bool leavingLosesSet();  // asks first when leaving would lose a ranked set; true: go ahead
     QString key(const QString& what) const;
 
     bool ranked_;
@@ -48,9 +54,22 @@ private:
     QLabel* elo_;
     QLabel* wins_;
     QLabel* losses_;
+    QWidget* mmCard_;
+    QWidget* seriesCard_;
+    QLabel* seriesTitle_;
+    QLabel* seriesScore_;
+    QLabel* seriesInfo_;
+    QPushButton* rematch_;  // Kasual: the same fighters again
+    QPushButton* select_;   // Kasual: both back to character select
+    QPushButton* leave_;
     LogView* log_;
     QTimer clock_;
+    QTimer seriesClock_;
+    QElapsedTimer seriesSince_;  // since the series' last message, for its countdown
     QJsonObject stats_;
+    QJsonObject series_;      // this page's series (Kasual or ranked), {} when none
+    QString chosen_;  // "rematch" or "select" pressed, not seen by the server yet (sent once the game is ready)
+    void choose(const QString& choice);
 };
 
 // the whole game with its own menus (arcade, its practice mode, the side modes), and in a source build the two-game

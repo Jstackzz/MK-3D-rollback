@@ -188,7 +188,7 @@ X86_FUNC(sub_000983A0) {
     mka::g_fight_frame = mka::Frame();
     uint32_t n = ++mka::g_fights;
     if (mka::Logging())
-        LOGI("event: frame %llu fight setup #%u, mode %u, characters %u vs %u, arena %u", (unsigned long long)mka::Frame(),
+        LOGR("event: frame %llu fight setup #%u, mode %u, characters %u vs %u, arena %u", (unsigned long long)mka::Frame(),
              n, mka::GameMode(), kernel::R32(mka::kP1Character), kernel::R32(mka::kP2Character),
              kernel::R32(mka::kArena));
 }
@@ -209,7 +209,7 @@ X86_FUNC(sub_001D9530) {
     bool redirect = armed && action != uint32_t(to);
     if (redirect) kernel::W32(ctx.esp + 8, uint32_t(to));
     if (mka::Logging())
-        LOGI("event: frame %llu menu action %u from player %u%s", (unsigned long long)mka::Frame(), action,
+        LOGR("event: frame %llu menu action %u from player %u%s", (unsigned long long)mka::Frame(), action,
              kernel::R32(ctx.esp + 4), redirect ? " (redirected)" : "");
     __imp__sub_001D9530(ctx, base);
     mka::g_actions++;
@@ -227,7 +227,7 @@ X86_FUNC(sub_001DDDA0) {
     if (kernel::R32(ctx.esp + 4) == mka::kSelectScreen) {
         mka::g_select_block = kernel::R32(ctx.esp + 12);
         if (mka::Logging())
-            LOGI("event: frame %llu character select screen, block %08X", (unsigned long long)mka::Frame(),
+            LOGR("event: frame %llu character select screen, block %08X", (unsigned long long)mka::Frame(),
                  mka::SelectBlock());
     }
     __imp__sub_001DDDA0(ctx, base);
@@ -238,7 +238,7 @@ X86_FUNC(sub_0019CA30) {
     mka::g_state_switches++;
     mka::g_select_block = 0;  // the screen goes with the task that built it
     if (mka::Logging())
-        LOGI("event: frame %llu state switch to %08X (priority %u) from %08X", (unsigned long long)mka::Frame(),
+        LOGR("event: frame %llu state switch to %08X (priority %u) from %08X", (unsigned long long)mka::Frame(),
              kernel::R32(ctx.esp + 8), kernel::R32(ctx.esp + 4), kernel::R32(ctx.esp));
     __imp__sub_0019CA30(ctx, base);
 }
@@ -247,6 +247,6 @@ X86_FUNC(sub_0019CA30) {
 // start switches to the profile screen sub_001FA0C0, which comes back here)
 X86_FUNC(sub_0019F3D0) {
     uint32_t n = ++mka::g_menus;
-    if (mka::Logging()) LOGI("event: frame %llu main menu #%u", (unsigned long long)mka::Frame(), n);
+    if (mka::Logging()) LOGR("event: frame %llu main menu #%u", (unsigned long long)mka::Frame(), n);
     __imp__sub_0019F3D0(ctx, base);
 }

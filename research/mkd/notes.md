@@ -272,6 +272,10 @@ Frame and input:
   logical bits: previous +0xC, current +0x10, new presses +0x14 ((cur ^ prev) & cur), sticks +0x18 (four bytes,
   centred 0x807F807F); analog face buttons count from 9. Netplay exchanges these logical values and writes both
   ports' blocks right after the pad update, so each player's own button configuration applies on their own PC.
+- The pad update rebuilds each open port's block from zero every frame (previous = current, then current from the
+  XInput state; it never looks at the packet number). Port block: +0 flags (2 open, 4 calls sub_0006AC90 after the
+  read), +4 button table, +8 the player record the port drives (a press on a port without one calls sub_0006AB10).
+  sub_0008A4F0(port, stick, &x, &y) reads a stick (0 left, 1 right) as floats past the deadzone byte 0x3EBB24.
 
 Game state:
 - Game mode 0x61C414, written only by sub_001BC170: 13 front end, 0 arcade, 1 versus, 4 practice (health refills),

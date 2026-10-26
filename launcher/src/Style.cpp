@@ -100,6 +100,7 @@ QPushButton#Primary:disabled { color: #8E6A6C; background: #2A1416; border-color
 QPushButton#Primary[searching="true"] {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #34343C, stop:1 #1C1C21); border-color: #6A6A74;
 }
+QPushButton#Primary[compact="true"] { font-size: 11pt; padding: 6px 14px; }  /* beside plain buttons in a row */
 QComboBox, QLineEdit, QSpinBox, QPlainTextEdit, QTextBrowser {
     background: #0F0F12; border: 1px solid #34343C; border-radius: 4px; padding: 5px 8px;
     selection-background-color: #8E0E1C; selection-color: #FFFFFF;

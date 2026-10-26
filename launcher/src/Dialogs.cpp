@@ -159,7 +159,7 @@ MatchFoundDialog::MatchFoundDialog(const QJsonObject& found, const QString& game
     ui::letterSpacing(big, 6);
     v->addWidget(big);
     const bool ranked = found.value(QStringLiteral("ranked")).toBool();
-    auto* what = ui::label(QStringLiteral("%1  |  %2  |  %3").arg(gameTitle, modeName, ranked ? tr("Ranked") : tr("Casual")),
+    auto* what = ui::label(QStringLiteral("%1  |  %2  |  %3").arg(gameTitle, modeName, ranked ? tr("Ranked") : tr("Kasual")),
                            "Muted");
     what->setAlignment(Qt::AlignCenter);
     v->addWidget(what);

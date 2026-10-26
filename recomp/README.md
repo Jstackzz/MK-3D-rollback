@@ -141,6 +141,13 @@ for p in recomp/patches/xboxxberecomp-*.patch; do git -C external/XboxXBERecomp 
   `GetFileInformationByHandle` asks for it; Deception's profile kollection
   load does that before it reads the file, so without it every profile saved
   in an earlier session failed to load ("no space for new profiles").
+- `0018-xinput-controllers`: SDL's XInput backend is on. With Xbox devices
+  left to Windows.Gaming.Input alone, an XInput device WGI does not count as
+  a gamepad came through as a plain joystick, which the runtime never reads:
+  a PDP MK X Fight Stick (0E6F:0143, Xbox 360 mode) did nothing in any game.
+  XInput takes every XInput device as a gamepad (triggers apart, read whether
+  or not the window is in front), WGI skips those and keeps the rest, HIDAPI
+  still takes PlayStation and Switch pads.
 
 `tools/py/lib_audit.py <game dir> <xbsdb symbols>` lists the XDK library
 functions the game calls that still run console code against host objects,

@@ -54,8 +54,9 @@ fingerprint at start-up. Useful options:
 
 State that survives restarts lives in the SQLite file (accounts, login tokens
 as SHA-256, per game/mode ranked Elo and wins/losses, casual wins/losses, the
-match log and every result report). Queues, lobbies and matches in progress
-are in memory and are lost on restart.
+match log, every result report and the ranked sets). Queues, lobbies, series
+(casual rematches, ranked sets in progress) and matches in progress are in
+memory and are lost on restart.
 
 ### Tests
 
@@ -67,8 +68,10 @@ python -m pytest server/tests
 The suite starts a real TLS server on ephemeral ports with a throw-away
 certificate and database and covers accounts, pinning, rate limiting, queue
 pairing (pure rules and over the wire), accept/decline/timeouts, the UDP
-rendezvous and punching on 127.0.0.1, Elo on agreement, no change on
-disagreement, desync/unconfirmed results, and lobbies.
+rendezvous and punching on 127.0.0.1, wins on agreement, no change on
+disagreement, desync/unconfirmed results, lobbies, casual rematches (the same
+fighters, or both picking again) and ranked sets (Elo once per set, the one who
+leaves a set loses it).
 
 ### Scripted players
 
@@ -143,7 +146,8 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    it first connects (not with `--user`, `--local-test` or `--extract`).
 3. **Game selector** (Deadly Alliance / Deception / Armageddon) switches every
    page; modes and rosters come from `launcher/data/<game>.json`.
-4. **Ranked / Casual**: pick the mode and fighter, *Find match*. With *Pick my
+4. **Ranked / Kasual** (Kasual is the casual queue, `casual` in the protocol and
+   the settings): pick the mode and fighter, *Find match*. With *Pick my
    fighter on the game's own select screen* (`[online] pick_in_game`, on by
    default) the launcher sends no fighter and the player picks in the game when
    the match starts (docs/PROTOCOL.md 3.3). The game is
@@ -151,7 +155,14 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    When a match is found you have 15 s to accept; then the launcher punches
    the opponent on the game port, measures the ping, writes the `start` line
    into the game's `cmd.txt`, reports the result the game writes to
-   `status.txt`, and parks the game again.
+   `status.txt`, and parks the game again. *Your record* shows the wins and
+   losses of that game and mode (and the Elo in Ranked). After the match a
+   series card shows the score against that opponent (docs/PROTOCOL.md
+   1.9.1): Kasual offers *Rematch* (the same fighters, when both press it),
+   *Select* (both pick again on the select screen) and *Leave* for 30 s; the
+   game reports the fighters with its result. A ranked set (first
+   to 2) asks for its next match by itself once the game is back at its hold
+   point, and *Leave set* asks first when leaving would lose the set.
 5. **Lobby**: create (optional password, best of 1/3/5), join from the list or
    by 5-letter code, pick a fighter (or *Pick in the game*), chat, *Ready*; the
    host starts.
@@ -186,8 +197,9 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
 
 Files next to the exe (or `%LOCALAPPDATA%\MK3D\MK3D Online` when that folder
 is read-only): `mk3d-launcher.ini`, `controls.toml`, `mk3d-launcher.log` and
-`sessions\`, one folder per game process with its `cmd.txt`, `status.txt` and
-`game.log`.
+`sessions\`, one folder per game process with its `cmd.txt`, `status.txt`,
+`game.log` and a `net-<match>.log` for each online match (every frame's
+inputs); the newest 30 sessions are kept.
 
 Matches bind the game UDP port on every interface, so a player across the
 internet reaches this one even when the server runs on this PC; `[dev]
@@ -219,6 +231,8 @@ Command-line options for development and automation:
 | `--user NAME [--register]` | sign in (or create) with the password from `MK3D_DEV_PASSWORD` (`--password-env` picks another variable) |
 | `--queue casual\|ranked --game mkd --mode kombat --character Scorpion` | search right after signing in |
 | `--auto-accept N` | accept a found match after N seconds |
+| `--rematches N` | with `--queue casual`: choose a rematch after each match, N times (a ranked set plays on by itself) |
+| `--rematch-choice rematch,select` | what each of those choices is: `rematch` (the same fighters) or `select` (both pick again); the last one repeats (default `rematch`; `tools/online-e2e.ps1 -RematchChoice`) |
 | `--lobby host\|join --lobby-name NAME --game mkd --mode kombat --character Scorpion` | host a lobby of that name and start its match once both are ready, or join it by name and mark ready |
 | `--page ranked\|casual\|lobby\|single\|leaderboard\|build\|controls\|settings` | start page (`practice`, its old name, opens `single`) |
 | `--local-test` | start the two-instance loopback test |
@@ -230,7 +244,8 @@ game, and `python -m server.client play --name tester2 --register --udp-port
 7002` as the opponent. With real games, `tools\online-e2e.ps1` runs the whole
 chain on one PC: the server, two launchers and the two games they start
 (`-Game mkd|mka|mkda`, `-Mode kombat|chess|puzzle|motor`, `-Queue
-casual|ranked|lobby`; ranked starts the server with `--allow-same-ip`;
+casual|ranked|lobby`; ranked starts the server with `--allow-same-ip` and runs
+until the set is over; `-Rematches N` plays a casual series;
 `-Launcher <folder>\MK3DLauncher.exe` runs an unpacked player package with
 its own games).
 

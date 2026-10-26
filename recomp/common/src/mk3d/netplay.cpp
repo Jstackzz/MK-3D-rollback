@@ -10,7 +10,9 @@
 //   3 INPUT   u32 ack, u32 now, i32 advantage, u32 first, u8 n, n x (u32 buttons, u32 sticks)
 //             the sender's inputs for frames first .. first+n-1, the highest frame of ours it holds without gaps,
 //             the frame it runs and how many frames it thinks it runs ahead of us
-//   4 CHECK   u32 frame, u32 hash         state hash at the top of a frame both games agree on
+//   4 CHECK   u32 frame, u32 state, u32 rand, u8 loading
+//             at the top of a frame both games agree on: the game's state hash, the C runtime's random numbers drawn
+//             since the barrier reseeded them, and whether the match was still loading (Checks)
 //
 // Rollback, per frame (the frame hooks of mk3d/game.h):
 //   top of frame    the frame that ran is closed (rollback.h); what arrived is read; if the other player's real
@@ -102,7 +104,11 @@ bool g_start_pending = false;    // met at a match setup: the match in sync star
 uint32_t g_frame = 0;            // the frame in sync running now
 std::map<uint32_t, Input> g_mine, g_theirs;
 uint32_t g_their_ack = 0;        // frames of ours the peer holds (exclusive)
-std::map<uint32_t, uint32_t> g_my_checks, g_their_checks;
+struct Check {
+    uint32_t state = 0, rand = 0;  // StateHash, RandHash
+    bool loading = false;          // the match was still loading at that frame
+};
+std::map<uint32_t, Check> g_my_checks, g_their_checks;
 bool g_desynced = false;
 Clock::time_point g_last_hello;
 bool g_peer_seen = false;
@@ -115,6 +121,7 @@ std::map<uint32_t, Input> g_used;  // the other player's input each frame's last
 uint32_t g_target = 0;             // running again up to this frame (exclusive)
 bool g_replaying = false;
 uint32_t g_confirmed = 0;          // every frame below ran with the other player's real input
+bool g_had_focus = true;           // the game's window was in front at the last frame (WatchFocus)
 uint32_t g_their_now = 0;          // the frame the other game said it runs
 int g_their_adv = 0;               // how far ahead of us it thinks it runs
 Clock::time_point g_replay_t0, g_last_slowdown;
@@ -388,10 +395,12 @@ void SendInputs() {
     Send(w);
 }
 
-void SendCheck(uint32_t frame, uint32_t hash) {
+void SendCheck(uint32_t frame, const Check& c) {
     Writer w = Header(kCheck);
     w.U32(frame);
-    w.U32(hash);
+    w.U32(c.state);
+    w.U32(c.rand);
+    w.U8(c.loading ? 1 : 0);
     Send(w);
 }
 
@@ -459,8 +468,8 @@ void Receive() {
                 g_theirs.emplace(first + uint32_t(i), in);
             }
             UpdateContiguous();
-        } else if (type == kCheck && n >= 16 && seq == g_seq) {
-            g_their_checks[u32(8)] = u32(12);
+        } else if (type == kCheck && n >= 21 && seq == g_seq) {
+            g_their_checks[u32(8)] = Check{u32(12), u32(16), b[20] != 0};
         } else if (type == kHello && n >= 9 && seq == g_seq && !InSync()) {
             // the other player's pick for the match set up next
             int count = std::min<int>(b[8], kMaxPickWords);
@@ -517,14 +526,13 @@ int DataHashes(uint32_t (&out)[kMaxDataBlocks]) {
     return blocks;
 }
 
-// what both games must agree on: the game's state (netgame.h StateHash) and the C runtime's random numbers
-uint32_t StateHash() {
-    uint32_t h = 2166136261u;
-    h = Fnv(h, game::StateHash());
-    h = Fnv(h, g_rand_calls.load());
-    h = Fnv(h, g_rand_last.load());
-    return h;
-}
+// what both games must agree on: the game's state (netgame.h StateHash)
+uint32_t StateHash() { return Fnv(2166136261u, game::StateHash()); }
+
+// and the C runtime's random numbers drawn since the barrier reseeded them (how many, the last one). An arena can draw
+// them as its files arrive, which the two games' loaders do a few frames apart (Deadly Alliance: 210 draws before one
+// game's first frame, at its frames 1 and 8 in the other's), so they are compared once neither game is loading.
+uint32_t RandHash() { return Fnv(Fnv(2166136261u, g_rand_calls.load()), g_rand_last.load()); }
 
 // what a check covered, kept a while: written out when the other game disagrees
 struct CheckCopy {
@@ -578,10 +586,10 @@ void Leave(const char* why, Status st = Status::Local) {
 // checks for frames both games agree on: send ours, compare theirs
 void Checks(uint32_t frame, bool agreed) {
     if (agreed && frame % kCheckEvery == 0 && !g_my_checks.count(frame)) {
-        uint32_t h = StateHash();
-        g_my_checks[frame] = h;
+        const Check c{StateHash(), RandHash(), g_loading};
+        g_my_checks[frame] = c;
         KeepCheckCopy(frame);
-        SendCheck(frame, h);
+        SendCheck(frame, c);
     }
     for (auto it = g_their_checks.begin(); it != g_their_checks.end();) {
         auto mine_it = g_my_checks.find(it->first);
@@ -589,8 +597,12 @@ void Checks(uint32_t frame, bool agreed) {
             ++it;
             continue;
         }
-        if (mine_it->second != it->second && !g_desynced) {
-            LOGE("netplay: DESYNC at frame %u (ours %08X, theirs %08X)", it->first, mine_it->second, it->second);
+        const Check& mine = mine_it->second;
+        const Check& theirs = it->second;
+        const bool rand_counts = !mine.loading && !theirs.loading;
+        if ((mine.state != theirs.state || (rand_counts && mine.rand != theirs.rand)) && !g_desynced) {
+            LOGE("netplay: DESYNC at frame %u (ours %08X/%08X, theirs %08X/%08X%s)", it->first, mine.state, mine.rand,
+                 theirs.state, theirs.rand, rand_counts ? "" : ", loading");
             DumpCheckCopy(it->first);
             g_desynced = true;
             g_desync_frame = it->first;
@@ -618,10 +630,10 @@ void StartSync(X86Context& ctx) {
     g_prev_buttons[0] = g_prev_buttons[1] = 0;
     g_my_checks.clear();
     g_their_checks.clear();
-    g_desynced = false;
-    g_rand_calls = 0;
+    g_desynced = false;  // the random numbers' counters run from the barrier's reseed (MeetBeforeSetup)
     g_confirmed = 0;
     g_replaying = false;
+    g_had_focus = true;  // a match that starts without it says so at its first frame
     game::MatchBegins();
     Unsettle();
     g_loading = true;  // the match's own start loads
@@ -698,6 +710,10 @@ void MeetBeforeSetup(X86Context& ctx) {
     uint32_t seed = g_cfg.side == 0 ? g_my_seed : g_their_seed;
     g_seed = seed;
     game::Reseed(ctx, seed);
+    // the C runtime's random numbers are counted from here, where both games' draws start alike: the rest of this
+    // frame (a loader finishing an arena's props) draws in one game and not yet in the other
+    g_rand_calls = 0;
+    g_rand_last = 0;
     LOGI("netplay: random generator seeded with %08X", seed);
     WritePort(0, Input{}, 0);
     WritePort(1, Input{}, 0);
@@ -945,6 +961,20 @@ void Diagnostics() {
     }
 }
 
+// The game's window giving the keyboard and the controllers away during a match (to the launcher, an overlay, another
+// window: the controllers read nothing then): noted in the game's log, as it explains a player's input going missing
+void WatchFocus() {
+    HWND w = GetForegroundWindow();
+    DWORD pid = 0;
+    if (w) GetWindowThreadProcessId(w, &pid);
+    const bool has = pid == GetCurrentProcessId();
+    if (has == g_had_focus) return;
+    g_had_focus = has;
+    const char* what = has ? "has the focus again" : "lost the focus to another window";
+    LOGR("netplay: frame %u: the game window %s", g_frame, what);
+    if (g_cfg.log) std::fprintf(g_cfg.log, "# frame %u: the game window %s\n", g_frame, what);
+}
+
 // the per-frame log line: frame, inputs, how it ran, then the game's state fields
 void LogFrame(const Input& mine, const Input& theirs, bool predicted) {
     if (!g_cfg.log) return;
@@ -960,6 +990,7 @@ void RollbackPads() {
     if (!g_replaying) {
         g_mine[g_frame + uint32_t(g_cfg.delay)] = ReadLocal();
         SendInputs();
+        WatchFocus();
     }
     Input mine = Mine(g_frame), theirs = Theirs(g_frame);
     g_used[g_frame] = theirs;
@@ -1006,6 +1037,7 @@ void LockstepPads() {
     // this frame's local input is used delay frames from now
     g_mine[g_frame + uint32_t(g_cfg.delay)] = ReadLocal();
     SendInputs();
+    WatchFocus();
     auto t0 = Clock::now(), last = t0;
     bool warned = false;
     while (!g_theirs.count(g_frame)) {

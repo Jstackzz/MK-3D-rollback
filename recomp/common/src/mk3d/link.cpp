@@ -23,6 +23,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cwchar>
+#include <filesystem>
 #include <map>
 #include <mutex>
 #include <sstream>
@@ -169,7 +171,7 @@ void Start(const Command& c) {
         g_in_match = false;
         return;
     }
-    LOGI("link: start %s (%s vs %s), match %s, %s", mode.c_str(), picks[0].c_str(), picks[1].c_str(), g_match.c_str(),
+    LOGR("link: start %s (%s vs %s), match %s, %s", mode.c_str(), picks[0].c_str(), picks[1].c_str(), g_match.c_str(),
          g_online ? "online" : "offline");
 }
 
@@ -261,8 +263,12 @@ void Update() {
     int winner = 0;
     uint32_t r1 = 0, r2 = 0;
     if (game::Outcome(g_start.mode, s, g_wins_needed, winner, r1, r2) && (winner == 1 || winner == 2)) {
+        std::string fighters;
+        int chars[2] = {-1, -1};
+        if (game::Fighters(g_start.mode, chars) && chars[0] >= 0 && chars[1] >= 0)
+            fighters = " p1_char=" + std::to_string(chars[0]) + " p2_char=" + std::to_string(chars[1]);
         WriteStatus("result winner=" + std::to_string(winner) + " p1_rounds=" + std::to_string(r1) +
-                    " p2_rounds=" + std::to_string(r2) + " match=" + g_match);
+                    " p2_rounds=" + std::to_string(r2) + fighters + " match=" + g_match);
         g_reported = true;
     }
 }
@@ -295,7 +301,7 @@ void FrameStart(uint64_t) {
     if (!g_park.exchange(false)) return;
     X86Context* ctx = MainContext();
     if (!ctx) return;
-    LOGI("link: back to the main menu");
+    LOGR("link: back to the main menu");
     game::Park(*ctx);
 }
 
@@ -319,12 +325,20 @@ bool Active() { return g_on; }
 
 bool SuppressPhysicalPads() {
     if (!g_on) return false;
-    // the player's controller reaches the game only while the match runs (and on the select screen, for their own
-    // side's cursor when they pick there: the game's pads route it, autopilot LocalPickPort)
-    return !(g_in_match && g_fighting && !g_reported) || game::AutopilotActive();
+    // the player's controller reaches the game only while the match runs, its end included: online the result goes
+    // out at the round that decides it, and the finisher, a fatality and the winner's pose still play in sync after
+    // (and on the select screen, for their own side's cursor when they pick there: the game's pads route it,
+    // autopilot LocalPickPort)
+    return !(g_in_match && g_fighting && (!g_reported || InSync())) || game::AutopilotActive();
 }
 
 void ApplyLauncherDisplay() {
+    // a game the launcher started logs into its session folder (MK3D_LOG), beside the session's other files, not into
+    // the logs folder that two games of one PC would write into at once; a relaunch into another image carries on
+    if (const char* log = std::getenv("MK3D_LOG"); log && *log) {
+        const std::filesystem::path p(log);
+        logx::Init(p.parent_path().string(), p.stem().string(), std::wcsstr(GetCommandLineW(), L"--relaunched") != nullptr);
+    }
     const char* mode = std::getenv("MK3D_DISPLAY");
     const char* res = std::getenv("MK3D_RESOLUTION");
     const char* vsync = std::getenv("MK3D_VSYNC");

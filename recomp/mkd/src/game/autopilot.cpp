@@ -98,7 +98,7 @@ void Enter(Phase p) {
     g_phase = p;
     g_since = Clock::now();
     static const char* names[] = {"off", "to menu", "settle", "hold", "choose", "select", "done"};
-    LOGI("autopilot: %s", names[int(p)]);
+    LOGR("autopilot: %s", names[int(p)]);  // a few lines a match, in a player's log too: how a match got started
 }
 
 std::string Norm(const std::string& s) {

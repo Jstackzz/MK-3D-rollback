@@ -114,4 +114,11 @@ bool Outcome(const std::string&, const net::Settled& s, int wins_needed, int& wi
     return winner != 0;
 }
 
+// the fight's two characters (0x18 none)
+bool Fighters(const std::string&, int out[2]) {
+    out[0] = int(kernel::R32(kCharacter[0]));
+    out[1] = int(kernel::R32(kCharacter[1]));
+    return out[0] >= 0 && out[0] < 0x18 && out[1] >= 0 && out[1] < 0x18;
+}
+
 }  // namespace mk3d::link::game

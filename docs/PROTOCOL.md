@@ -136,8 +136,8 @@ S: {"type":"profile","name":"Raijin","created":1761300000,
                               "casual":{"wins":10,"losses":7}}}}}
 ```
 
-Stats exist per game per mode: ranked Elo (start 1500) with ranked
-wins/losses, and casual wins/losses. A missing entry means "never played"
+Stats exist per game per mode: ranked Elo (start 1500, moved per set) with
+ranked match wins/losses, and casual wins/losses. A missing entry means "never played"
 (Elo 1500, 0-0).
 
 ### 1.6 Online count and notices
@@ -278,22 +278,22 @@ S: {"type":"queue_left","reason":"left"}
 Both launchers report what their game wrote to `status.txt`:
 
 ```json
-C: {"type":"result","match":"5f2c9a01d4e3","winner":1,"p1_rounds":2,"p2_rounds":1}
+C: {"type":"result","match":"5f2c9a01d4e3","winner":1,"p1_rounds":2,"p2_rounds":1,"p1_char":"12","p2_char":"7"}
 C: {"type":"result","match":"5f2c9a01d4e3","outcome":"desync","frame":1234}
 C: {"type":"result","match":"5f2c9a01d4e3","outcome":"disconnected"}
 S: {"type":"result_ack","match":"5f2c9a01d4e3"}
 S: {"type":"match_result","match":"5f2c9a01d4e3","status":"agreed","winner":1,
-    "p1_rounds":2,"p2_rounds":1,"ranked":true,
-    "elo":{"Raijin":{"before":1500,"after":1516,"delta":16},
-           "Fujin":{"before":1500,"after":1484,"delta":-16}}}
+    "p1_rounds":2,"p2_rounds":1,"ranked":true}
 ```
 
-- **Agree** (same `winner`, `p1_rounds`, `p2_rounds`): status `agreed`.
-  Ranked: Elo update with `K = 32`, `E_a = 1 / (1 + 10^((R_b - R_a) / 400))`,
-  `d = round(K * (S_a - E_a))` (half away from zero), `R_a' = R_a + d`,
-  `R_b' = R_b - d` (zero-sum, ratings stay integers), plus ranked
-  wins/losses. Casual: casual wins/losses only. `elo` is present for ranked
-  matches.
+- **Agree** (same `winner`, `p1_rounds`, `p2_rounds`): status `agreed`; the
+  match counts as a win and a loss (ranked or casual wins/losses). Elo moves
+  per ranked set, not per match (1.9.1).
+- `p1_char`/`p2_char` (optional, from the game's `result` line: its own
+  character ids, absent in modes without fighters) are the match's fighters.
+  When both reports name the same ones, a casual rematch can start with them
+  (1.9.1); they never decide the result, and a value the server does not take
+  is ignored.
 - **Disagree**: status `disputed`; nothing changes, both reports stay in the
   database and the server logs a `DISPUTE` line.
 - **Desync or disconnect** reports: status `no_contest`; nothing changes;
@@ -302,6 +302,66 @@ S: {"type":"match_result","match":"5f2c9a01d4e3","status":"agreed","winner":1,
   nothing changes; logged. (v1 has no disconnect penalty.)
 - Lobby matches count as casual. After any final status the lobby returns to
   `open` and both players' `ready` flags are cleared.
+
+### 1.9.1 Series: casual rematches, ranked sets
+
+After a queue match (once its `match_result` went out) the two players are in
+a series. Casual: another match whenever both want one, with the same fighters
+or after both pick again. Ranked: a set, won by the first to win 2 matches
+(`need`); Elo moves once, when it ends. A player is in one series at a time;
+searching again or creating/joining a lobby leaves it.
+
+```json
+S: {"type":"series","series":"8d01c3e2a9f4","game":"mkd","mode":"kombat","ranked":true,
+    "state":"between","need":2,"played":1,"opponent":"Fujin","you":1,"them":0,
+    "you_ready":false,"them_ready":false,"you_choice":"","them_choice":"",
+    "same_fighters":true,"seconds_left":90}
+C: {"type":"series_ready","series":"8d01c3e2a9f4","ready":true,"choice":"rematch"}
+S: {"type":"series_ack","series":"8d01c3e2a9f4"}
+C: {"type":"series_ready","series":"8d01c3e2a9f4","ready":false}
+S: {"type":"series_left","series":"8d01c3e2a9f4"}
+S: {"type":"series","series":"8d01c3e2a9f4", ...,"state":"over","outcome":"won","winner":"Raijin",
+    "left":null,"elo":{"Raijin":{"before":1500,"after":1516,"delta":16},
+                       "Fujin":{"before":1500,"after":1484,"delta":-16}}}
+```
+
+- `state`: `between` (the server waits for both players' `series_ready`),
+  `playing` (a match of it runs), `over`. `you`/`them` count each player's
+  agreed match wins in the series; `seconds_left` is the time left between
+  matches: 30 s for a casual rematch, 90 s for a set's next match (the last
+  match's ending plays first). The server sends the state to both players at
+  every change, and to a player who logs in again in the middle of one.
+- A launcher sends `series_ready` true once its game is back at its hold
+  point: for a ranked set by itself, for a casual rematch when the player
+  chose one. When both are ready the server starts the next match like a lobby
+  match: `match_found` with `accept_required` false, `"series"` and the same
+  sides, then the usual setup (1.8).
+- `choice` (casual; default `rematch`): `rematch` plays the last match's
+  fighters again when both choose it (`match_go` `p1`/`p2` are the game's
+  character ids from both results, the autopilot picks them); `select` from
+  either player sends both to the select screen (`p1`/`p2` `-`). Without
+  fighters both reports agreed on (`same_fighters` false: a desync, a mode
+  without fighters, an older launcher) a rematch uses the characters both
+  queued with. `you_choice`/`them_choice` show what each chose once ready. A
+  ranked set ignores it and keeps the characters both queued with (`-`: they
+  pick before every match).
+- `over` carries `outcome`:
+  - `won`: a set's `winner` reached `need` wins. Elo update with `K = 32`,
+    `E_a = 1 / (1 + 10^((R_b - R_a) / 400))`, `d = round(K * (S_a - E_a))`
+    (half away from zero), `R_a' = R_a + d`, `R_b' = R_b - d` (zero-sum,
+    integer ratings); `elo` lists both players' change.
+  - `forfeit`: `left` left the set after at least one of its matches counted:
+    `series_ready` false, its time ran out while the other was ready, the next
+    match was cancelled on their side, or they searched or went to a lobby. They
+    lose the set (Elo as for `won`, the other player winning), whatever the
+    score: one match won and gone gains nothing.
+  - `void`: a set where nothing counted yet was left, or 3 matches in a row did
+    not count; no rating change.
+  - `left` (casual: a player declined or went) and `timeout` (casual: no
+    rematch in time; ranked: neither came back).
+- A launcher that drops between two matches has 20 s to log in again before
+  its time runs out. Ranked sets are logged in the `sets` table (outcome,
+  winner, score, both ratings before and after).
 
 ### 1.10 Lobbies
 
@@ -492,11 +552,12 @@ environment variables and two small text files in a per-session folder.
 | `MK3D_CMD` | `<session>\cmd.txt` |
 | `MK3D_STATUS` | `<session>\status.txt` |
 | `MK3D_INSTANCE` | `1` normally; `1` and `2` for the two instances of a local test |
-| `MK3D_LOG` | `<session>\game.log` (suggested log destination) |
+| `MK3D_LOG` | `<session>\game.log`: the game writes its log there (each game's `GameInfo::init`, `mk3d::link::ApplyLauncherDisplay`) instead of its `logs` folder |
 | `MK3D_DISPLAY` | `windowed`, `borderless` or `fullscreen` |
 | `MK3D_RESOLUTION` | `desktop` (the monitor's own) or e.g. `1920x1080`; a window at `desktop` opens at 1280x720 |
 | `MK3D_VSYNC` | `0` or `1` |
 | `XBE_CONTROLS` | the launcher's `controls.toml`: what keys and controller buttons press (runtime patch 0016) |
+| `<GAME>_NET_LOG` | with `MK3D_NET=1`, unless already set: `<session>\net-{match}.log`, every online match's frames (both players' inputs, the state checks; `{match}` becomes the match id) |
 
 The three display variables (Settings, *Display*) override what the game's
 `settings.toml` says (`mk3d::link::ApplyLauncherDisplay`, the games'
@@ -509,8 +570,9 @@ picks with "controller disconnected" on port 2.
 
 The working directory is the folder of the game executable. The launcher
 creates one session folder per game process
-(`<launcher dir>\sessions\<game>-<yyyyMMdd-hhmmss>-<instance>`) and puts game
-processes into a job object that kills them when the launcher exits.
+(`<launcher dir>\sessions\<game>-<yyyyMMdd-hhmmss>-<instance>`, the newest 30
+kept) and puts game processes into a job object that kills them when the
+launcher exits.
 
 ### 3.2 File rules (both files)
 
@@ -540,7 +602,7 @@ one was taken, or after 2 s; a newer untaken command replaces the older one
 |---|---|
 | `start game=mkd mode=kombat side=1 local_port=7001 remote=1.2.3.4:7002 delay=2 seed=123456 p1=Scorpion p2=SubZero rounds=3 ranked=1 match=<id>` | start an online match from the hold point |
 | `start game=mkd mode=practice side=1 p1=Scorpion p2=SubZero` | start offline practice (no network keys) |
-| `park` | leave the current match or practice and return to the hold point; after a result while the match's end (finisher, fatality, winner's pose) still plays in sync, once both games have left the match together (30 s at most) |
+| `park` | leave the current match or practice and return to the hold point; after a result while the match's end (finisher, fatality, winner's pose) still plays in sync, once both games have left the match together (30 s at most); the players' controllers keep working until then, so the winner can finish |
 | `rematch [seed=N] [match=<id>]` | play again against the same peer with the same settings (new seed and id when given) |
 | `quit` | exit the process cleanly |
 
@@ -561,7 +623,8 @@ the launcher's "pick my fighter in the game", sent to the server as an empty
 `character`). The autopilot takes both games to the select screen as usual.
 There the player of a `-` side steers their own cursor with their own
 controller (port 0 and the keyboard, routed to port 2 when they are P2; B and
-BACK are held back, as they would leave the select screen and the match); the
+BACK are held back, as they would leave the select screen and the match, and in
+Armageddon X too, which opens a panel only B closes and that takes A); the
 game passes their pick (the character, then whatever else both games must have
 alike: the costume flags in Deception and Armageddon) to the other game in its
 netplay HELLO packets, which carry the words of this game's pick once there is
@@ -584,7 +647,7 @@ first line.
 | `booting` | process started, loading |
 | `ready` | parked at the hold point, able to take `start` |
 | `in_match match=<id>` | a match (or practice: `match=practice`) is running |
-| `result winner=1 p1_rounds=2 p2_rounds=1 match=<id>` | the match ended normally (`winner` is 1 or 2); the game stays on its result screen until `park`, `rematch` or `quit` |
+| `result winner=1 p1_rounds=2 p2_rounds=1 p1_char=12 p2_char=7 match=<id>` | the match ended normally (`winner` is 1 or 2; `p1_char`/`p2_char`, the fighters as the game's character ids, which `start` takes as `p1`/`p2`, only in modes with fighters); the game stays on its result screen until `park`, `rematch` or `quit` |
 | `desync frame=N match=<id>` | the two simulations diverged at frame N; the match is aborted |
 | `disconnected match=<id>` | the peer stopped answering |
 | `error <text>` | something failed (`error no connection`, `error bad command`); free text to the end of the line |

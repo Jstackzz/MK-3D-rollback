@@ -24,6 +24,7 @@ QString reasonText(const QString& reason) {
         {QStringLiteral("ping_too_high"), QStringLiteral("ping above the limit")},
         {QStringLiteral("ping_timeout"), QStringLiteral("connection test timed out")},
         {QStringLiteral("peer_left"), QStringLiteral("the opponent left")},
+        {QStringLiteral("series_over"), QStringLiteral("the series is over")},
     };
     return texts.value(reason, reason);
 }
@@ -66,7 +67,7 @@ MatchController::MatchController(ServerClient* server, QObject* parent)
     startTimeout_.setSingleShot(true);
     connect(&startTimeout_, &QTimer::timeout, this, [this] {
         if (phase_ == Phase::Starting) {
-            log(tr("The game did not start the match within 60 s."));
+            log(tr("The game did not start the match within %1 s.").arg(startTimeout_.interval() / 1000));
             reportResult({{QStringLiteral("outcome"), QStringLiteral("error")}});
         }
     });
@@ -85,6 +86,33 @@ void MatchController::setPhase(Phase p, const QString& text) {
     if (p != Phase::Searching) keepaliveTimer_.stop();
     log(text);
     emit phaseChanged(p, text);
+    if (p == Phase::Idle) sendSeriesReady();
+}
+
+void MatchController::seriesReady(bool ready, const QString& choice) {
+    if (series_.isEmpty()) return;
+    wantNext_ = ready;
+    nextChoice_ = choice;
+    if (!ready) {
+        server_->send({{QStringLiteral("type"), QStringLiteral("series_ready")},
+                       {QStringLiteral("series"), str(series_, "series")},
+                       {QStringLiteral("ready"), false}});
+        return;
+    }
+    sendSeriesReady();
+}
+
+// the next match of the series is asked for once this launcher is idle: the game is back at its hold point and has
+// let go of the game port
+void MatchController::sendSeriesReady() {
+    if (!wantNext_ || phase_ != Phase::Idle || series_.isEmpty() || str(series_, "state") != QLatin1String("between") ||
+        !server_->isLoggedIn())
+        return;
+    wantNext_ = false;
+    server_->send({{QStringLiteral("type"), QStringLiteral("series_ready")},
+                   {QStringLiteral("series"), str(series_, "series")},
+                   {QStringLiteral("ready"), true},
+                   {QStringLiteral("choice"), nextChoice_}});
 }
 
 int MatchController::searchSeconds() const {
@@ -210,7 +238,7 @@ bool MatchController::findMatch(const QueueRequest& req, QString* error) {
     server_->send(msg);
     searchClock_.start();
     setPhase(Phase::Searching, tr("Searching for a %1 %2 opponent...")
-                                   .arg(req.ranked ? tr("ranked") : tr("casual"), req.mode));
+                                   .arg(req.ranked ? tr("ranked") : tr("Kasual"), req.mode));
     keepaliveTimer_.start();
     return true;
 }
@@ -283,7 +311,9 @@ void MatchController::onServerMessage(const QJsonObject& msg) {
                 setPhase(Phase::Found, tr("Match found"));
                 emit matchFound(msg);
             } else {
-                setPhase(Phase::Connecting, tr("Lobby match: connecting to %1...").arg(opponentName()));
+                setPhase(Phase::Connecting, msg.contains(QStringLiteral("series"))
+                                                ? tr("Next match: connecting to %1...").arg(opponentName())
+                                                : tr("Lobby match: connecting to %1...").arg(opponentName()));
                 emit matchFound(msg);
             }
         }, 30);
@@ -311,7 +341,11 @@ void MatchController::onServerMessage(const QJsonObject& msg) {
         setPhase(Phase::Starting, tr("Starting the match against %1 (%2 ms)...")
                                       .arg(opponentName()).arg(msg.value(QStringLiteral("rtt_ms")).toInt()));
         emit matchStarted(msg);
-        startTimeout_.start(60000);
+        // a player who picks on the game's select screen has 75 s there (40 in Armageddon) before the game picks for
+        // them, and the select screen gives up after 4 minutes: the start waits for that
+        const bool picksInGame = str(msg, "p1").isEmpty() || str(msg, "p1") == QLatin1String("-") ||
+                                 str(msg, "p2").isEmpty() || str(msg, "p2") == QLatin1String("-");
+        startTimeout_.start(picksInGame ? 300000 : 60000);
         tryStart();
     } else if (type == QLatin1String("match_cancelled")) {
         if (match != str(found_, "match")) return;
@@ -342,6 +376,17 @@ void MatchController::onServerMessage(const QJsonObject& msg) {
         }
         emit matchFinished(result);
         finishMatch();
+    } else if (type == QLatin1String("series")) {
+        const QString state = str(msg, "state");
+        series_ = msg;
+        // a ranked set goes on by itself: its next match once this game is back at its hold point
+        if (state == QLatin1String("between") && msg.value(QStringLiteral("ranked")).toBool() &&
+            !msg.value(QStringLiteral("you_ready")).toBool())
+            wantNext_ = true;
+        if (state == QLatin1String("over")) wantNext_ = false;
+        emit seriesChanged(msg);
+        if (state == QLatin1String("over")) series_ = {};
+        sendSeriesReady();
     } else if (type == QLatin1String("result_ack")) {
         log(tr("Result of %1 acknowledged by the server").arg(match));
     }
@@ -415,9 +460,13 @@ void MatchController::onGameStatus(const QString& line) {
                            {QStringLiteral("state"), QStringLiteral("in_match")}});
         }
     } else if (st == QLatin1String("result") && inOnline && forThisMatch) {
-        reportResult({{QStringLiteral("winner"), keys.value(QStringLiteral("winner")).toInt()},
-                      {QStringLiteral("p1_rounds"), keys.value(QStringLiteral("p1_rounds")).toInt()},
-                      {QStringLiteral("p2_rounds"), keys.value(QStringLiteral("p2_rounds")).toInt()}});
+        QJsonObject result{{QStringLiteral("winner"), keys.value(QStringLiteral("winner")).toInt()},
+                           {QStringLiteral("p1_rounds"), keys.value(QStringLiteral("p1_rounds")).toInt()},
+                           {QStringLiteral("p2_rounds"), keys.value(QStringLiteral("p2_rounds")).toInt()}};
+        // the fighters the game saw, what a rematch with the same fighters starts with
+        for (const QString k : {QStringLiteral("p1_char"), QStringLiteral("p2_char")})
+            if (keys.contains(k)) result.insert(k, keys.value(k));
+        reportResult(result);
     } else if (st == QLatin1String("desync") && inOnline && forThisMatch) {
         reportResult({{QStringLiteral("outcome"), QStringLiteral("desync")},
                       {QStringLiteral("frame"), keys.value(QStringLiteral("frame")).toInt()}});

@@ -42,7 +42,7 @@ LobbyPage::LobbyPage(ServerClient* server, MatchController* controller, QWidget*
     root->setContentsMargins(28, 20, 28, 16);
     root->setSpacing(14);
     root->addWidget(ui::pageHeader(tr("Lobbies"), tr("Private or public rooms for two: pick fighters, chat, "
-                                                     "ready up, and the host starts. Lobby matches count as casual.")));
+                                                     "ready up, and the host starts. Lobby matches count as Kasual.")));
     auto* columns = new QHBoxLayout;
     columns->setSpacing(16);
     root->addLayout(columns, 1);

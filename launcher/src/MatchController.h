@@ -47,6 +47,13 @@ public:
     void cancelSearch();
     void accept();
     void decline();
+    // After a queue match the two players stay together in a series (docs/PROTOCOL.md, series): a casual rematch
+    // whenever both choose one, a ranked set until one has won its matches. Its last state ({} when none).
+    QJsonObject series() const { return series_; }
+    // ready for the series' next match (sent once this launcher is idle again, its game back at its hold point), or
+    // leaving it (which loses a ranked set once a match of it counted). Casual, the choice: "rematch" (the same
+    // fighters, when both choose it) or "select" (both pick again on the select screen); a ranked set ignores it.
+    void seriesReady(bool ready, const QString& choice = QStringLiteral("rematch"));
     bool prepareGame(const QString& gameId, QString* error);
     // the whole game with its own menus, no match: online play waits until it is closed
     bool startSolo(const QString& gameId, QString* error);
@@ -64,6 +71,7 @@ signals:
     void matchCancelled(const QString& reason, bool requeued);
     void matchStarted(const QJsonObject& go);
     void matchFinished(const QJsonObject& result);
+    void seriesChanged(const QJsonObject& series);
     void gameStatusChanged(const QString& text);
     void logLine(const QString& text);
 
@@ -79,6 +87,7 @@ private:
     void tryStart();
     void reportResult(QJsonObject fields);
     void finishMatch();
+    void sendSeriesReady();
     void releaseUdp();
     void sendKeepaliveHello();
     QString lanEndpoint() const;
@@ -99,9 +108,11 @@ private:
     Phase phase_ = Phase::Idle;
     QString phaseText_;
     QueueRequest request_;
-    QJsonObject found_, go_, pendingResult_;
+    QJsonObject found_, go_, pendingResult_, series_;
     QString pendingStart_;
     bool resultSent_ = false;
+    bool wantNext_ = false;  // ready for the series' next match, not sent yet (the game still plays the last one's end)
+    QString nextChoice_ = QStringLiteral("rematch");
     QElapsedTimer searchClock_;
     QTimer parkTimer_, keepaliveTimer_, startTimeout_, finishTimeout_;
     QString localStartA_, localStartB_, localResultA_, localResultB_;

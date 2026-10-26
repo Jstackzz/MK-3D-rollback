@@ -2,7 +2,7 @@ MK3D Online: player guide
 =========================
 
 Native PC versions of the original Xbox Mortal Kombat: Deadly Alliance, Deception
-and Armageddon, with online play (rollback netcode): casual and ranked matchmaking,
+and Armageddon, with online play (rollback netcode): Kasual and ranked matchmaking,
 lobbies, and the side modes (Chess Kombat, Puzzle Kombat, Motor Kombat).
 
 This package contains no game. You build each game once from your own disc image,
@@ -60,11 +60,22 @@ Server (name-or-address:7777) and the fingerprint they gave you, then Connect.
 With the fingerprint left empty, the launcher shows the server's and asks
 whether to trust it: compare it with your host's.
 
-- Casual and Ranked: choose the mode, then Find match. With "Pick my fighter on
+- Kasual and Ranked: choose the mode, then Find match. With "Pick my fighter on
   the game's own select screen" ticked (the default) you choose your fighter in
   the game when the match starts, with your own controller, while your opponent
   does the same on their PC; the game shows their pick once they made it. Untick
-  it to choose your fighter in the launcher instead.
+  it to choose your fighter in the launcher instead. Your record (wins, losses,
+  and Elo in Ranked) is on the right of the page.
+- After a Kasual match the launcher shows you against your opponent with the
+  score between you, and two ways to play on within 30 seconds, same sides, no
+  search: REMATCH (when you both press it: the same fighters again, straight
+  into the fight) or SELECT (from either of you: both go back to character
+  select and pick again). LEAVE (or Find match) ends it.
+- Ranked is played in sets against one opponent: the first to win 2 matches
+  takes the set, and your Elo changes once, when it ends. The set's next match
+  starts by itself once both games are ready. Leaving a set after one of its
+  matches has counted (LEAVE SET, searching again, quitting, or not being back
+  within 90 seconds) loses it: one match won and gone gains nothing.
 - Lobby, to play someone you know: one of you presses Create lobby and gives the
   other the 5-letter code; the other presses Join code and types it. Both choose
   a fighter (or "Pick in the game") and press Ready, then the host presses START.
@@ -86,11 +97,18 @@ your router.
 Controls
 --------
 
-A controller works as on the Xbox: Xbox, PlayStation and Switch controllers,
-with LB and RB as the Xbox's white and black buttons. The keyboard plays as
-player 1 while the game window is in front: arrows or WASD move, J I K L are
-X Y A B, Space is the right trigger, O the left trigger, U and P are white and
-black, Enter is START and Backspace is BACK.
+A controller works as on the Xbox: Xbox (360, One, Series), PlayStation and
+Switch controllers, and fight sticks in their Xbox/PC or PlayStation mode, with
+LB and RB (L1 and R1) as the Xbox's white and black buttons; the d-pad, both
+sticks and the triggers reach the game as on the console. Online one controller
+plays for you: with several plugged in, it is the one the game found first, so
+unplug the ones you do not use. The left stick moves like the d-pad in all
+three games (Deadly Alliance on the console took the d-pad alone), so a stick
+that drifts (reads as pushed while you do not touch it) can walk or crouch your
+fighter by itself. The keyboard plays as player 1
+while the game window is in front: arrows or WASD move, J I K L are X Y A B,
+Space is the right trigger, O the left trigger, U and P are white and black,
+Enter is START and Backspace is BACK.
 
 To change them, open Controls in the launcher: click a key to give a button
 another one (two keys each at most), and choose what each button of your
@@ -127,8 +145,13 @@ When something goes wrong
 - "This is not an Xbox disc image": the .iso is a broken or padded conversion
   without the Xbox file system (some downloads carry one beside the good image).
   Use the XISO version of the disc, often named .xiso.iso.
-- Logs: mk3d-launcher.log and the sessions folder beside the launcher, and each
-  game's logs folder in games\<game>.
+- Click into the game window after accepting a match in the launcher if you
+  play on the keyboard: it only reaches the window in front (controllers work
+  either way).
+- Logs: mk3d-launcher.log and the sessions folder beside the launcher: one
+  folder each time the launcher starts a game, with the game's own game.log and,
+  for each online match, a net-<match>.log with every frame's inputs. When a
+  match plays wrong, send these along with what happened.
 
 
 Legal

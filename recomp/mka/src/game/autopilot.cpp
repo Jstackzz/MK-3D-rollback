@@ -130,7 +130,7 @@ void Enter(Phase p) {
     g_phase = p;
     g_since = Clock::now();
     static const char* names[] = {"off", "to menu", "settle", "hold", "choose", "select", "kart select", "done"};
-    LOGI("autopilot: %s", names[int(p)]);
+    LOGR("autopilot: %s", names[int(p)]);  // a few lines a match, in a player's log too: how a match got started
 }
 
 std::string Norm(const std::string& s) {
@@ -250,6 +250,15 @@ bool Picked(int side) {
     return state == 2 || state == 3;
 }
 
+// who drives what on the select screen: each port's record (port block + 8; a press on a free open port binds one)
+// and each record's port and state, for the log
+void LogSelectState(const char* when) {
+    LOGR("autopilot: %s: port 0 -> %08X, port 1 -> %08X; P1 port %d state %u cursor %d, P2 port %d state %u cursor %d",
+         when, kernel::R32(kPortBlock + 8), kernel::R32(kPortBlock + kPortStride + 8),
+         int(kernel::R32(kRecord[0] + kRecordPort)), kernel::R32(kRecord[0] + kRecordState), Cursor(0),
+         int(kernel::R32(kRecord[1] + kRecordPort)), kernel::R32(kRecord[1] + kRecordState), Cursor(1));
+}
+
 // the press one side's cursor needs now: a move toward its character, or A on it
 void Decide(int side, SelectPort& p) {
     p.buttons = 0;
@@ -307,11 +316,13 @@ void ExchangePicks(double t) {
         const uint32_t words[2] = {kernel::R32(kRecord[me] + kRecordCharacter), kernel::R32(kRecord[me] + kRecordCostume)};
         mk3d::net::SetLocalPick(words, 2);
         g_local_pick_sent = true;
-        LOGI("autopilot: this player picked character %u, costume bits %X", words[0], words[1]);
+        LOGR("autopilot: this player picked character %u, costume bits %X", words[0], words[1]);
+        LogSelectState("picked");
     }
     if (g_req.by_player[me] && !g_local_forced && !g_local_pick_sent && t > kPlayerPickTime) {
         g_local_forced = true;
-        LOGI("autopilot: no pick after %.0f s: this player gets the cursor's", kPlayerPickTime);
+        LOGR("autopilot: no pick after %.0f s: this player gets the cursor's", kPlayerPickTime);
+        LogSelectState("taking over");
     }
     const int other = me ^ 1;
     if (g_req.by_player[other] && g_req.characters[other] == kWaitPick) {
@@ -321,7 +332,7 @@ void ExchangePicks(double t) {
             g_req.characters[other] = int(words[0]);
             g_their_costume = n > 1 ? words[1] : 0;
             g_costume_due = true;
-            LOGI("autopilot: the other player picked character %u, costume bits %X", words[0], g_their_costume);
+            LOGR("autopilot: the other player picked character %u, costume bits %X", words[0], g_their_costume);
         }
     }
     if (g_costume_due && Picked(other)) {
@@ -534,12 +545,13 @@ void Apply(int port, input::Pad& pad) {
             if (SelectUp()) {
                 g_base_fights = FightSetups();
                 Enter(Phase::Select);
+                LogSelectState("select screen");
                 return;
             }
             if (!g_confirmed && MenuActions() > g_base_actions) {
                 g_confirmed = true;  // no more presses: the next screen must not get them
                 g_confirmed_at = Clock::now();
-                LOGI("autopilot: menu action %u confirmed", kernel::R32(kMenuAction));
+                LOGR("autopilot: menu action %u confirmed", kernel::R32(kMenuAction));
                 if (!Selects(g_req.action) && kernel::R32(kMenuAction) == uint32_t(g_req.action)) {
                     Enter(Phase::Done);  // a mode without a select screen
                     return;

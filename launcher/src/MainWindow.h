@@ -37,6 +37,8 @@ struct LaunchOptions {
     QString lobby;           // "host": create a lobby and start it once both are ready; "join": join it by name
     QString lobbyName;
     int lobbyMatches = 1;    // matches to play there, one after the other
+    int rematches = 0;       // --queue casual: rematches to choose after the first match
+    QStringList rematchChoices;  // what each of them chooses, "rematch" or "select" (the last one repeats)
     bool upnpProbe = false;  // find the router and its public address, open nothing
 };
 
@@ -98,6 +100,7 @@ private:
     int cliLoginId_ = -1;
     bool cliTriedRegister_ = false;
     bool cliQueued_ = false;
+    int cliRematches_ = 0;  // rematches chosen
     bool cliLobbyBegun_ = false, cliLobbyJoined_ = false, cliLobbyInMatch_ = false;
     int cliLobbyDone_ = 0, cliLobbyReadyFor_ = -1, cliLobbyStarts_ = 0;  // matches over, ready sent for, starts sent
     QTimer* cliLobbyPoll_ = nullptr;

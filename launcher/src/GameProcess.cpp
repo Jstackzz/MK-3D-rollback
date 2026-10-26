@@ -101,6 +101,10 @@ bool GameProcess::start(const QString& exe, QString* error, bool netMode) {
         }
         linkToolchain(fi.absolutePath());
     }
+    // the newest sessions are kept (an online match's netplay log is about a megabyte)
+    constexpr int kKeepSessions = 30;
+    const QFileInfoList old = QDir(paths::sessionsDir()).entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Time);
+    for (int i = kKeepSessions; i < old.size(); i++) QDir(old[i].absoluteFilePath()).removeRecursively();
     const QString stamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-hhmmss"));
     sessionDir_ = QDir(paths::sessionsDir()).filePath(QStringLiteral("%1-%2-%3").arg(gameId_, stamp).arg(instance_));
     QDir().mkpath(sessionDir_);
@@ -115,6 +119,11 @@ bool GameProcess::start(const QString& exe, QString* error, bool netMode) {
         env.insert(QStringLiteral("MK3D_NET"), QStringLiteral("1"));
         env.insert(QStringLiteral("MK3D_CMD"), QDir::toNativeSeparators(cmdPath_));
         env.insert(QStringLiteral("MK3D_STATUS"), QDir::toNativeSeparators(statusPath_));
+        // every online match's frames (both players' inputs, the state checks) beside the session's other files: what
+        // to look at when a match went wrong; a test that names its own log keeps it
+        const QString netLog = gameId_.toUpper() + QStringLiteral("_NET_LOG");
+        if (!env.contains(netLog))
+            env.insert(netLog, QDir::toNativeSeparators(QDir(sessionDir_).filePath(QStringLiteral("net-{match}.log"))));
     }
     env.insert(QStringLiteral("MK3D_GAME"), gameId_);
     env.insert(QStringLiteral("MK3D_SESSION_DIR"), QDir::toNativeSeparators(sessionDir_));

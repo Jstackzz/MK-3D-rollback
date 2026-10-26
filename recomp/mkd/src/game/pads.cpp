@@ -210,6 +210,7 @@ void PadHook(int port, input::Pad& pad) {
     } else if (link::SuppressPhysicalPads()) {
         pad.buttons = 0;
         for (auto& a : pad.analog) a = 0;
+        pad.lx = pad.ly = pad.rx = pad.ry = 0;  // a stick pushed (or drifting) would steer the autopilot's menus
     }
     autopilot::Apply(port, pad);
     {

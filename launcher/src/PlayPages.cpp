@@ -39,11 +39,12 @@ QueuePage::QueuePage(bool ranked, ServerClient* server, MatchController* control
     root->setContentsMargins(28, 20, 28, 16);
     root->setSpacing(14);
     root->addWidget(ui::pageHeader(
-        ranked ? tr("Ranked Kombat") : tr("Casual Kombat"),
-        ranked ? tr("One game per match, sides drawn at random. Elo changes only when both players report the same "
-                    "result; your opponent is revealed once both have accepted.")
-               : tr("Quick matches against the first compatible player in your region. Wins and losses are "
-                    "recorded; Elo is not touched.")));
+        ranked ? tr("Ranked Kombat") : tr("Kasual Kombat"),
+        ranked ? tr("Sets against one opponent: the first to win 2 matches takes the set, and Elo changes once, when "
+                    "it ends. Leaving a set after a match of it has counted loses it. Your opponent is revealed once "
+                    "both have accepted.")
+               : tr("Quick matches against the first compatible player in your region, with a rematch whenever you "
+                    "both want one. Wins and losses are recorded; Elo is not touched.")));
 
     auto* columns = new QHBoxLayout;
     columns->setSpacing(16);
@@ -70,7 +71,40 @@ QueuePage::QueuePage(bool ranked, ServerClient* server, MatchController* control
     rightCol->setSpacing(16);
     columns->addLayout(rightCol, 2);
     QVBoxLayout* mm = nullptr;
-    rightCol->addWidget(ui::card(tr("Matchmaking"), &mm));
+    mmCard_ = ui::card(tr("Matchmaking"), &mm);
+    rightCol->addWidget(mmCard_);
+    // in its place while a series runs (region and ping do not matter then): the score and the next match
+    QVBoxLayout* ser = nullptr;
+    seriesCard_ = ui::card(QString(), &ser);
+    rightCol->addWidget(seriesCard_);
+    seriesTitle_ = ui::label(QString(), "CardTitle");
+    ser->addWidget(seriesTitle_);
+    seriesScore_ = ui::label(QString(), "Big");
+    seriesScore_->setAlignment(Qt::AlignCenter);
+    seriesScore_->setMinimumHeight(seriesScore_->sizeHint().height() + 4);
+    ser->addWidget(seriesScore_);
+    seriesInfo_ = ui::label(QString(), "Muted");
+    seriesInfo_->setWordWrap(true);
+    seriesInfo_->setMinimumHeight(seriesInfo_->fontMetrics().lineSpacing() + 4);
+    ser->addWidget(seriesInfo_);
+    auto* seriesButtons = new QHBoxLayout;
+    rematch_ = new QPushButton(tr("REMATCH"));
+    rematch_->setObjectName(QStringLiteral("Primary"));
+    rematch_->setProperty("compact", true);
+    rematch_->setMinimumHeight(36);
+    rematch_->setVisible(!ranked);
+    rematch_->setToolTip(tr("Fight again with the same fighters (when you both choose it)"));
+    select_ = new QPushButton(tr("SELECT"));
+    select_->setMinimumHeight(36);
+    select_->setVisible(!ranked);
+    select_->setToolTip(tr("Both go back to character select to pick again"));
+    leave_ = new QPushButton(ranked ? tr("LEAVE SET") : tr("LEAVE"));
+    leave_->setMinimumHeight(36);
+    seriesButtons->addWidget(rematch_, 1);
+    seriesButtons->addWidget(select_, 1);
+    seriesButtons->addWidget(leave_, 1);
+    ser->addLayout(seriesButtons);
+    seriesCard_->setVisible(false);
     auto* form = new QFormLayout;
     form->setLabelAlignment(Qt::AlignRight);
     region_ = new QComboBox;
@@ -100,7 +134,7 @@ QueuePage::QueuePage(bool ranked, ServerClient* server, MatchController* control
 
     find_ = new QPushButton(tr("FIND MATCH"));
     find_->setObjectName(QStringLiteral("Primary"));
-    find_->setMinimumHeight(58);
+    find_->setMinimumHeight(52);
     ui::letterSpacing(find_, 4);
     rightCol->addWidget(find_);
     status_ = ui::label(tr("Not searching."), "Muted");
@@ -113,7 +147,8 @@ QueuePage::QueuePage(bool ranked, ServerClient* server, MatchController* control
     rightCol->addStretch();
 
     log_ = new LogView;
-    log_->setMaximumHeight(120);
+    log_->setMaximumHeight(96);
+    log_->setMinimumHeight(48);  // the smallest window gives the series card the room
     root->addWidget(log_);
 
     connect(mode_, &QComboBox::currentIndexChanged, this, [this] {
@@ -134,11 +169,19 @@ QueuePage::QueuePage(bool ranked, ServerClient* server, MatchController* control
     connect(find_, &QPushButton::clicked, this, [this] {
         const auto p = controller_->phase();
         if (p == MatchController::Phase::Idle) {
-            startSearch();
+            if (leavingLosesSet()) startSearch();  // a new search leaves the series (and a ranked set with it)
         } else if (controller_->lastRequest().ranked == ranked_) {
             controller_->cancelSearch();
         }
     });
+    connect(rematch_, &QPushButton::clicked, this, [this] { choose(QStringLiteral("rematch")); });
+    connect(select_, &QPushButton::clicked, this, [this] { choose(QStringLiteral("select")); });
+    connect(leave_, &QPushButton::clicked, this, [this] {
+        if (leavingLosesSet()) controller_->seriesReady(false);
+    });
+    connect(controller_, &MatchController::seriesChanged, this, &QueuePage::onSeries);
+    seriesClock_.setInterval(1000);
+    connect(&seriesClock_, &QTimer::timeout, this, &QueuePage::updateSeries);
     connect(controller_, &MatchController::phaseChanged, this, &QueuePage::onPhase);
     connect(controller_, &MatchController::logLine, this, [this](const QString& t) {
         if (controller_->lastRequest().ranked == ranked_ && controller_->phase() != MatchController::Phase::Solo &&
@@ -279,6 +322,129 @@ bool QueuePage::startSearch(const QString& mode, const QString& character) {
 void QueuePage::onPhase(MatchController::Phase, const QString& text) {
     if (controller_->lastRequest().ranked == ranked_) status_->setText(text);
     updateButton();
+    updateSeries();
+}
+
+void QueuePage::onSeries(const QJsonObject& s) {
+    if (s.value(QStringLiteral("ranked")).toBool() != ranked_) return;  // the other queue's
+    if (s.value(QStringLiteral("state")).toString() == QLatin1String("over")) {
+        log_->line(seriesOverText(s));
+        series_ = {};
+        chosen_.clear();
+        seriesClock_.stop();
+        seriesCard_->setVisible(false);
+        mmCard_->setVisible(true);
+        server_->send({{QStringLiteral("type"), QStringLiteral("profile")}});  // the record, a set's Elo
+        return;
+    }
+    if (s.value(QStringLiteral("state")).toString() != QLatin1String("between") ||
+        s.value(QStringLiteral("series")) != series_.value(QStringLiteral("series")))
+        chosen_.clear();
+    series_ = s;
+    seriesSince_.start();
+    mmCard_->setVisible(false);
+    seriesCard_->setVisible(true);
+    seriesClock_.start();
+    updateSeries();
+}
+
+void QueuePage::choose(const QString& choice) {
+    chosen_ = choice;
+    controller_->seriesReady(true, choice);
+    updateSeries();
+}
+
+void QueuePage::updateSeries() {
+    if (series_.isEmpty()) return;
+    const QString opp = series_.value(QStringLiteral("opponent")).toString();
+    const bool between = series_.value(QStringLiteral("state")).toString() == QLatin1String("between");
+    const bool youReady = series_.value(QStringLiteral("you_ready")).toBool() || !chosen_.isEmpty();
+    const bool themReady = series_.value(QStringLiteral("them_ready")).toBool();
+    const QString yours = chosen_.isEmpty() ? series_.value(QStringLiteral("you_choice")).toString() : chosen_;
+    const bool themSelect = series_.value(QStringLiteral("them_choice")).toString() == QLatin1String("select");
+    const bool select = yours == QLatin1String("select") || themSelect;  // either one: both pick again
+    // modes whose teams or karts are always picked in the game have nothing to pick again
+    const Game* g = gameOf(series_.value(QStringLiteral("game")).toString());
+    const GameMode* m = g ? g->mode(series_.value(QStringLiteral("mode")).toString()) : nullptr;
+    const bool canSelect = !ranked_ && !(m && m->picksInGame());
+    const int left = qMax(0, series_.value(QStringLiteral("seconds_left")).toInt() -
+                                 static_cast<int>(seriesSince_.elapsed() / 1000));
+    seriesTitle_->setText(ranked_ ? tr("SET  |  FIRST TO %1  |  VS %2")
+                                        .arg(series_.value(QStringLiteral("need")).toInt()).arg(opp.toUpper())
+                                  : tr("KASUAL  |  VS %1").arg(opp.toUpper()));
+    seriesScore_->setText(tr("YOU %1 - %2 %3").arg(series_.value(QStringLiteral("you")).toInt())
+                              .arg(series_.value(QStringLiteral("them")).toInt()).arg(opp.toUpper()));
+    QString info;
+    if (!between)
+        info = tr("Match %1 against %2 under way.").arg(series_.value(QStringLiteral("played")).toInt() + 1).arg(opp);
+    else if (ranked_)
+        info = tr("The next match starts as soon as both games are ready (%1 s). Leaving the set now counts as "
+                  "losing it.").arg(left);
+    else if (youReady && themReady)
+        info = select ? tr("Starting: character select...") : tr("Starting the rematch...");
+    else if (youReady)  // one line at the smallest window (the buttons' tooltips say what each does)
+        info = (yours == QLatin1String("select") ? tr("Select chosen: waiting for %1 (%2 s).")
+                                                 : tr("Rematch chosen: waiting for %1 (%2 s)."))
+                   .arg(opp).arg(left);
+    else if (themReady)
+        info = themSelect ? tr("%1 chose SELECT! (%2 s)").arg(opp).arg(left)
+                          : tr("%1 wants a rematch! (%2 s)").arg(opp).arg(left);
+    else if (canSelect)
+        info = tr("Same fighters, or pick again? (%1 s)").arg(left);
+    else
+        info = tr("Rematch? (%1 s)").arg(left);
+    seriesInfo_->setText(info);
+    select_->setVisible(canSelect);
+    rematch_->setEnabled(between && !youReady);
+    select_->setEnabled(between && !youReady);
+    leave_->setEnabled(between);
+}
+
+QString QueuePage::seriesOverText(const QJsonObject& s) const {
+    const QString me = server_->accountName();
+    const QString opp = s.value(QStringLiteral("opponent")).toString();
+    const QString outcome = s.value(QStringLiteral("outcome")).toString();
+    const QString score = QStringLiteral("%1-%2").arg(s.value(QStringLiteral("you")).toInt())
+                              .arg(s.value(QStringLiteral("them")).toInt());
+    const bool iLeft = s.value(QStringLiteral("left")).toString() == me;
+    QString text;
+    if (!ranked_) {
+        if (outcome == QLatin1String("left"))
+            text = iLeft ? tr("You left the series against %1 (%2).").arg(opp, score)
+                         : tr("%1 left the series (%2).").arg(opp, score);
+        else
+            text = tr("No rematch with %1 (%2).").arg(opp, score);
+    } else if (outcome == QLatin1String("won")) {
+        text = s.value(QStringLiteral("winner")).toString() == me ? tr("You won the set against %1, %2!").arg(opp, score)
+                                                                   : tr("%1 won the set, %2.").arg(opp, score);
+    } else if (outcome == QLatin1String("forfeit")) {
+        text = iLeft ? tr("You left the set against %1 at %2: it counts as a loss.").arg(opp, score)
+                     : tr("%1 left the set at %2: you win it.").arg(opp, score);
+    } else {
+        text = tr("The set against %1 ended without a result (%2): no Elo change.").arg(opp, score);
+    }
+    const QJsonObject e = s.value(QStringLiteral("elo")).toObject().value(me).toObject();
+    if (!e.isEmpty()) {
+        const int delta = e.value(QStringLiteral("delta")).toInt();
+        text += tr(" Elo %1 -> %2 (%3%4).").arg(e.value(QStringLiteral("before")).toInt())
+                    .arg(e.value(QStringLiteral("after")).toInt())
+                    .arg(delta >= 0 ? QStringLiteral("+") : QString()).arg(delta);
+    }
+    return text;
+}
+
+bool QueuePage::leavingLosesSet() {
+    const QJsonObject s = controller_->series();
+    if (s.isEmpty() || !s.value(QStringLiteral("ranked")).toBool() ||
+        s.value(QStringLiteral("you")).toInt() + s.value(QStringLiteral("them")).toInt() == 0)
+        return true;
+    return QMessageBox::question(this, tr("Leave the set?"),
+                                 tr("You are in a ranked set against %1 (%2-%3, first to %4). Leaving it now counts "
+                                    "as losing the set, with its Elo. Leave anyway?")
+                                     .arg(s.value(QStringLiteral("opponent")).toString())
+                                     .arg(s.value(QStringLiteral("you")).toInt())
+                                     .arg(s.value(QStringLiteral("them")).toInt())
+                                     .arg(s.value(QStringLiteral("need")).toInt())) == QMessageBox::Yes;
 }
 
 void QueuePage::updateButton() {

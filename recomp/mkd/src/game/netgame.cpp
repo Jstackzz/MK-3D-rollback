@@ -220,6 +220,14 @@ void Agree(X86Context&, int side, const std::vector<uint32_t>& mine, const std::
             }
         }
     }
+    // which port drives which fighter (player record + 4, port block + 8): the netplay writes P1's input to port 0
+    // and P2's to port 1
+    const uint32_t p1_port = kernel::R32(kP1Record + 4), p2_port = kernel::R32(kP2Record + 4);
+    const uint32_t port0 = kernel::R32(kPortBlock + 8), port1 = kernel::R32(kPortBlock + kPortStride + 8);
+    LOGR("netplay: P1 plays from port %u, P2 from port %u (ports 0 and 1 drive %08X and %08X)", p1_port, p2_port,
+         port0, port1);
+    if (log) std::fprintf(log, "# P1 plays from port %u, P2 from port %u (ports 0 and 1 drive %08X and %08X)\n",
+                          p1_port, p2_port, port0, port1);
 }
 
 // the engine's random generator (a Mersenne Twister variant, state 0x5FE9F4 + 0x5FEA00) drew differently in the two

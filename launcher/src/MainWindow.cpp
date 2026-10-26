@@ -134,6 +134,18 @@ MainWindow::MainWindow(const LaunchOptions& opts, QWidget* parent)
         if (p == MatchController::Phase::Idle && !opts_.lobby.isEmpty() && !cliLastLobby_.isEmpty())
             cliLobbyMessage(cliLastLobby_);
     });
+    connect(controller_, &MatchController::seriesChanged, this, [this](const QJsonObject& s) {
+        if (opts_.queue.isEmpty() || cliRematches_ >= opts_.rematches || s.value(QStringLiteral("ranked")).toBool() ||
+            s.value(QStringLiteral("state")).toString() != QLatin1String("between") ||
+            s.value(QStringLiteral("you_ready")).toBool())
+            return;
+        const QStringList& choices = opts_.rematchChoices;
+        const QString choice = choices.isEmpty() ? QStringLiteral("rematch")
+                                                 : choices.value(qMin(cliRematches_, int(choices.size()) - 1));
+        cliRematches_++;
+        applog::write(QStringLiteral("cli: rematch %1 of %2 (%3)").arg(cliRematches_).arg(opts_.rematches).arg(choice));
+        QTimer::singleShot(2000, this, [this, choice] { controller_->seriesReady(true, choice); });
+    });
     connect(controller_, &MatchController::gameStatusChanged, this, [this](const QString& s) {
         gameText_->setText(tr("Game: %1").arg(s));
     });
@@ -257,7 +269,7 @@ QWidget* MainWindow::buildNav() {
     h->setSpacing(2);
     navGroup_ = new QButtonGroup(this);
     navGroup_->setExclusive(true);
-    const QStringList names = {tr("RANKED"), tr("CASUAL"), tr("LOBBY"), tr("SINGLE PLAYER"), tr("LEADERBOARD"),
+    const QStringList names = {tr("RANKED"), tr("KASUAL"), tr("LOBBY"), tr("SINGLE PLAYER"), tr("LEADERBOARD"),
                                tr("BUILD GAME"), tr("CONTROLS"), tr("SETTINGS")};
     for (int i = 0; i < names.size(); ++i) {
         auto* b = new QPushButton(names[i]);
@@ -441,8 +453,10 @@ void MainWindow::onServerMessage(const QJsonObject& msg) {
 
 void MainWindow::onMatchFound(const QJsonObject& found) {
     if (!found.value(QStringLiteral("accept_required")).toBool()) {
-        showNotice(tr("Lobby match starting against %1.").arg(
-                       found.value(QStringLiteral("opponent")).toObject().value(QStringLiteral("name")).toString()), false);
+        const QString opponent = found.value(QStringLiteral("opponent")).toObject().value(QStringLiteral("name")).toString();
+        showNotice(found.contains(QStringLiteral("series")) ? tr("Next match against %1 starting.").arg(opponent)
+                                                            : tr("Lobby match starting against %1.").arg(opponent),
+                   false);
         return;
     }
     const Game* g = GameData::instance().game(found.value(QStringLiteral("game")).toString());

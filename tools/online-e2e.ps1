@@ -21,6 +21,10 @@ param(
     [string]$InputA = '',        # <GAME>_INPUT of each game (default: the same scripted attacker for both)
     [string]$InputB = '',
     [int]$Matches = 1,           # lobby: matches to play there one after the other (the games park and start again)
+    [int]$Rematches = 0,         # casual: rematches both choose after the first match (a ranked set plays on by
+                                 # itself until one player has won it)
+    [string[]]$RematchChoice = @(),  # casual: what both choose each time, rematch (the same fighters) or select (both
+                                 # pick again), e.g. select,rematch, the last one repeating; default rematch
     [switch]$Relay,              # the server relays every match (--relay-only): the relay path, on one PC
     [int]$Pads = 2,              # controllers each game reports at least (<GAME>_PADS); 0: only what is plugged in, as a player's PC
     [switch]$PickInGame,         # both players pick on the game's own select screen (their scripts move the cursor
@@ -93,11 +97,14 @@ Set-Item "env:${x}_NET_LOG" "$work\net-{side}-{match}.log"
 $env:SDL_ASSERT = 'always_ignore'
 $launcher = if ($Launcher) { (Resolve-Path $Launcher).Path } else { Join-Path $root 'build\launcher\MK3DLauncher.exe' }
 $stamp = Get-Date -Format 'HHmmss'
-$how = if ($Queue -eq 'lobby') { @('--lobby', 'host', '--lobby-name', "e2e$stamp", '--lobby-matches', "$Matches") } else { @('--queue', $Queue) }
+if ($Queue -eq 'casual' -and $Rematches -gt 0) { $Matches = 1 + $Rematches }
+$queueArgs = @('--queue', $Queue, '--rematches', "$Rematches")
+if ($RematchChoice) { $queueArgs += @('--rematch-choice', ($RematchChoice -join ',')) }  # one argument, no spaces
+$how = if ($Queue -eq 'lobby') { @('--lobby', 'host', '--lobby-name', "e2e$stamp", '--lobby-matches', "$Matches") } else { $queueArgs }
 $la = Start-Process -FilePath $launcher -ArgumentList (@('--config', "`"$work\a\mk3d-launcher.ini`"", '--user', "e2eA$stamp", '--register') + $how + @('--game', $Game, '--mode', $Mode, '--character', $CharA, '--auto-accept', '3')) -PassThru
 Start-Sleep -Seconds 1
 Set-Item "env:${x}_INPUT" $InputB
-$how = if ($Queue -eq 'lobby') { @('--lobby', 'join', '--lobby-name', "e2e$stamp", '--lobby-matches', "$Matches") } else { @('--queue', $Queue) }
+$how = if ($Queue -eq 'lobby') { @('--lobby', 'join', '--lobby-name', "e2e$stamp", '--lobby-matches', "$Matches") } else { $queueArgs }
 $lb = Start-Process -FilePath $launcher -ArgumentList (@('--config', "`"$work\b\mk3d-launcher.ini`"", '--user', "e2eB$stamp", '--register') + $how + @('--game', $Game, '--mode', $Mode, '--character', $CharB, '--auto-accept', '3')) -PassThru
 foreach ($k in $vars) { Remove-Item "env:$k" -ErrorAction SilentlyContinue }
 "server pid $($server.Id), launchers $($la.Id) $($lb.Id), accounts e2eA$stamp / e2eB$stamp"
@@ -116,15 +123,26 @@ while (((Get-Date) - $t0).TotalSeconds -lt $Seconds) {
             if ($line -like 'result*') { $results++ }
         }
     }
-    # the server's RESULT lines count the matches done (a game's result status can last less than a poll)
-    $done = @(Get-Content "$work\server\err.txt", "$work\server\out.txt" -ErrorAction SilentlyContinue | Select-String -Pattern 'RESULT match=').Count
-    if ($results -ge 2 * $Matches -or $done -ge $Matches) { Start-Sleep -Seconds 12; break }
+    # the server's RESULT lines count the matches done (a game's result status can last less than a poll); a ranked
+    # set is done when the server closes it
+    $serverLog = @(Get-Content "$work\server\err.txt", "$work\server\out.txt" -ErrorAction SilentlyContinue)
+    $done = @($serverLog | Select-String -Pattern 'RESULT match=').Count
+    $finished = if ($Queue -eq 'ranked') { @($serverLog | Select-String -Pattern 'SET \S+ over').Count -ge 1 }
+                else { $results -ge 2 * $Matches -or $done -ge $Matches }
+    if ($finished) { Start-Sleep -Seconds 12; break }
     Start-Sleep -Milliseconds 250
 }
 "--- launcher logs (last lines)"
 foreach ($s in 'a', 'b') { Get-Content "$work\$s\mk3d-launcher.log" -Tail 8 -ErrorAction SilentlyContinue | ForEach-Object { "[$s] $_" } }
+"--- match starts (the fighters each game was given; empty: picked on the select screen)"
+foreach ($s in 'a', 'b') {
+    Get-ChildItem -Path "$work\$s\sessions" -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+        Select-String -Path (Join-Path $_.FullName 'game.log') -Pattern 'link: start|picked character' -ErrorAction SilentlyContinue |
+            ForEach-Object { "[$s] $($_.Line)" }
+    }
+}
 "--- server log (matches and results)"
-Get-Content "$work\server\err.txt", "$work\server\out.txt" -ErrorAction SilentlyContinue | Select-String -Pattern 'match|result|elo|report' | Select-Object -Last 12 | ForEach-Object { $_.Line }
+Get-Content "$work\server\err.txt", "$work\server\out.txt" -ErrorAction SilentlyContinue | Select-String -Pattern 'match|result|elo|report|set |series' | Select-Object -Last 16 | ForEach-Object { $_.Line }
 # only what this run started: the two launchers and the games they started
 $games = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.ParentProcessId -in @($la.Id, $lb.Id) } | ForEach-Object { $_.ProcessId })
 foreach ($p in @($la, $lb)) { if (-not $p.HasExited) { $p.CloseMainWindow() | Out-Null } }

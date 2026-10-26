@@ -1,4 +1,4 @@
-"""SQLite storage: accounts, login tokens, per game/mode stats, match log and result reports."""
+"""SQLite storage: accounts, login tokens, per game/mode stats, match log, result reports and ranked sets."""
 
 from __future__ import annotations
 
@@ -76,6 +76,23 @@ CREATE TABLE IF NOT EXISTS reports (
     frame      INTEGER,
     received   REAL NOT NULL,
     PRIMARY KEY (match_id, account_id)
+);
+CREATE TABLE IF NOT EXISTS sets (
+    id            TEXT PRIMARY KEY,
+    game          TEXT NOT NULL,
+    mode          TEXT NOT NULL,
+    p1            INTEGER NOT NULL,
+    p2            INTEGER NOT NULL,
+    created       REAL NOT NULL,
+    ended         REAL NOT NULL,
+    outcome       TEXT NOT NULL,
+    winner        INTEGER,
+    p1_wins       INTEGER NOT NULL,
+    p2_wins       INTEGER NOT NULL,
+    p1_elo_before INTEGER,
+    p1_elo_after  INTEGER,
+    p2_elo_before INTEGER,
+    p2_elo_after  INTEGER
 );
 """
 
@@ -203,17 +220,50 @@ class Database:
             self._bump(conn, winner_id, game, mode, "casual", True, None, now)
             self._bump(conn, loser_id, game, mode, "casual", False, None, now)
 
-    def record_ranked(self, winner_id: int, loser_id: int, game: str, mode: str,
-                      now: float | None = None) -> dict[int, tuple[int, int]]:
-        """Apply one ranked win; returns {account_id: (elo_before, elo_after)}."""
+    def record_ranked_match(self, winner_id: int, loser_id: int, game: str, mode: str,
+                            now: float | None = None) -> None:
+        """Count one ranked match won and lost; Elo moves per set (record_ranked_set)."""
+        now = now or time.time()
+        with self.transaction() as conn:
+            self._bump(conn, winner_id, game, mode, "ranked", True, None, now)
+            self._bump(conn, loser_id, game, mode, "ranked", False, None, now)
+
+    def record_ranked_set(self, winner_id: int, loser_id: int, game: str, mode: str,
+                          now: float | None = None) -> dict[int, tuple[int, int]]:
+        """Apply one ranked set won (or forfeited by the loser); returns {account_id: (elo_before, elo_after)}."""
         now = now or time.time()
         with self.transaction() as conn:
             before_w = self.rating(winner_id, game, mode)["elo"]
             before_l = self.rating(loser_id, game, mode)["elo"]
             after_w, after_l = elo.update(before_w, before_l, 1.0)
-            self._bump(conn, winner_id, game, mode, "ranked", True, after_w, now)
-            self._bump(conn, loser_id, game, mode, "ranked", False, after_l, now)
+            for account_id, after in ((winner_id, after_w), (loser_id, after_l)):
+                conn.execute(
+                    "INSERT OR IGNORE INTO stats (account_id, game, mode, kind, elo, wins, losses, updated) "
+                    "VALUES (?, ?, ?, 'ranked', ?, 0, 0, ?)",
+                    (account_id, game, mode, elo.INITIAL, now),
+                )
+                conn.execute(
+                    "UPDATE stats SET elo = ?, updated = ? WHERE account_id = ? AND game = ? AND mode = ? "
+                    "AND kind = 'ranked'",
+                    (after, now, account_id, game, mode),
+                )
         return {winner_id: (before_w, after_w), loser_id: (before_l, after_l)}
+
+    def log_set(self, set_id: str, game: str, mode: str, p1: int, p2: int, created: float, ended: float,
+                outcome: str, winner: int | None, p1_wins: int, p2_wins: int,
+                changes: dict[int, tuple[int, int]] | None) -> None:
+        def elo_of(account_id: int, i: int) -> int | None:
+            return changes[account_id][i] if changes and account_id in changes else None
+        self.conn.execute(
+            "INSERT OR REPLACE INTO sets (id, game, mode, p1, p2, created, ended, outcome, winner, p1_wins, p2_wins, "
+            "p1_elo_before, p1_elo_after, p2_elo_before, p2_elo_after) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+            "?, ?, ?)",
+            (set_id, game, mode, p1, p2, created, ended, outcome, winner, p1_wins, p2_wins,
+             elo_of(p1, 0), elo_of(p1, 1), elo_of(p2, 0), elo_of(p2, 1)),
+        )
+
+    def set_row(self, set_id: str) -> sqlite3.Row | None:
+        return self.conn.execute("SELECT * FROM sets WHERE id = ?", (set_id,)).fetchone()
 
     def leaderboard(self, game: str, mode: str, limit: int, offset: int) -> tuple[list[dict[str, Any]], int]:
         total = self.conn.execute(

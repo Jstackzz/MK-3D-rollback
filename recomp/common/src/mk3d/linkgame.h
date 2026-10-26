@@ -51,5 +51,8 @@ void SettleNow(net::Settled& s);
 // mode counts as rounds) once it is decided
 bool Outcome(const std::string& mode, const net::Settled& s, int wins_needed, int& winner, uint32_t& p1_rounds,
              uint32_t& p2_rounds);
+// the fighters of a fight mode's match (the game's character indices, which a start's picks take as numbers, so a
+// rematch can have the same two); false for a mode without them
+bool Fighters(const std::string& mode, int out[2]);
 
 }  // namespace mk3d::link::game

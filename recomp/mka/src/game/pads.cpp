@@ -207,10 +207,12 @@ void PadHook(int port, input::Pad& pad) {
         pad = port == pick_port ? player : input::Pad{};
         pad.analog[1] = 0;      // B would leave the select screen (and the match with it)
         pad.buttons &= ~0x20u;  // as BACK would
+        pad.analog[2] = 0;      // X opens a panel there that only B closes; open, it takes A, so nobody would pick
         pad.connected = connected || port == pick_port;
     } else if (link::SuppressPhysicalPads()) {
         pad.buttons = 0;
         for (auto& a : pad.analog) a = 0;
+        pad.lx = pad.ly = pad.rx = pad.ry = 0;  // a stick pushed (or drifting) would steer the autopilot's menus
     }
     autopilot::Apply(port, pad);
     {

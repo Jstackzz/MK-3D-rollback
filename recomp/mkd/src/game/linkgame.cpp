@@ -113,4 +113,12 @@ bool Outcome(const std::string& mode, const net::Settled& s, int wins_needed, in
     return winner != 0;
 }
 
+// a fight's two characters (the side modes' teams and wells are picked again)
+bool Fighters(const std::string& mode, int out[2]) {
+    if (mode == "chess" || mode == "puzzle") return false;
+    out[0] = int(kernel::R32(kP1Character));
+    out[1] = int(kernel::R32(kP2Character));
+    return out[0] >= 0 && out[0] < 40 && out[1] >= 0 && out[1] < 40;
+}
+
 }  // namespace mk3d::link::game

@@ -4,8 +4,9 @@
 // MKDA_PADS=2           report a second controller even when only one is plugged in (idle unless scripted); the
 //                       main menu offers VERSUS only with two controllers open
 // MKDA_INPUT=<script>   scripted presses, comma separated entries  [p<port>@]<seconds>:<buttons>[:<hold seconds>]
-//                       buttons joined with '+': A B X Y BLACK WHITE LT RT UP DOWN LEFT RIGHT START BACK LS RS
-//                       e.g. MKDA_INPUT=8:START,10:A,12:DOWN,12.5:A,p2@14:A
+//                       buttons joined with '+': A B X Y BLACK WHITE LT RT UP DOWN LEFT RIGHT START BACK LS RS, and
+//                       the left stick pushed all the way: LSUP LSDOWN LSLEFT LSRIGHT
+//                       e.g. MKDA_INPUT=8:START,10:A,12:DOWN,12.5:A,p2@14:A,20:LSLEFT:2
 //                       times count from the first controller read; holds default to 0.15 s
 //                       (with MKDA_AUTOPILOT the times count from the first fight setup instead, so a script can
 //                       attack once the autopilot has reached a fight)
@@ -36,7 +37,18 @@ struct Press {
     double at = 0, until = 0;
     uint16_t buttons = 0;
     uint8_t analog_mask = 0;  // bits of Pad::analog to press fully
+    int16_t lx = 0, ly = 0;   // the left stick (ly up-positive)
 };
+
+// a script's left stick names: the stick pushed all the way
+bool ParseStick(const std::string& name, Press& p) {
+    if (name == "LSUP") p.ly = 32767;
+    else if (name == "LSDOWN") p.ly = -32768;
+    else if (name == "LSLEFT") p.lx = -32768;
+    else if (name == "LSRIGHT") p.lx = 32767;
+    else return false;
+    return true;
+}
 
 std::once_flag g_once;
 std::vector<Press> g_script;
@@ -136,7 +148,7 @@ void Load() {
         while (b <= names.size()) {
             size_t plus = names.find('+', b);
             std::string name = names.substr(b, plus == std::string::npos ? std::string::npos : plus - b);
-            if (!name.empty() && !ParseButton(name, p.buttons, p.analog_mask)) {
+            if (!name.empty() && !ParseStick(name, p) && !ParseButton(name, p.buttons, p.analog_mask)) {
                 LOGE("pads: unknown button %s in MKDA_INPUT", name.c_str());
                 ok = false;
             }
@@ -148,6 +160,18 @@ void Load() {
     g_script_after_fight = autopilot::Active() && !g_script.empty();
     LOGI("pads: %zu scripted presses%s, %d forced pads", g_script.size(),
          g_script_after_fight ? " (timed from the first fight setup)" : "", g_forced_pads);
+}
+
+// Deadly Alliance's pad update (sub_00143030) gives the sticks no direction: only the d-pad moved a fighter or a menu
+// cursor, so the analog stick of a controller did nothing. Here the left stick presses the d-pad, each axis past the
+// deadzone Deception and Armageddon turn their own left stick into the d-pad with (48 of 127 in the stick's byte,
+// their sub_0006AC90 / sub_0007B9F0). Pad::ly is up-positive.
+void StickPressesDpad(input::Pad& pad) {
+    constexpr int kDeadzone = 48 * 256;
+    if (pad.ly >= kDeadzone) pad.buttons |= 0x01;   // UP
+    if (pad.ly <= -kDeadzone) pad.buttons |= 0x02;  // DOWN
+    if (pad.lx <= -kDeadzone) pad.buttons |= 0x04;  // LEFT
+    if (pad.lx >= kDeadzone) pad.buttons |= 0x08;   // RIGHT
 }
 
 // seconds on the script's clock, or -1 while it has not started
@@ -233,8 +257,11 @@ void PadHook(int port, input::Pad& pad) {
             pad.buttons |= p.buttons;
             for (int i = 0; i < 8; i++)
                 if (p.analog_mask & (1u << i)) pad.analog[i] = 0xFF;
+            if (p.lx) pad.lx = p.lx;
+            if (p.ly) pad.ly = p.ly;
         }
     }
+    StickPressesDpad(pad);
     // the launcher's autopilot drives the menus: the player's own controller reaches the game in the match only, and
     // on the select screen of an online match whose players pick there, where it steers their own side's cursor: the
     // controller on port 0 (the keyboard's too) goes to port 1 when they are P2
@@ -250,6 +277,7 @@ void PadHook(int port, input::Pad& pad) {
     } else if (mk3d::link::SuppressPhysicalPads()) {
         pad.buttons = 0;
         for (auto& a : pad.analog) a = 0;
+        pad.lx = pad.ly = pad.rx = pad.ry = 0;  // a stick pushed (or drifting) would steer the autopilot's menus
     }
     autopilot::Apply(port, pad);
     {

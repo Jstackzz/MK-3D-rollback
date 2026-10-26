@@ -120,4 +120,12 @@ bool Outcome(const std::string& mode, const net::Settled& s, int wins_needed, in
     return winner != 0;
 }
 
+// a fight's two characters (Motor Kombat's karts are picked again; 0x40 none)
+bool Fighters(const std::string& mode, int out[2]) {
+    if (mode == "motor") return false;
+    out[0] = int(kernel::R32(kP1Character));
+    out[1] = int(kernel::R32(kP2Character));
+    return out[0] >= 0 && out[0] < 0x40 && out[1] >= 0 && out[1] < 0x40;
+}
+
 }  // namespace mk3d::link::game
