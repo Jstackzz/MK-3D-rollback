@@ -1,0 +1,111 @@
+diff --git a/runtime/cpu/dispatch.cpp b/runtime/cpu/dispatch.cpp
+index 4753eaa..0f239af 100644
+--- a/runtime/cpu/dispatch.cpp
++++ b/runtime/cpu/dispatch.cpp
+@@ -277,10 +277,8 @@ void x86_priv(X86Context& ctx, uint32_t va, const char* what) {
+ 
+ // the guest measured time against a 733.33 MHz time stamp counter
+ uint64_t x86_rdtsc() {
+-    using namespace std::chrono;
+-    static const auto start = steady_clock::now();
+-    auto ns = duration_cast<nanoseconds>(steady_clock::now() - start).count();
+-    uint64_t sec = uint64_t(ns) / 1000000000ull, rem = uint64_t(ns) % 1000000000ull;
++    uint64_t ns = kernel::GuestNanoseconds();
++    uint64_t sec = ns / 1000000000ull, rem = ns % 1000000000ull;
+     return sec * 733333333ull + rem * 733333333ull / 1000000000ull;
+ }
+ 
+diff --git a/runtime/kernel/kernel.h b/runtime/kernel/kernel.h
+index f684dfc..ed1a18a 100644
+--- a/runtime/kernel/kernel.h
++++ b/runtime/kernel/kernel.h
+@@ -124,6 +124,17 @@ ObjectRef FromHandle(uint32_t handle);
+ // fault cannot happen in user mode. A game layer that write-protects guest pages to track changes (rollback
+ // netplay) registers a hook to make the range writable first.
+ using GuestWriteHook = void (*)(uint32_t va, uint32_t len);
++
++// The clock the guest reads (time stamp counter, performance counter, interrupt time, tick count) in nanoseconds
++// since boot: real time unless a game layer installs a hook (netplay makes it a function of the simulated frame on
++// the main thread, so every peer and every replay of a frame reads the same times). While a hook is installed the
++// timer thread leaves KeTickCount and the interrupt time alone; the game layer calls PublishGuestTime on its own
++// thread to write them.
++using ClockHook = uint64_t (*)();
++void SetClockHook(ClockHook hook);
++uint64_t GuestNanoseconds();
++uint64_t RealNanoseconds();
++void PublishGuestTime();
+ void SetGuestWriteHook(GuestWriteHook hook);
+ void BeforeGuestWrite(uint32_t va, uint32_t len);
+ bool CloseHandle(uint32_t handle);
+diff --git a/runtime/kernel/xboxkrnl.cpp b/runtime/kernel/xboxkrnl.cpp
+index bec6e36..da41ede 100644
+--- a/runtime/kernel/xboxkrnl.cpp
++++ b/runtime/kernel/xboxkrnl.cpp
+@@ -1,3 +1,4 @@
++#include <atomic>
+ #include <algorithm>
+ #include <cctype>
+ #include <chrono>
+@@ -67,13 +68,24 @@ void PutSystemTime(uint32_t va, uint64_t t) {
+     W32(va + 4, uint32_t(t >> 32));
+ }
+ 
+-uint64_t InterruptTime() {
++uint64_t InterruptTime() { return GuestNanoseconds() / 100; }
++
++std::atomic<ClockHook> g_clock_hook{nullptr};
++
++}  // namespace
++
++uint64_t RealNanoseconds() {
+     using namespace std::chrono;
+     static const auto start = steady_clock::now();
+-    return uint64_t(duration_cast<nanoseconds>(steady_clock::now() - start).count() / 100);
++    return uint64_t(duration_cast<nanoseconds>(steady_clock::now() - start).count());
+ }
+ 
+-}  // namespace
++uint64_t GuestNanoseconds() {
++    if (ClockHook h = g_clock_hook.load()) return h();
++    return RealNanoseconds();
++}
++
++void SetClockHook(ClockHook hook) { g_clock_hook = hook; }
+ 
+ uint32_t g_tick_count_va = 0;
+ uint32_t g_launch_data_page_va = 0;
+@@ -104,11 +116,12 @@ void InitKernelData() {
+     W32(DataAddress(157), 10000);  // 1 ms in 100 ns units
+     // the start of the clock
+     std::thread([] {
+-        auto start = std::chrono::steady_clock::now();
+         for (;;) {
+-            auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
+-            W32(g_tick_count_va, uint32_t(ms));
+-            PutSystemTime(DataAddress(120), InterruptTime());
++            // with a clock hook the game layer publishes these (PublishGuestTime)
++            if (!g_clock_hook.load()) {
++                W32(g_tick_count_va, uint32_t(RealNanoseconds() / 1000000));
++                PutSystemTime(DataAddress(120), InterruptTime());
++            }
+             PutSystemTime(DataAddress(154), uint64_t(Now100ns()));
+             std::this_thread::sleep_for(std::chrono::milliseconds(1));
+         }
+@@ -235,10 +248,14 @@ KERNEL_EXPORT(228, NtSetSystemTime, 2) {
+ // the console's ACPI timer
+ constexpr uint64_t kPerfFrequency = 3375000;
+ 
++void PublishGuestTime() {
++    uint64_t ns = GuestNanoseconds();
++    W32(g_tick_count_va, uint32_t(ns / 1000000));
++    PutSystemTime(DataAddress(120), ns / 100);
++}
++
+ KERNEL_EXPORT(126, KeQueryPerformanceCounter, 0) {
+-    using namespace std::chrono;
+-    static const auto start = steady_clock::now();
+-    uint64_t ns = uint64_t(duration_cast<nanoseconds>(steady_clock::now() - start).count());
++    uint64_t ns = GuestNanoseconds();
+     uint64_t v = ns / 1000000000ull * kPerfFrequency + ns % 1000000000ull * kPerfFrequency / 1000000000ull;
+     ctx.edx = uint32_t(v >> 32);
+     return uint32_t(v);

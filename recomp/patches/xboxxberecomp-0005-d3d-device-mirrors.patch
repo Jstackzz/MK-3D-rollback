@@ -1,0 +1,129 @@
+diff --git a/runtime/gpu/state.h b/runtime/gpu/state.h
+index 2a57947..59120e5 100644
+--- a/runtime/gpu/state.h
++++ b/runtime/gpu/state.h
+@@ -184,6 +184,10 @@ struct State {
+     std::array<std::array<uint32_t, 26>, 8> lights{};  // D3DLIGHT8
+     uint32_t light_enable = 0;                         // bit per light
+     float ss_offset_x = 0, ss_offset_y = 0;
++    // D3DDevice_SetDepthClipPlanes: near and far Z of vertex programs [0] and fixed function [1], bit set when not
++    // the default
++    float clip_planes[2][2] = {};
++    uint32_t clip_planes_set = 0;
+     float zscale = 16777215.0f;  // depth buffer units per 1.0
+ };
+ 
+diff --git a/runtime/xdk/d3d8.cpp b/runtime/xdk/d3d8.cpp
+index 1d0d956..ad97bbf 100644
+--- a/runtime/xdk/d3d8.cpp
++++ b/runtime/xdk/d3d8.cpp
+@@ -72,6 +72,10 @@ bool InCode(uint32_t va);  // cpu/dispatch.cpp
+ #define SYM_D3D_BlockOnNonSurfaceResource FFFFFE0A
+ #define HAS_D3D_BlockOnNonSurfaceResource 0
+ #endif
++#ifndef SYM_D3DDevice_SetDepthClipPlanes
++#define SYM_D3DDevice_SetDepthClipPlanes FFFFFE0B
++#define HAS_D3DDevice_SetDepthClipPlanes 0
++#endif
+ 
+ namespace d3d {
+ 
+@@ -655,6 +659,39 @@ HLE_STDCALL(D3DDevice_SetScissors, 3) {
+     return 0;
+ }
+ 
++// (near, far, which): the Z range vertices are clipped to, for vertex programs (1) or fixed function (2), or back
++// to the default range (3, 4). The library pushes them with the viewport; the renderer clips to the viewport's
++// depth range alone, so they are kept for it and not yet applied.
++HLE_STDCALL(D3DDevice_SetDepthClipPlanes, 3) {
++    std::lock_guard<std::recursive_mutex> lock(g_lock);
++    uint32_t which = a[2];
++    if (which < 1 || which > 4) return 0x8876086Cu;  // D3DERR_INVALIDCALL
++    int set = which <= 2 ? int(which) - 1 : -1, reset = which >= 3 ? int(which) - 3 : -1;  // 0 program, 1 fixed
++    if (set >= 0) {
++        g_state.clip_planes[set][0] = ArgF(a, 0);
++        g_state.clip_planes[set][1] = ArgF(a, 1);
++        g_state.clip_planes_set |= 1u << set;
++    } else {
++        g_state.clip_planes_set &= ~(1u << reset);
++    }
++    // where the library keeps them, for the recompiled getter: fixed function first, the bit of each set range
++    if (XDK_CDevice_ClipPlanes != xdk::kUnknown) {
++        uint32_t at = kDevice + XDK_CDevice_ClipPlanes;
++        uint32_t fixed = 1, program = 0;  // indexes of g_state.clip_planes
++        if (set == fixed || set == program) {
++            uint32_t slot = set == fixed ? 0u : 8u;
++            W32(at + slot, a[0]);
++            W32(at + slot + 4, a[1]);
++        }
++        uint32_t bits = 0;
++        if (g_state.clip_planes_set & (1u << fixed)) bits |= 1;
++        if (g_state.clip_planes_set & (1u << program)) bits |= 2;
++        W32(at + 0x10, (R32(at + 0x10) & ~3u) | bits);
++    }
++    LOG_FIRST(4, "d3d: SetDepthClipPlanes %g %g (%u), not applied", ArgF(a, 0), ArgF(a, 1), which);
++    return 0;
++}
++
+ HLE_STDCALL(D3DDevice_SetScreenSpaceOffset, 2) {
+     g_state.ss_offset_x = ArgF(a, 0);
+     g_state.ss_offset_y = ArgF(a, 1);
+@@ -756,6 +793,7 @@ HLE_STDCALL(D3DDevice_SetTransform, 2) {
+ 
+ HLE_STDCALL(D3DDevice_SetMaterial, 1) {
+     std::memcpy(g_state.material.data(), HostPtr(a[0]), 17 * 4);
++    if (XDK_CDevice_Material != xdk::kUnknown) std::memcpy(HostPtr(kDevice + XDK_CDevice_Material), HostPtr(a[0]), 17 * 4);
+     return 0;
+ }
+ 
+@@ -904,6 +942,7 @@ HLE_STDCALL(D3DDevice_SetVertexShader, 1) {
+     uint32_t h = a[0];
+     g_state.vs_handle = h;
+     g_state.vs = nullptr;
++    if (XDK_CDevice_VertexShaderHandle != xdk::kUnknown) SetDev(XDK_CDevice_VertexShaderHandle, h);  // GetVertexShader
+     if (h & 1) {
+         auto it = g_vs.find(h);
+         if (it != g_vs.end()) {
+@@ -1098,6 +1137,7 @@ HLE_STDCALL(D3DDevice_DeletePixelShader, 1) {
+ HLE_STDCALL(D3DDevice_SetPixelShader, 1) {
+     std::lock_guard<std::recursive_mutex> lock(g_lock);
+     g_state.ps = nullptr;
++    if (XDK_CDevice_PixelShader != xdk::kUnknown) SetDev(XDK_CDevice_PixelShader, a[0]);  // GetPixelShader
+     if (!a[0]) return 0;
+     auto it = g_ps.find(a[0]);
+     if (it != g_ps.end()) {
+diff --git a/runtime/xdk/layout.h b/runtime/xdk/layout.h
+index a98e822..f5a9e7e 100644
+--- a/runtime/xdk/layout.h
++++ b/runtime/xdk/layout.h
+@@ -96,6 +96,15 @@ constexpr bool AllKnown(const LayoutKey (&keys)[N]) {
+ #ifndef XDK_CDevice_VertexShader
+ #define XDK_CDevice_VertexShader 0xFFFFFFFFu
+ #endif
++#ifndef XDK_CDevice_VertexShaderHandle
++#define XDK_CDevice_VertexShaderHandle 0xFFFFFFFFu
++#endif
++#ifndef XDK_CDevice_Material
++#define XDK_CDevice_Material 0xFFFFFFFFu
++#endif
++#ifndef XDK_CDevice_ClipPlanes
++#define XDK_CDevice_ClipPlanes 0xFFFFFFFFu
++#endif
+ #ifndef XDK_CDevice_BackBufferScale
+ #define XDK_CDevice_BackBufferScale 0xFFFFFFFFu
+ #endif
+diff --git a/xdk/5849/layout.toml b/xdk/5849/layout.toml
+index bb4f861..1186531 100644
+--- a/xdk/5849/layout.toml
++++ b/xdk/5849/layout.toml
+@@ -33,6 +33,10 @@ CDevice_VBlankCount       = 0x1DE8 # the vertical blank handler 0x4A2FD1 increme
+ CDevice_Field             = 0x1DF8 # the vertical blank handler 0x4A3034 stores the field at miniport + 0x1D0; Black D3DDevice_GetDisplayFieldStatus 0x26B62F reads it
+ CDevice_GammaRamps        = 0x1E04 # D3DDevice_SetGammaRamp 0x49A413 copies to miniport + 0x1DC + index * 0x300; Black 0x176476
+ CDevice_GammaPending      = 0x2404 # D3DDevice_SetGammaRamp 0x49A441 sets [miniport + 0x7DC + index * 4]; Black 0x17648F
++CDevice_VertexShaderHandle = 0x798 # D3DDevice_GetVertexShader returns it (Mortal Kombat: Deception 0x2EADE0)
++CDevice_Material          = 0xF00  # D3DDevice_GetMaterial copies 17 dwords from it (Deception 0x2E8530)
++CDevice_ClipPlanes        = 0x1C08 # D3DDevice_SetDepthClipPlanes (Deception 0x2E7DF0) stores fixed function near, far at
++                                   # +0, +4, vertex program near, far at +8, +0xC, which are set at +0x10 (bit 0 fixed)
+ # D3D8 globals
+ DirtyFlags_Texture    = 0x4800  # D3DDevice_SetTexture 0x49B147 ors it into D3D__DirtyFlags
+ TextureState_Stage    = 32      # D3DDevice_SetTextureStageStateNotInline 0x49FA4B: [stage * 32 + type] dwords

@@ -1,0 +1,114 @@
+{
+  "id": "mkd",
+  "title": "Mortal Kombat: Deception",
+  "short": "Deception",
+  "edition": "Xbox, USA",
+  "title_id": "4D570019",
+  "default_exe": "MKD.exe",
+  "xbe_sha1": "ccbcfe58d253e96fdb016907ee80b8a5fe53ca26",
+  "modes": [
+    {
+      "id": "kombat",
+      "name": "Kombat",
+      "description": "One-on-one fight, best of three rounds by default.",
+      "online": true,
+      "ranked": true,
+      "roster": "fighters",
+      "character_select": "launcher",
+      "rounds": [1, 3, 5],
+      "default_rounds": 3
+    },
+    {
+      "id": "chess",
+      "name": "Chess Kombat",
+      "description": "Chess-style board game; captures are decided by fights. Teams are picked in the game.",
+      "online": true,
+      "ranked": true,
+      "roster": "fighters",
+      "character_select": "in_game",
+      "rounds": [1],
+      "default_rounds": 1
+    },
+    {
+      "id": "puzzle",
+      "name": "Puzzle Kombat",
+      "description": "Falling-block puzzle duel with super-deformed fighters, each with a special move.",
+      "online": true,
+      "ranked": true,
+      "roster": "puzzle",
+      "character_select": "launcher",
+      "rounds": [1, 3, 5],
+      "default_rounds": 3
+    },
+    {
+      "id": "practice",
+      "name": "Practice",
+      "description": "Offline training on this PC.",
+      "online": false,
+      "ranked": false,
+      "roster": "fighters",
+      "character_select": "launcher",
+      "rounds": [1],
+      "default_rounds": 1
+    }
+  ],
+  "rosters": {
+    "fighters": [
+      {"id": "Ashrah", "name": "Ashrah"},
+      {"id": "Baraka", "name": "Baraka"},
+      {"id": "BoRaiCho", "name": "Bo' Rai Cho"},
+      {"id": "Dairou", "name": "Dairou"},
+      {"id": "Darrius", "name": "Darrius"},
+      {"id": "Ermac", "name": "Ermac"},
+      {"id": "Havik", "name": "Havik"},
+      {"id": "Hotaru", "name": "Hotaru"},
+      {"id": "Jade", "name": "Jade"},
+      {"id": "Kabal", "name": "Kabal"},
+      {"id": "Kenshi", "name": "Kenshi"},
+      {"id": "Kira", "name": "Kira"},
+      {"id": "Kobra", "name": "Kobra"},
+      {"id": "LiMei", "name": "Li Mei"},
+      {"id": "LiuKang", "name": "Liu Kang"},
+      {"id": "Mileena", "name": "Mileena"},
+      {"id": "Nightwolf", "name": "Nightwolf"},
+      {"id": "NoobSmoke", "name": "Noob-Smoke"},
+      {"id": "Raiden", "name": "Raiden"},
+      {"id": "Scorpion", "name": "Scorpion"},
+      {"id": "Shujinko", "name": "Shujinko"},
+      {"id": "Sindel", "name": "Sindel"},
+      {"id": "SubZero", "name": "Sub-Zero"},
+      {"id": "Tanya", "name": "Tanya"}
+    ],
+    "puzzle": [
+      {"id": "Baraka", "name": "Baraka"},
+      {"id": "BoRaiCho", "name": "Bo' Rai Cho"},
+      {"id": "Ermac", "name": "Ermac"},
+      {"id": "Jade", "name": "Jade"},
+      {"id": "Kabal", "name": "Kabal"},
+      {"id": "Kenshi", "name": "Kenshi"},
+      {"id": "Mileena", "name": "Mileena"},
+      {"id": "Nightwolf", "name": "Nightwolf"},
+      {"id": "Raiden", "name": "Raiden"},
+      {"id": "Scorpion", "name": "Scorpion"},
+      {"id": "Sindel", "name": "Sindel"},
+      {"id": "SubZero", "name": "Sub-Zero"}
+    ]
+  },
+  "not_playable": [
+    {"name": "Onaga", "note": "final boss, not playable"}
+  ],
+  "not_on_xbox": [
+    {"name": "Goro", "note": "GameCube version and Mortal Kombat: Unchained (PSP) only"},
+    {"name": "Shao Kahn", "note": "GameCube version and Mortal Kombat: Unchained (PSP) only"},
+    {"name": "Blaze", "note": "Mortal Kombat: Unchained (PSP) only"},
+    {"name": "Frost", "note": "Mortal Kombat: Unchained (PSP) only"},
+    {"name": "Jax", "note": "Mortal Kombat: Unchained (PSP) only"},
+    {"name": "Kitana", "note": "Mortal Kombat: Unchained (PSP) only"}
+  ],
+  "notes": "24 fighters on Xbox and PS2 (Noob Saibot and Smoke fight together as Noob-Smoke). Goro and Shao Kahn are playable only in the GameCube version and Unchained. Puzzle Kombat has its own 12-character roster; Chess Kombat teams are chosen in the game from all unlocked fighters.",
+  "sources": [
+    "https://en.wikipedia.org/wiki/Mortal_Kombat:_Deception",
+    "https://www.mortalkombatwarehouse.com/mkd/",
+    "https://www.mortalkombatwarehouse.com/mkd/puzzlekombat/"
+  ]
+}

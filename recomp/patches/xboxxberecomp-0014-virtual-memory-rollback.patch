@@ -1,0 +1,159 @@
+diff --git a/runtime/kernel/memory.cpp b/runtime/kernel/memory.cpp
+index e4fb5a3..6dc0397 100644
+--- a/runtime/kernel/memory.cpp
++++ b/runtime/kernel/memory.cpp
+@@ -263,6 +263,100 @@ static Reservation* FindReservation(uint32_t addr, uint32_t* start) {
+     return &it->second;
+ }
+ 
++// ---- rollback (kernel/host_rollback.h): the recording thread's user virtual memory, per frame ----
++// What the guest sees, the reservation map and its commit flags, changes at once, as the pools do. A decommit or a
++// release only zeroes its pages (a write the game layer's rollback logs, so it can put the contents back) and leaves
++// them committed until the frame is final: a rollback across the free finds the pages where they were, and the guest
++// committing them again finds them zeroed, as a fresh commit is. Pages the guest no longer has committed once the
++// frame is final are decommitted then, and at the end of the recording.
++namespace {
++
++struct VirtualRecord {
++    enum Kind : uint8_t { kReserve, kCommit, kDecommit, kRelease };
++    uint32_t frame;
++    Kind kind;
++    uint32_t start, size;        // the reservation (kReserve, kRelease) or the pages (kCommit, kDecommit)
++    std::vector<uint8_t> flags;  // kCommit, kDecommit: the pages' commit flags before
++    Reservation before;          // kRelease: the reservation as it was
++};
++std::vector<VirtualRecord> g_virtual_journal;           // oldest first, under g_lock
++std::vector<std::pair<uint32_t, uint32_t>> g_unwanted;  // host pages an undo left committed (first, size)
++
++bool VirtualRecording() { return host_rollback::Recording(); }
++
++bool GuestWants(uint32_t page) {
++    uint32_t start;
++    Reservation* r = FindReservation(page, &start);
++    return r && r->commit[(page - start) / kPage];
++}
++
++std::vector<uint8_t> CommitFlags(const Reservation& r, uint32_t start, uint32_t first, uint32_t end) {
++    return std::vector<uint8_t>(r.commit.begin() + (first - start) / kPage, r.commit.begin() + (end - start) / kPage);
++}
++
++// the pages a decommit or a release gives up while recording: zeroed, still committed on the host
++void ZeroForLater(uint32_t first, uint32_t size) {
++    for (uint64_t p = first; p < uint64_t(first) + size; p += kPage)
++        if (g_committed[size_t(p >> 12)]) std::memset(g_base + p, 0, kPage);
++}
++
++// host pages of these ranges the guest no longer has committed: decommitted now
++void DecommitUnwanted(const std::vector<std::pair<uint32_t, uint32_t>>& ranges) {
++    for (auto [first, size] : ranges)
++        for (uint64_t p = first; p < uint64_t(first) + size; p += kPage)
++            if (g_committed[size_t(p >> 12)] && !GuestWants(uint32_t(p))) Decommit(uint32_t(p), kPage);
++}
++
++void VirtualUndo(uint32_t frame) {
++    std::lock_guard<std::recursive_mutex> lock(g_lock);
++    while (!g_virtual_journal.empty() && g_virtual_journal.back().frame >= frame) {
++        VirtualRecord& v = g_virtual_journal.back();
++        uint32_t start = 0;
++        switch (v.kind) {
++            case VirtualRecord::kCommit:
++            case VirtualRecord::kDecommit:
++                if (Reservation* r = FindReservation(v.start, &start))
++                    std::copy(v.flags.begin(), v.flags.end(), r->commit.begin() + (v.start - start) / kPage);
++                if (v.kind == VirtualRecord::kCommit) g_unwanted.push_back({v.start, v.size});
++                break;
++            case VirtualRecord::kReserve:
++                g_reserved.erase(v.start);
++                g_user.Release(v.start, v.size);
++                g_unwanted.push_back({v.start, v.size});
++                break;
++            case VirtualRecord::kRelease:
++                if (g_user.IsFree(v.start, v.size)) {
++                    g_user.Remove(v.start, v.size);
++                    g_reserved[v.start] = std::move(v.before);
++                } else {
++                    LOGE("memory: undoing a release, %08X+%X was reserved by another thread", v.start, v.size);
++                }
++                break;
++        }
++        g_virtual_journal.pop_back();
++    }
++}
++
++void VirtualConfirm(uint32_t frame) {
++    std::lock_guard<std::recursive_mutex> lock(g_lock);
++    std::vector<std::pair<uint32_t, uint32_t>> final_frees;
++    size_t n = 0;
++    for (; n < g_virtual_journal.size() && g_virtual_journal[n].frame < frame; n++) {
++        const VirtualRecord& v = g_virtual_journal[n];
++        if (v.kind == VirtualRecord::kDecommit || v.kind == VirtualRecord::kRelease) final_frees.push_back({v.start, v.size});
++    }
++    g_virtual_journal.erase(g_virtual_journal.begin(), g_virtual_journal.begin() + ptrdiff_t(n));
++    DecommitUnwanted(final_frees);
++    DecommitUnwanted(g_unwanted);
++    g_unwanted.clear();
++}
++
++void VirtualEnd() { VirtualConfirm(UINT32_MAX); }
++
++const bool g_virtual_registered = (host_rollback::Register({nullptr, VirtualUndo, VirtualConfirm, VirtualEnd}), true);
++
++}  // namespace
++
+ uint32_t AllocateVirtual(uint32_t& base, uint32_t& size, uint32_t type, uint32_t protect) {
+     std::lock_guard<std::recursive_mutex> lock(g_lock);
+     EnsureRanges();
+@@ -284,6 +378,7 @@ uint32_t AllocateVirtual(uint32_t& base, uint32_t& size, uint32_t type, uint32_t
+             g_user.Forget(a);
+         }
+         g_reserved[a] = Reservation{sz, protect, std::vector<uint8_t>(sz / kPage, 0)};
++        if (VirtualRecording()) g_virtual_journal.push_back({host_rollback::CurrentFrame(), VirtualRecord::kReserve, a, sz, {}, {}});
+         base = a;
+         size = sz;
+     }
+@@ -294,6 +389,9 @@ uint32_t AllocateVirtual(uint32_t& base, uint32_t& size, uint32_t type, uint32_t
+         uint32_t first = base & ~(kPage - 1);
+         uint32_t end = (base + size + kPage - 1) & ~(kPage - 1);
+         if (end > start + r->size) return 0xC0000018;  // STATUS_CONFLICTING_ADDRESSES
++        if (VirtualRecording())
++            g_virtual_journal.push_back({host_rollback::CurrentFrame(), VirtualRecord::kCommit, first, end - first,
++                                         CommitFlags(*r, start, first, end), {}});
+         Commit(first, end - first);
+         for (uint32_t p = first; p < end; p += kPage) r->commit[(p - start) / kPage] = 1;
+         base = first;
+@@ -304,13 +402,18 @@ uint32_t AllocateVirtual(uint32_t& base, uint32_t& size, uint32_t type, uint32_t
+ 
+ uint32_t FreeVirtual(uint32_t& base, uint32_t& size, uint32_t type) {
+     std::lock_guard<std::recursive_mutex> lock(g_lock);
+-    if (host_rollback::Recording()) LOG_FIRST(8, "memory: virtual memory freed while recording for a rollback (%08X)", base);
++    bool recording = VirtualRecording();
+     uint32_t start;
+     Reservation* r = FindReservation(base, &start);
+     if (!r) return 0xC000009F;  // STATUS_MEMORY_NOT_ALLOCATED
+     if (type & kMemRelease) {
+         uint32_t sz = r->size;
+-        Decommit(start, sz);
++        if (recording) {  // the host pages stay until the frame is final (VirtualConfirm)
++            g_virtual_journal.push_back({host_rollback::CurrentFrame(), VirtualRecord::kRelease, start, sz, {}, *r});
++            ZeroForLater(start, sz);
++        } else {
++            Decommit(start, sz);
++        }
+         g_reserved.erase(start);
+         g_user.Release(start, sz);
+         base = start;
+@@ -319,7 +422,13 @@ uint32_t FreeVirtual(uint32_t& base, uint32_t& size, uint32_t type) {
+     }
+     uint32_t first = base & ~(kPage - 1);
+     uint32_t end = size ? (base + size + kPage - 1) & ~(kPage - 1) : start + r->size;
+-    Decommit(first, end - first);
++    if (recording) {  // the host pages stay until the frame is final (VirtualConfirm)
++        g_virtual_journal.push_back({host_rollback::CurrentFrame(), VirtualRecord::kDecommit, first, end - first,
++                                     CommitFlags(*r, start, first, end), {}});
++        ZeroForLater(first, end - first);
++    } else {
++        Decommit(first, end - first);
++    }
+     for (uint32_t p = first; p < end; p += kPage) r->commit[(p - start) / kPage] = 0;
+     base = first;
+     size = end - first;

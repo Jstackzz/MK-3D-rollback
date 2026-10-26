@@ -1,0 +1,848 @@
+diff --git a/runtime/kernel/files.cpp b/runtime/kernel/files.cpp
+index f16c457..08ae849 100644
+--- a/runtime/kernel/files.cpp
++++ b/runtime/kernel/files.cpp
+@@ -149,6 +149,7 @@ void Seek(FILE* fp, uint64_t pos) {
+ 
+ void IoStatus(uint32_t iosb, uint32_t status, uint32_t info) {
+     if (!iosb) return;
++    BeforeGuestWrite(iosb, 8);  // written for the calling thread (a game layer tracking guest writes is told)
+     W32(iosb, status);
+     W32(iosb + 4, info);
+ }
+diff --git a/runtime/kernel/host_rollback.cpp b/runtime/kernel/host_rollback.cpp
+new file mode 100644
+index 0000000..3675314
+--- /dev/null
++++ b/runtime/kernel/host_rollback.cpp
+@@ -0,0 +1,63 @@
++// Recording of host-side effects for a game layer's rollback; see host_rollback.h.
++#include "kernel/host_rollback.h"
++
++#include <atomic>
++#include <thread>
++#include <vector>
++
++namespace host_rollback {
++namespace {
++
++std::vector<Participant>& Parts() {
++    static std::vector<Participant> v;
++    return v;
++}
++std::atomic<bool> g_on{false};
++std::thread::id g_thread;
++uint32_t g_frame = 0;
++std::atomic<uint32_t> g_recordings{0};
++
++void Started(uint32_t frame) {
++    g_frame = frame;
++    for (const Participant& p : Parts())
++        if (p.frame) p.frame(frame);
++}
++
++}  // namespace
++
++void Register(const Participant& p) { Parts().push_back(p); }
++
++bool Recording() { return g_on.load(std::memory_order_acquire) && std::this_thread::get_id() == g_thread; }
++bool Active() { return g_on.load(std::memory_order_acquire); }
++uint32_t CurrentFrame() { return g_frame; }
++uint32_t Recordings() { return g_recordings.load(std::memory_order_acquire); }
++
++void Begin(uint32_t frame) {
++    g_recordings.fetch_add(1, std::memory_order_acq_rel);
++    g_thread = std::this_thread::get_id();
++    g_on.store(true, std::memory_order_release);
++    Started(frame);
++}
++
++void Frame(uint32_t frame) {
++    if (g_on) Started(frame);
++}
++
++void Undo(uint32_t frame) {
++    if (!g_on) return;
++    for (auto it = Parts().rbegin(); it != Parts().rend(); ++it) it->undo(frame);
++    Started(frame);
++}
++
++void Confirm(uint32_t frame) {
++    if (!g_on) return;
++    for (const Participant& p : Parts()) p.confirm(frame);
++}
++
++void End() {
++    if (!g_on) return;
++    g_on = false;
++    for (const Participant& p : Parts()) p.end();
++}
++
++}  // namespace host_rollback
+diff --git a/runtime/kernel/host_rollback.h b/runtime/kernel/host_rollback.h
+new file mode 100644
+index 0000000..6ba15d4
+--- /dev/null
++++ b/runtime/kernel/host_rollback.h
+@@ -0,0 +1,45 @@
++#pragma once
++// Host-side state of a title's simulation under a game layer's rollback.
++//
++// Rollback netplay rewinds the simulation to an earlier frame and runs it again. The game layer puts guest memory
++// back itself, but the runtime keeps some of what the guest sees outside guest memory: pool allocations, kernel
++// objects' signal states and handles, DirectSound voices. While recording, the effects one thread (the title's main
++// thread) has on that state are kept per frame so a rollback can undo them. Effects that cannot be taken back once
++// done (memory freed, and maybe handed out again) are held back until their frame is final.
++//
++// Every call is made on the recording thread, between frames.
++#include <cstdint>
++
++namespace host_rollback {
++
++// at the top of `frame`: from now on this thread's effects are recorded as that frame's
++void Begin(uint32_t frame);
++// the top of the next frame to run
++void Frame(uint32_t frame);
++// back to the top of `frame`: the recorded effects of it and every later frame are undone, newest first; the next
++// frame to run is `frame` again (no Frame call needed)
++void Undo(uint32_t frame);
++// frames before `frame` will never be undone: their records go and what they held back is carried out
++void Confirm(uint32_t frame);
++// stop recording; everything held back is carried out
++void End();
++
++// true on the recording thread while recording
++bool Recording();
++// true while recording, on any thread (other threads can stay out of the way)
++bool Active();
++// the frame effects are recorded as
++uint32_t CurrentFrame();
++// counts Begin calls: bookkeeping that belongs to one recording compares it
++uint32_t Recordings();
++
++// a subsystem that records effects
++struct Participant {
++    void (*frame)(uint32_t frame);  // may be null: a frame starts (Begin, Frame, the end of Undo)
++    void (*undo)(uint32_t frame);
++    void (*confirm)(uint32_t frame);
++    void (*end)();
++};
++void Register(const Participant& p);
++
++}  // namespace host_rollback
+diff --git a/runtime/kernel/kernel.h b/runtime/kernel/kernel.h
+index ed1a18a..19f1e54 100644
+--- a/runtime/kernel/kernel.h
++++ b/runtime/kernel/kernel.h
+@@ -102,7 +102,7 @@ inline uint32_t CallGuest(X86Context& ctx, uint32_t fn, std::initializer_list<ui
+ // objects
+ enum class ObjType : uint8_t { Event, Semaphore, Mutant, Timer, Thread, File, SymLink, Device, Queue, Other };
+ 
+-struct Object {
++struct Object : std::enable_shared_from_this<Object> {
+     ObjType type;
+     uint32_t guest = 0;  // body in guest memory, dispatcher header first for waitables
+     // dispatcher state, protected by the dispatcher lock
+@@ -111,6 +111,10 @@ struct Object {
+     bool notification = false;  // manual reset event or notification timer
+     uint32_t owner = 0;         // mutant owner thread
+     uint32_t recursion = 0;
++    // host_rollback: the recording these were seen in, the first thread that waited on or signalled the object
++    // in it, and whether another one did too (its state is then not the recording thread's to put back)
++    uint32_t seen_in = 0, seen_by = 0;
++    bool shared = false;
+     std::string name;
+     explicit Object(ObjType t) : type(t) {}
+     virtual ~Object() = default;
+diff --git a/runtime/kernel/memory.cpp b/runtime/kernel/memory.cpp
+index cc39c1a..e4fb5a3 100644
+--- a/runtime/kernel/memory.cpp
++++ b/runtime/kernel/memory.cpp
+@@ -8,6 +8,7 @@
+ #include <vector>
+ 
+ #include "core/log.h"
++#include "kernel/host_rollback.h"
+ 
+ #ifdef _WIN32
+ #define WIN32_LEAN_AND_MEAN
+@@ -158,6 +159,13 @@ public:
+         return 0;
+     }
+ 
++    // an allocation of exactly this block, which must be free (undoing a free)
++    bool TakeAt(uint32_t start, uint32_t size) {
++        if (!IsFree(start, size)) return false;
++        Take(start, size);
++        return true;
++    }
++
+     bool IsFree(uint32_t start, uint32_t size) const {
+         auto it = free_.upper_bound(start);
+         if (it == free_.begin()) return false;
+@@ -296,6 +304,7 @@ uint32_t AllocateVirtual(uint32_t& base, uint32_t& size, uint32_t type, uint32_t
+ 
+ uint32_t FreeVirtual(uint32_t& base, uint32_t& size, uint32_t type) {
+     std::lock_guard<std::recursive_mutex> lock(g_lock);
++    if (host_rollback::Recording()) LOG_FIRST(8, "memory: virtual memory freed while recording for a rollback (%08X)", base);
+     uint32_t start;
+     Reservation* r = FindReservation(base, &start);
+     if (!r) return 0xC000009F;  // STATUS_MEMORY_NOT_ALLOCATED
+@@ -345,6 +354,62 @@ bool QueryVirtual(uint32_t addr, RegionInfo& out) {
+     return true;
+ }
+ 
++// ---- rollback (kernel/host_rollback.h): the recording thread's pool allocations and frees, per frame ----
++namespace {
++
++enum Pool : uint8_t { kPoolContiguous, kPoolSystem };
++// Frees are done at once, like allocations, so the pools are always what the frames run so far made them, whether a
++// frame runs the first time or again after a rollback; undoing a free takes the same block back.
++struct AllocRecord {
++    uint32_t frame;
++    Pool pool;
++    bool alloc;  // else a free
++    uint32_t va, size;
++};
++std::vector<AllocRecord> g_alloc_journal;  // oldest first, under g_lock
++
++void Record(Pool pool, bool alloc, uint32_t va, uint32_t size) {
++    if (host_rollback::Recording()) g_alloc_journal.push_back({host_rollback::CurrentFrame(), pool, alloc, va, size});
++}
++
++void ReallyFree(Pool pool, uint32_t va) {
++    uint32_t size;
++    if (pool == kPoolSystem) g_system.Free(va);
++    else if (g_contig.Free(va, &size)) Decommit(va, size);
++}
++
++void JournalUndo(uint32_t frame) {
++    std::lock_guard<std::recursive_mutex> lock(g_lock);
++    while (!g_alloc_journal.empty() && g_alloc_journal.back().frame >= frame) {
++        AllocRecord r = g_alloc_journal.back();
++        g_alloc_journal.pop_back();
++        if (r.alloc) {
++            ReallyFree(r.pool, r.va);  // an allocation that never happened
++        } else {
++            // a free that never happened: the same block again (only another thread could have taken it since)
++            Ranges& pool = r.pool == kPoolSystem ? g_system : g_contig;
++            if (pool.TakeAt(r.va, r.size)) Commit(r.va, r.size);
++            else LOGE("memory: undoing a free, %08X+%X was taken by another thread", r.va, r.size);
++        }
++    }
++}
++
++void JournalConfirm(uint32_t frame) {
++    std::lock_guard<std::recursive_mutex> lock(g_lock);
++    size_t n = 0;
++    while (n < g_alloc_journal.size() && g_alloc_journal[n].frame < frame) n++;
++    g_alloc_journal.erase(g_alloc_journal.begin(), g_alloc_journal.begin() + ptrdiff_t(n));
++}
++
++void JournalEnd() {
++    std::lock_guard<std::recursive_mutex> lock(g_lock);
++    g_alloc_journal.clear();
++}
++
++const bool g_journal_registered = (host_rollback::Register({nullptr, JournalUndo, JournalConfirm, JournalEnd}), true);
++
++}  // namespace
++
+ uint32_t AllocContiguous(uint32_t size, uint32_t lowest, uint32_t highest, uint32_t align) {
+     std::lock_guard<std::recursive_mutex> lock(g_lock);
+     EnsureRanges();
+@@ -362,13 +427,17 @@ uint32_t AllocContiguous(uint32_t size, uint32_t lowest, uint32_t highest, uint3
+     }
+     Commit(a, size);
+     std::memset(g_base + a, 0, size);
++    Record(kPoolContiguous, true, a, size);
+     return a;
+ }
+ 
+ void FreeContiguous(uint32_t va) {
+     std::lock_guard<std::recursive_mutex> lock(g_lock);
+     uint32_t size;
+-    if (g_contig.Free(va, &size)) Decommit(va, size);
++    if (g_contig.Free(va, &size)) {
++        Decommit(va, size);
++        Record(kPoolContiguous, false, va, size);
++    }
+ }
+ 
+ uint32_t AllocSystem(uint32_t size, uint32_t align) {
+@@ -380,12 +449,14 @@ uint32_t AllocSystem(uint32_t size, uint32_t align) {
+     if (!a) return 0;
+     Commit(a, size);
+     std::memset(g_base + a, 0, size);
++    Record(kPoolSystem, true, a, size);
+     return a;
+ }
+ 
+ void FreeSystem(uint32_t va) {
+     std::lock_guard<std::recursive_mutex> lock(g_lock);
+-    g_system.Free(va);
++    uint32_t size;
++    if (g_system.Free(va, &size)) Record(kPoolSystem, false, va, size);
+ }
+ 
+ uint32_t AllocStack(uint32_t size) {
+diff --git a/runtime/kernel/objects.cpp b/runtime/kernel/objects.cpp
+index c57c57c..0f752f6 100644
+--- a/runtime/kernel/objects.cpp
++++ b/runtime/kernel/objects.cpp
+@@ -3,10 +3,13 @@
+ #include <map>
+ #include <queue>
+ 
++#include "kernel/host_rollback.h"
+ #include "kernel/kernel.h"
+ 
+ namespace kernel {
+ 
++static uint32_t Me();  // the waiting or signalling thread, below
++
+ namespace {
+ 
+ std::mutex g_dispatch;
+@@ -28,6 +31,63 @@ constexpr uint32_t kStamp = 0x4A424F4Bu;  // written into WaitListHead.Blink of
+ std::mutex g_names_lock;
+ std::unordered_map<std::string, std::weak_ptr<Object>> g_names;
+ 
++// ---- rollback (kernel/host_rollback.h): what the recording thread does to objects, per frame ----
++// Only that thread adds records, and Undo, Confirm and End run on it, so the journals need no lock of their own.
++struct SignalRecord {
++    uint32_t frame;
++    ObjectRef obj;
++    int32_t signal;
++    uint32_t owner, recursion;
++};
++struct HandleRecord {
++    uint32_t frame;
++    uint32_t handle;
++    ObjectRef closed;  // the object a close took away; null: the handle was made
++    uint32_t next;     // the next handle number before
++};
++struct PtrRecord {
++    uint32_t frame;
++    uint32_t guest;
++    bool had;
++    PtrEntry before;
++    uint32_t serial;  // the next serial before
++};
++std::vector<SignalRecord> g_signal_journal;
++std::vector<HandleRecord> g_handle_journal;
++std::vector<PtrRecord> g_ptr_journal;
++
++// a thread waits on or signals the object (the dispatcher lock held)
++void Touch(Object& o, uint32_t me) {
++    if (!host_rollback::Active()) return;
++    uint32_t rec = host_rollback::Recordings();
++    if (o.seen_in != rec) {
++        o.seen_in = rec;
++        o.seen_by = me;
++        o.shared = false;
++    } else if (o.seen_by != me) {
++        o.shared = true;
++    }
++}
++
++// before a thread changes an object's dispatcher state (the dispatcher lock held): the recording thread's changes
++// are kept, unless another thread uses the object too (a lock both take, an event one sets for the other): undoing
++// those would take a signal from under a thread that waits for it
++void KeepSignal(Object& o) {
++    Touch(o, Me());
++    if (!host_rollback::Recording() || o.shared) return;
++    if (ObjectRef ref = o.weak_from_this().lock())
++        g_signal_journal.push_back({host_rollback::CurrentFrame(), std::move(ref), o.signal, o.owner, o.recursion});
++}
++
++// a pointer object about to be made or replaced (the pointer lock held)
++void KeepPtr(uint32_t guest) {
++    if (!host_rollback::Recording()) return;
++    auto it = g_by_ptr.find(guest);
++    PtrRecord r{host_rollback::CurrentFrame(), guest, it != g_by_ptr.end(), {}, g_serial};
++    if (r.had) r.before = it->second;
++    g_ptr_journal.push_back(std::move(r));
++}
++
+ }  // namespace
+ 
+ std::mutex& DispatchLock() { return g_dispatch; }
+@@ -36,6 +96,7 @@ void SignalChanged() { g_cv.notify_all(); }
+ uint32_t NewHandle(ObjectRef obj) {
+     std::lock_guard<std::mutex> lock(g_handles_lock);
+     uint32_t h = g_next_handle;
++    if (host_rollback::Recording()) g_handle_journal.push_back({host_rollback::CurrentFrame(), h, nullptr, g_next_handle});
+     g_next_handle += 4;
+     g_handles[h] = std::move(obj);
+     return h;
+@@ -50,7 +111,12 @@ ObjectRef FromHandle(uint32_t handle) {
+ 
+ bool CloseHandle(uint32_t handle) {
+     std::lock_guard<std::mutex> lock(g_handles_lock);
+-    return g_handles.erase(handle) != 0;
++    auto it = g_handles.find(handle);
++    if (it == g_handles.end()) return false;
++    if (host_rollback::Recording())
++        g_handle_journal.push_back({host_rollback::CurrentFrame(), handle, it->second, g_next_handle});
++    g_handles.erase(it);
++    return true;
+ }
+ 
+ uint32_t DuplicateHandle(uint32_t handle) {
+@@ -67,6 +133,7 @@ static void Stamp(uint32_t guest, uint32_t serial) {
+ void Bind(ObjectRef obj, uint32_t guest) {
+     obj->guest = guest;
+     std::lock_guard<std::mutex> lock(g_ptr_lock);
++    KeepPtr(guest);
+     uint32_t serial = g_serial++;
+     g_by_ptr[guest] = {obj, serial};
+     Stamp(guest, serial);
+@@ -116,6 +183,7 @@ ObjectRef FromPointer(uint32_t guest) {
+             break;
+     }
+     o->guest = guest;
++    KeepPtr(guest);
+     uint32_t serial = g_serial++;
+     g_by_ptr[guest] = {o, serial};
+     Stamp(guest, serial);
+@@ -135,6 +203,7 @@ void AddNamed(const std::string& name, ObjectRef obj) {
+ }
+ 
+ void SetSignal(Object& o, int32_t v) {
++    KeepSignal(o);
+     o.signal = v;
+     if (o.guest) W32(o.guest + 4, uint32_t(v));
+ }
+@@ -150,6 +219,7 @@ static bool Satisfied(Object& o, uint32_t me) {
+ }
+ 
+ static void Consume(Object& o, uint32_t me) {
++    KeepSignal(o);  // a mutant's owner and recursion change too
+     switch (o.type) {
+         case ObjType::Event:
+         case ObjType::Timer:
+@@ -194,6 +264,8 @@ static uint32_t WaitFor(const std::vector<ObjectRef>& objs, bool wait_all, int64
+     bool infinite = timeout == INT64_MAX;
+     int64_t deadline = infinite ? 0 : ToDeadline(timeout);
+     std::unique_lock<std::mutex> lock(g_dispatch);
++    for (auto& o : objs)
++        if (o) Touch(*o, me);
+     for (;;) {
+         if (wait_all) {
+             bool all = std::all_of(objs.begin(), objs.end(), [&](const ObjectRef& o) { return o && Satisfied(*o, me); });
+@@ -282,6 +354,7 @@ int32_t ReleaseMutant(Object& o, uint32_t& status) {
+         status = kMutantNotOwned;
+         return o.signal;
+     }
++    KeepSignal(o);
+     int32_t old = o.signal;
+     if (--o.recursion == 0) {
+         o.owner = 0;
+@@ -292,6 +365,77 @@ int32_t ReleaseMutant(Object& o, uint32_t& status) {
+     return old;
+ }
+ 
++// rollback participant
++namespace {
++
++void ObjectsUndo(uint32_t frame) {
++    {
++        std::lock_guard<std::mutex> lock(g_dispatch);
++        while (!g_signal_journal.empty() && g_signal_journal.back().frame >= frame) {
++            SignalRecord& r = g_signal_journal.back();
++            if (r.obj->shared) {  // another thread uses it since: leave it to them
++                g_signal_journal.pop_back();
++                continue;
++            }
++            r.obj->signal = r.signal;
++            if (r.obj->guest) W32(r.obj->guest + 4, uint32_t(r.signal));
++            r.obj->owner = r.owner;
++            r.obj->recursion = r.recursion;
++            g_signal_journal.pop_back();
++        }
++        g_cv.notify_all();
++    }
++    {
++        std::lock_guard<std::mutex> lock(g_handles_lock);
++        while (!g_handle_journal.empty() && g_handle_journal.back().frame >= frame) {
++            HandleRecord& r = g_handle_journal.back();
++            if (r.closed) {
++                g_handles[r.handle] = r.closed;  // the close never happened
++            } else {
++                g_handles.erase(r.handle);
++                if (g_next_handle == r.handle + 4) g_next_handle = r.next;  // unless another thread made one since
++            }
++            g_handle_journal.pop_back();
++        }
++    }
++    {
++        std::lock_guard<std::mutex> lock(g_ptr_lock);
++        while (!g_ptr_journal.empty() && g_ptr_journal.back().frame >= frame) {
++            PtrRecord& r = g_ptr_journal.back();
++            if (r.had) g_by_ptr[r.guest] = r.before;
++            else g_by_ptr.erase(r.guest);
++            if (g_serial == r.serial + 1) g_serial = r.serial;
++            g_ptr_journal.pop_back();
++        }
++    }
++}
++
++template <class T>
++void DropBefore(std::vector<T>& journal, uint32_t frame) {
++    size_t n = 0;
++    while (n < journal.size() && journal[n].frame < frame) n++;
++    journal.erase(journal.begin(), journal.begin() + ptrdiff_t(n));
++}
++
++void ObjectsConfirm(uint32_t frame) {
++    {
++        std::lock_guard<std::mutex> lock(g_dispatch);
++        DropBefore(g_signal_journal, frame);
++    }
++    {
++        std::lock_guard<std::mutex> lock(g_handles_lock);
++        DropBefore(g_handle_journal, frame);
++    }
++    std::lock_guard<std::mutex> lock(g_ptr_lock);
++    DropBefore(g_ptr_journal, frame);
++}
++
++void ObjectsEnd() { ObjectsConfirm(UINT32_MAX); }
++
++const bool g_rollback_registered = (host_rollback::Register({nullptr, ObjectsUndo, ObjectsConfirm, ObjectsEnd}), true);
++
++}  // namespace
++
+ // timers and DPCs
+ 
+ namespace {
+diff --git a/runtime/xdk/dsound.cpp b/runtime/xdk/dsound.cpp
+index 2bcc1a7..46461a3 100644
+--- a/runtime/xdk/dsound.cpp
++++ b/runtime/xdk/dsound.cpp
+@@ -6,10 +6,15 @@
+ #include <condition_variable>
+ #include <deque>
+ #include <map>
++#include <mutex>
+ #include <optional>
++#include <thread>
++#include <unordered_set>
+ #include <vector>
+ 
+ #include "audio/audio.h"
++#include "kernel/host_rollback.h"
++#include "xdk/dsound.h"
+ #include "xbe/xbe.h"
+ #include "xdk/hle.h"
+ #include "xdk/dsp_image.h"
+@@ -174,6 +179,9 @@ struct Voice {
+     int64_t block[2] = {-1, -1};
+     uint8_t last = 0;  // decoded[last] holds block[last]
+     int16_t decoded[2][65 * 8];
++    // the thread that made or first used the voice; shared once another one uses it too (CRI's streaming buffers)
++    std::thread::id toucher{};
++    bool shared = false;
+ };
+ 
+ struct Done {
+@@ -200,6 +208,75 @@ struct Segment {
+ };
+ std::vector<Segment> g_effect_states;  // each effect's state segment of the downloaded image
+ 
++// ---- the frame clock (xdk/dsound.h) and rollback (kernel/host_rollback.h) ----
++std::atomic<bool> g_frame_clock{false};
++std::mutex g_fifo_lock;
++std::deque<float> g_fifo;  // interleaved stereo MixFrames queued for the output
++constexpr size_t kFifoMax = 6 * 800 * 2, kFifoKeep = 3 * 800 * 2;  // past 100 ms queued, drop to 50 ms
++
++void Touched(Voice& v) {
++    std::thread::id me = std::this_thread::get_id();
++    if (v.toucher == std::thread::id{}) v.toucher = me;
++    else if (v.toucher != me) v.shared = true;
++}
++// on the main thread: a voice another thread drives is not part of the simulation
++bool Foreign(const Voice& v) { return v.shared || (v.toucher != std::thread::id{} && v.toucher != std::this_thread::get_id()); }
++
++// the main thread's changes to its voices, a copy of each voice before its first change in a frame
++struct VoiceRecord {
++    uint32_t frame;
++    uint32_t obj;
++    bool existed;
++    Voice before;
++};
++std::vector<VoiceRecord> g_voice_journal;  // oldest first, under g_lock
++std::unordered_set<uint32_t> g_kept;        // voices already copied in the current frame
++
++// before the recording thread changes (or makes, or releases) a voice; g_lock held
++void Keep(uint32_t obj) {
++    if (!host_rollback::Recording() || !g_kept.insert(obj).second) return;
++    auto it = g_voices.find(obj);
++    if (it == g_voices.end()) g_voice_journal.push_back({host_rollback::CurrentFrame(), obj, false, {}});
++    else if (!Foreign(it->second)) g_voice_journal.push_back({host_rollback::CurrentFrame(), obj, true, it->second});
++}
++
++void VoicesFrame(uint32_t) {
++    std::lock_guard<std::recursive_mutex> lock(g_lock);
++    g_kept.clear();
++}
++
++void VoicesUndo(uint32_t frame) {
++    std::lock_guard<std::recursive_mutex> lock(g_lock);
++    while (!g_voice_journal.empty() && g_voice_journal.back().frame >= frame) {
++        VoiceRecord& r = g_voice_journal.back();
++        if (r.existed) {
++            Voice& v = g_voices[r.obj];
++            v = r.before;
++            v.block[0] = v.block[1] = -1;  // its memory was put back too
++        } else {
++            g_voices.erase(r.obj);
++        }
++        g_voice_journal.pop_back();
++    }
++    g_kept.clear();
++}
++
++void VoicesConfirm(uint32_t frame) {
++    std::lock_guard<std::recursive_mutex> lock(g_lock);
++    size_t n = 0;
++    while (n < g_voice_journal.size() && g_voice_journal[n].frame < frame) n++;
++    g_voice_journal.erase(g_voice_journal.begin(), g_voice_journal.begin() + ptrdiff_t(n));
++}
++
++void VoicesEnd() {
++    std::lock_guard<std::recursive_mutex> lock(g_lock);
++    g_voice_journal.clear();
++    g_kept.clear();
++}
++
++const bool g_rollback_registered =
++    (host_rollback::Register({VoicesFrame, VoicesUndo, VoicesConfirm, VoicesEnd}), true);
++
+ void ForgetBlocks(Voice& v) {
+     v.block[0] = -1;
+     v.block[1] = -1;
+@@ -652,15 +729,34 @@ void MixVoice(Voice& v, float* bins, uint32_t frames) {
+     v.itd = itd;
+ }
+ 
++// bins to the stereo output: front pairs, centre and backs folded in
++void Fold(const std::vector<float>& bins, float* out, uint32_t frames);
++
+ void Render(float* out, uint32_t frames) {
++    if (g_frame_clock) {
++        std::lock_guard<std::mutex> lock(g_fifo_lock);
++        size_t n = std::min<size_t>(g_fifo.size(), size_t(frames) * 2);
++        std::copy(g_fifo.begin(), g_fifo.begin() + ptrdiff_t(n), out);
++        g_fifo.erase(g_fifo.begin(), g_fifo.begin() + ptrdiff_t(n));
++        std::fill(out + n, out + size_t(frames) * 2, 0.0f);
++        return;
++    }
+     static std::vector<float> bins;  // the output thread alone renders
+     bins.assign(size_t(frames) * kBins, 0.0f);
+-    std::lock_guard<std::recursive_mutex> lock(g_lock);
++    std::unique_lock<std::recursive_mutex> lock(g_lock);
++    if (g_frame_clock) {  // switched while this waited for the lock
++        lock.unlock();
++        return Render(out, frames);
++    }
+     for (auto& [obj, v] : g_voices) {
+         if (v.paused || v.sync || (!v.stream && !v.playing)) continue;
+         MixVoice(v, bins.data(), frames);
+     }
+     if (dsp::Loaded()) dsp::Run(bins.data(), frames);
++    Fold(bins, out, frames);
++}
++
++void Fold(const std::vector<float>& bins, float* out, uint32_t frames) {
+     for (uint32_t i = 0; i < frames; i++) {
+         const float* b = &bins[size_t(i) * kBins];
+         out[i * 2] = std::clamp(b[kFrontLeft] + kFold * (b[kCentre] + b[kBackLeft]), -1.0f, 1.0f);
+@@ -739,8 +835,10 @@ uint32_t NewBuffer(uint32_t desc, uint32_t out) {
+     Start();
+     uint32_t obj = mem::AllocSystem(0x40);
+     std::memset(HostPtr(obj), 0, 0x40);
++    Keep(obj);
+     Voice& v = g_voices[obj];
+     v.obj = obj;
++    Touched(v);
+     uint32_t flags = R32(desc + 4), bytes = R32(desc + 8);  // DSBUFFERDESC: size, flags, bytes, format, mix bins
+     ReadFormat(v, R32(desc + 12));
+     SetBins(v, R32(desc + 16));
+@@ -899,7 +997,10 @@ HLE_STDCALL(DirectSoundDoWork, 0) {
+ // starts together every voice played or unpaused with the synch playback flag
+ HLE_STDCALL(IDirectSound_SynchPlayback, 1) {
+     std::lock_guard<std::recursive_mutex> lock(g_lock);
+-    for (auto& [obj, v] : g_voices) v.sync = false;
++    for (auto& [obj, v] : g_voices) {
++        if (v.sync) Keep(obj);
++        v.sync = false;
++    }
+     return 0;
+ }
+ 
+@@ -982,14 +1083,20 @@ HLE_STDCALL(IDirectSound_GetOutputLevels, 3) {
+ HLE_STDCALL(DirectSoundCreateBuffer, 2) { return NewBuffer(a[0], a[1]); }
+ HLE_STDCALL(IDirectSound_CreateSoundBuffer, 4) { return NewBuffer(a[1], a[2]); }
+ 
+-#define BUFFER(name, nargs)                                 \
++// writes: the method changes the voice (recorded for a rollback first)
++#define BUFFER_METHOD(name, nargs, writes)                  \
+     static uint32_t buf_##name(Voice& v, const Args& a);    \
+     HLE_STDCALL(IDirectSoundBuffer_##name, nargs) {         \
+         std::lock_guard<std::recursive_mutex> lock(g_lock); \
+         Voice* v = Find(a[0]);                              \
+-        return v ? buf_##name(*v, a) : 0x80004005u;         \
++        if (!v) return 0x80004005u;                         \
++        Touched(*v);                                        \
++        if (writes) Keep(a[0]);                             \
++        return buf_##name(*v, a);                           \
+     }                                                       \
+     static uint32_t buf_##name([[maybe_unused]] Voice& v, [[maybe_unused]] const Args& a)
++#define BUFFER(name, nargs) BUFFER_METHOD(name, nargs, true)
++#define BUFFER_READ(name, nargs) BUFFER_METHOD(name, nargs, false)
+ 
+ BUFFER(Release, 1) {
+     if (--v.refs > 0) return uint32_t(v.refs);
+@@ -999,7 +1106,7 @@ BUFFER(Release, 1) {
+     mem::FreeSystem(obj);
+     return 0;
+ }
+-BUFFER(Unlock, 5) { return 0; }
++BUFFER_READ(Unlock, 5) { return 0; }
+ BUFFER(SetBufferData, 3) {
+     if (a[1] == v.data && a[2] == v.bytes) return 0;
+     // the library frees its own memory, and makes it again for a size with no data
+@@ -1055,7 +1162,7 @@ BUFFER(Pause, 2) {
+     return 0;
+ }
+ // envelopes are not played
+-BUFFER(SetEG, 2) { return 0; }
++BUFFER_READ(SetEG, 2) { return 0; }
+ // (this, start, length) in bytes, 0 length plays to the end. The loop becomes the whole region.
+ BUFFER(SetPlayRegion, 3) {
+     if (a[1] > v.bytes || a[2] > v.bytes - a[1]) return 0x88780032u;  // DSERR_INVALIDCALL
+@@ -1073,11 +1180,11 @@ BUFFER(SetLoopRegion, 3) {
+     v.loop_len = a[2] ? a[2] : v.play_len - a[1];
+     return 0;
+ }
+-BUFFER(GetStatus, 2) {
++BUFFER_READ(GetStatus, 2) {
+     W32(a[1], (v.playing ? 1u : 0u) | (v.playing && v.looping ? 4u : 0u));  // DSBSTATUS_PLAYING, DSBSTATUS_LOOPING
+     return 0;
+ }
+-BUFFER(GetCurrentPosition, 3) {
++BUFFER_READ(GetCurrentPosition, 3) {
+     uint32_t p = BytesOf(v, uint32_t(v.pos));
+     if (a[1]) W32(a[1], p);
+     if (a[2]) W32(a[2], v.play_len ? (p + BytesOf(v, 64 * 4)) % v.play_len : 0);
+@@ -1088,7 +1195,7 @@ BUFFER(SetCurrentPosition, 2) {
+     v.seen = int64_t(v.pos);
+     return 0;
+ }
+-BUFFER(Lock, 8) {
++BUFFER_READ(Lock, 8) {
+     uint32_t off = a[1], n = a[2];
+     if (a[7] & 1) n = v.bytes;  // DSBLOCK_ENTIREBUFFER
+     if (!v.bytes) return 0x80004005u;  // E_FAIL
+@@ -1108,7 +1215,7 @@ BUFFER(SetFrequency, 2) {
+     v.freq = a[1];
+     return 0;
+ }
+-BUFFER(SetFilter, 2) { return 0; }
++BUFFER_READ(SetFilter, 2) { return 0; }
+ BUFFER(SetHeadroom, 2) {
+     v.headroom = Db(-int32_t(a[1]));
+     return 0;
+@@ -1133,8 +1240,8 @@ BUFFER(SetPosition, 5) {
+     for (int i = 0; i < 3; i++) v.p[i] = F32(a[1 + i]);
+     return 0;
+ }
+-BUFFER(SetVelocity, 5) { return 0; }
+-BUFFER(SetI3DL2Source, 3) { return 0; }
++BUFFER_READ(SetVelocity, 5) { return 0; }
++BUFFER_READ(SetI3DL2Source, 3) { return 0; }
+ // (this, DS3DBUFFER, apply): position at +4, distances at +0x34 and +0x38, mode at +0x3C
+ BUFFER(SetAllParameters, 3) {
+     for (int i = 0; i < 3; i++) v.p[i] = F32(R32(a[1] + 4 + i * 4));
+@@ -1149,7 +1256,7 @@ BUFFER(SetRolloffCurve, 4) {
+     for (uint32_t i = 0; a[1] && i < std::min<uint32_t>(a[2], 64); i++) v.curve.push_back(F32(R32(a[1] + i * 4)));
+     return 0;
+ }
+-BUFFER(SetOutputBuffer, 2) { return 0; }  // the voice keeps its own mix bins
++BUFFER_READ(SetOutputBuffer, 2) { return 0; }  // the voice keeps its own mix bins
+ BUFFER(SetFormat, 2) {
+     ReadFormat(v, a[1]);
+     v.freq = 0;
+@@ -1312,3 +1419,43 @@ STREAM(SetPosition, 5) {
+ }
+ STREAM(SetVelocity, 5) { return 0; }
+ STREAM(SetI3DL2Source, 3) { return 0; }
++
++// ---- the frame clock (xdk/dsound.h) ----
++namespace dsound {
++
++void SetFrameClock(bool on) {
++    std::lock_guard<std::recursive_mutex> voices(g_lock);  // a real time mix in progress finishes first
++    if (g_frame_clock == on) return;
++    g_frame_clock = on;
++    std::lock_guard<std::mutex> lock(g_fifo_lock);
++    g_fifo.clear();
++    LOGI("dsound: %s", on ? "voices move with the simulated frames" : "voices move in real time");
++}
++
++bool FrameClock() { return g_frame_clock; }
++
++void MixFrames(uint32_t frames, bool output) {
++    if (!g_frame_clock || !frames) return;
++    static std::vector<float> bins;  // the main thread alone mixes on the frame clock
++    bins.assign(size_t(frames) * kBins, 0.0f);
++    {
++        std::lock_guard<std::recursive_mutex> lock(g_lock);
++        for (auto& [obj, v] : g_voices) {
++            if (v.paused || v.sync || (!v.stream && !v.playing)) continue;
++            bool foreign = Foreign(v);
++            if (foreign && !output) continue;  // moved once, with the frame that is heard
++            if (!foreign) Keep(obj);
++            MixVoice(v, bins.data(), frames);
++        }
++        if (!output) return;
++        if (dsp::Loaded()) dsp::Run(bins.data(), frames);
++    }
++    static std::vector<float> out;
++    out.resize(size_t(frames) * 2);
++    Fold(bins, out.data(), frames);
++    std::lock_guard<std::mutex> lock(g_fifo_lock);
++    g_fifo.insert(g_fifo.end(), out.begin(), out.end());
++    if (g_fifo.size() > kFifoMax) g_fifo.erase(g_fifo.begin(), g_fifo.begin() + ptrdiff_t(g_fifo.size() - kFifoKeep));
++}
++
++}  // namespace dsound
+diff --git a/runtime/xdk/dsound.h b/runtime/xdk/dsound.h
+new file mode 100644
+index 0000000..724082b
+--- /dev/null
++++ b/runtime/xdk/dsound.h
+@@ -0,0 +1,21 @@
++#pragma once
++// DirectSound on the simulation's clock, for netplay and rollback (the HLE itself is xdk/dsound.cpp).
++//
++// Normally the output device's thread moves every voice on in real time, so what the title reads back (a buffer's
++// status and play cursor, its notification events) depends on when it asks. With the frame clock on, the output
++// plays what MixFrames queued, and MixFrames (on the title's main thread, once per simulated frame) moves the voices
++// on by that many frames. The title then reads the same values on every peer and in every run of a frame.
++//
++// Voices that other threads drive (CRI's streaming buffers, which those threads refill as they play) are not part of
++// the simulation: they move only with the frames queued for output, so a frame that a rollback runs again moves them
++// once. The main thread's own voices are recorded for kernel/host_rollback.h.
++#include <cstdint>
++
++namespace dsound {
++
++void SetFrameClock(bool on);
++bool FrameClock();
++// output: queue the frames for the speakers (a frame shown), else mix to nowhere (a frame a rollback runs again)
++void MixFrames(uint32_t frames, bool output);
++
++}  // namespace dsound

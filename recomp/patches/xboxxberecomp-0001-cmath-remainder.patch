@@ -1,0 +1,12 @@
+diff --git a/runtime/cpu/freestanding/cmath b/runtime/cpu/freestanding/cmath
+index 8b5ad14..253cbde 100644
+--- a/runtime/cpu/freestanding/cmath
++++ b/runtime/cpu/freestanding/cmath
+@@ -31,6 +31,7 @@ X86_MATH1(trunc)
+ X86_MATH1(nearbyint)
+ X86_MATH2(atan2)
+ X86_MATH2(fmod)
++X86_MATH2(remainder)  // fprem1 codegen (codegen_fp.cpp) calls std::remainder
+ #undef X86_MATH1
+ #undef X86_MATH2
+ inline double ldexp(double v, int e) { return __builtin_ldexp(v, e); }

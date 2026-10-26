@@ -1,0 +1,99 @@
+diff --git a/runtime/kernel/files.cpp b/runtime/kernel/files.cpp
+index 08ae849..4fc756d 100644
+--- a/runtime/kernel/files.cpp
++++ b/runtime/kernel/files.cpp
+@@ -6,8 +6,11 @@
+ #include <filesystem>
+ #include <fstream>
+ #include <map>
++#include <vector>
++#include <mutex>
+ 
+ #include "kernel/disc.h"
++#include "kernel/host_rollback.h"
+ #include "kernel/kernel.h"
+ #include "kernel/exports.h"
+ 
+@@ -160,6 +163,43 @@ std::shared_ptr<File> FileFromHandle(uint32_t h) {
+     return std::static_pointer_cast<File>(o);
+ }
+ 
++// Rollback (host_rollback.h): the position the recording thread leaves a file at, per frame. A frame run again then
++// reads from where it read the first time, also when it reads on from the file's position rather than at an offset.
++struct PosRecord {
++    uint32_t frame;
++    std::shared_ptr<File> file;
++    uint64_t pos;
++};
++std::mutex g_pos_lock;
++std::vector<PosRecord> g_pos_journal;
++
++void KeepPos(const std::shared_ptr<File>& f) {
++    if (!host_rollback::Recording()) return;
++    std::lock_guard<std::mutex> lock(g_pos_lock);
++    g_pos_journal.push_back({host_rollback::CurrentFrame(), f, f->pos});
++}
++
++void PosUndo(uint32_t frame) {
++    std::lock_guard<std::mutex> lock(g_pos_lock);
++    while (!g_pos_journal.empty() && g_pos_journal.back().frame >= frame) {
++        g_pos_journal.back().file->pos = g_pos_journal.back().pos;
++        g_pos_journal.pop_back();
++    }
++}
++
++void PosConfirm(uint32_t frame) {
++    std::lock_guard<std::mutex> lock(g_pos_lock);
++    size_t n = 0;
++    while (n < g_pos_journal.size() && g_pos_journal[n].frame < frame) n++;
++    g_pos_journal.erase(g_pos_journal.begin(), g_pos_journal.begin() + ptrdiff_t(n));
++}
++
++void PosEnd() { PosConfirm(UINT32_MAX); }
++
++std::atomic<uint64_t> g_recorded_reads{0};
++
++const bool g_pos_registered = (host_rollback::Register({nullptr, PosUndo, PosConfirm, PosEnd}), true);
++
+ std::string ObjectName(uint32_t attrs, uint32_t* root = nullptr) {
+     if (root) *root = R32(attrs);
+     return ReadAnsiString(R32(attrs + 4));
+@@ -496,12 +536,16 @@ static uint32_t Transfer(const Args& a, bool write, uint32_t pages) {
+         n += uint32_t(done);
+         if (done < chunk) break;
+     }
++    KeepPos(f);
++    if (!write && host_rollback::Recording()) g_recorded_reads++;
+     f->pos = pos + n;
+     if (write && n < len) return Finish(*f, 0xC000007F, n, event, apc, apc_ctx, iosb);  // disk full
+     if (!write && len && !n) return Finish(*f, kEndOfFile, 0, event, apc, apc_ctx, iosb);
+     return Finish(*f, kSuccess, n, event, apc, apc_ctx, iosb);
+ }
+ 
++uint64_t RecordedFileReads() { return g_recorded_reads.load(); }
++
+ KERNEL_EXPORT(219, NtReadFile, 8) { return Transfer(a, false, 0); }
+ KERNEL_EXPORT(236, NtWriteFile, 8) { return Transfer(a, true, 0); }
+ // the buffer argument is an array of one page per element
+@@ -561,6 +605,7 @@ KERNEL_EXPORT(226, NtSetInformationFile, 5) {
+     std::error_code ec;
+     switch (cls) {
+         case 14:  // position
++            KeepPos(f);
+             f->pos = R64(in);
+             break;
+         case 19:  // allocation: only a size below the end of file cuts it
+diff --git a/runtime/kernel/kernel.h b/runtime/kernel/kernel.h
+index 19f1e54..3c3cae3 100644
+--- a/runtime/kernel/kernel.h
++++ b/runtime/kernel/kernel.h
+@@ -141,6 +141,9 @@ uint64_t RealNanoseconds();
+ void PublishGuestTime();
+ void SetGuestWriteHook(GuestWriteHook hook);
+ void BeforeGuestWrite(uint32_t va, uint32_t len);
++// file reads the recording thread made while recording (host_rollback.h): a game layer keeps frames that load out of
++// what a rollback runs again
++uint64_t RecordedFileReads();
+ bool CloseHandle(uint32_t handle);
+ uint32_t DuplicateHandle(uint32_t handle);
+ ObjectRef FromPointer(uint32_t guest);  // dispatcher object in guest memory, created on first use

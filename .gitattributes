@@ -1,0 +1,4 @@
+# Shell scripts run on Linux servers (server/deploy/install.sh): Unix line endings on every checkout
+*.sh text eol=lf
+# Patches apply to the toolkit's files as they are (recomp/patches): never converted
+*.patch -text

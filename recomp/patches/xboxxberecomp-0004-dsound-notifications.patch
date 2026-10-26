@@ -1,0 +1,152 @@
+diff --git a/runtime/xdk/dsound.cpp b/runtime/xdk/dsound.cpp
+index b322778..2bcc1a7 100644
+--- a/runtime/xdk/dsound.cpp
++++ b/runtime/xdk/dsound.cpp
+@@ -85,6 +85,10 @@ X86Func* Find(uint32_t guest);
+ #define SYM_IDirectSoundBuffer_SetEG FFFFFF0E
+ #define HAS_IDirectSoundBuffer_SetEG 0
+ #endif
++#ifndef SYM_IDirectSoundBuffer_SetNotificationPositions
++#define SYM_IDirectSoundBuffer_SetNotificationPositions FFFFFF0F
++#define HAS_IDirectSoundBuffer_SetNotificationPositions 0
++#endif
+ 
+ namespace {
+ 
+@@ -158,6 +162,14 @@ struct Voice {
+     float itd = 0;
+     float ear[kEarLength] = {};
+     uint32_t ear_pos = 0;
++    // IDirectSoundBuffer_SetNotificationPositions: events set as the play cursor passes byte offsets, and when the
++    // buffer stops (offset DSBPN_OFFSETSTOP). seen is the last frame the cursor passed; the frame play starts on
++    // counts as passed, so an event at the start offset fires on the next lap, as the console's does.
++    struct Notify {
++        uint32_t offset, event;
++    };
++    std::vector<Notify> notify;
++    int64_t seen = 0;
+     // ADPCM block cache: the block read last and the one read before it, a frame between two blocks reads both
+     int64_t block[2] = {-1, -1};
+     uint8_t last = 0;  // decoded[last] holds block[last]
+@@ -535,20 +547,53 @@ std::optional<Cursor> StreamFrame(Voice& v) {
+     return at;
+ }
+ 
++constexpr uint32_t kOffsetStop = 0xFFFFFFFF;  // DSBPN_OFFSETSTOP
++
++void Signal(uint32_t handle) {
++    if (ObjectRef e = FromHandle(handle)) SetEvent(*e);
++}
++
++// the buffer stopped: its DSBPN_OFFSETSTOP events
++void NotifyStop(Voice& v) {
++    for (const Voice::Notify& n : v.notify)
++        if (n.offset == kOffsetStop) Signal(n.event);
++}
++
++// the cursor moved on to frame f: events at the frames it passed since seen, through the end of the loop and
++// round to its start when it wrapped
++void NotifyPassed(Voice& v, uint32_t f, bool wrapped, uint32_t start, uint32_t end) {
++    if (int64_t(f) == v.seen && !wrapped) return;
++    for (const Voice::Notify& n : v.notify) {
++        if (n.offset == kOffsetStop || n.offset < v.play_start) continue;
++        int64_t x = FramesOf(v, n.offset - v.play_start);
++        bool passed = wrapped ? (x > v.seen && x < int64_t(end)) || (x >= int64_t(start) && x <= int64_t(f))
++                              : x > v.seen && x <= int64_t(f);
++        if (passed) Signal(n.event);
++    }
++    v.seen = f;
++}
++
+ // the buffer's frame at its position, looping or stopping at the end of its region; none once stopped
+ std::optional<Cursor> BufferFrame(Voice& v) {
+     uint32_t f = uint32_t(v.pos);
+     uint32_t start = v.looping ? FramesOf(v, v.loop_start) : 0;
+     uint32_t end = FramesOf(v, v.looping ? v.loop_start + v.loop_len : v.play_len);
++    bool wrapped = false;
+     if (f >= end) {
+         if (!v.looping || end <= start) {
++            if (!v.notify.empty()) NotifyPassed(v, end ? end - 1 : 0, false, start, end);
+             v.playing = false;
+             v.pos = 0;
++            v.seen = 0;
++            NotifyStop(v);
+             return std::nullopt;
+         }
+         v.pos = start + std::fmod(v.pos - start, double(end - start));
+         f = uint32_t(v.pos);
++        wrapped = true;
+     }
++    if (!v.notify.empty()) NotifyPassed(v, f, wrapped, start, end);
++    else v.seen = f;
+     if (!v.data) return std::nullopt;
+     uint32_t base = v.data + v.play_start;
+     Cursor at = {base, f, base, f};
+@@ -740,6 +785,7 @@ static void AuditExports() {
+         SYM(IDirectSound_GetOutputLevels), SYM(IDirectSoundBuffer_SetPlayRegion), SYM(IDirectSoundBuffer_SetAllParameters),
+         SYM(IDirectSoundBuffer_SetFormat), SYM(IDirectSoundBuffer_SetOutputBuffer), SYM(IDirectSoundBuffer_SetRolloffCurve),
+         SYM(IDirectSoundBuffer_StopEx), SYM(IDirectSoundBuffer_Pause), SYM(IDirectSoundBuffer_SetEG),
++        SYM(IDirectSoundBuffer_SetNotificationPositions),
+         SYM(XAudioDownloadEffectsImage), SYM(DirectSoundCreateBuffer), SYM(IDirectSound_CreateSoundBuffer),
+         SYM(IDirectSoundBuffer_Release), SYM(IDirectSoundBuffer_Unlock), SYM(IDirectSoundBuffer_SetBufferData),
+         SYM(IDirectSoundBuffer_Play), SYM(IDirectSoundBuffer_Stop), SYM(IDirectSoundBuffer_SetLoopRegion),
+@@ -966,26 +1012,42 @@ BUFFER(SetBufferData, 3) {
+     v.bytes = v.play_len = v.loop_len = a[2];
+     v.play_start = v.loop_start = 0;
+     v.pos = 0;
++    v.seen = 0;
+     ForgetBlocks(v);
+     return 0;
+ }
+ BUFFER(Play, 4) {
+     v.has_gain = false;  // a new sound does not ramp from the last one's levels
++    if (a[3] & 2) v.pos = 0;
++    if (!v.playing || (a[3] & 2)) v.seen = int64_t(v.pos);
+     v.playing = true;
+     v.looping = a[3] & 1;
+-    if (a[3] & 2) v.pos = 0;
+     v.sync = a[3] & 4;
+     return 0;
+ }
+ BUFFER(Stop, 1) {
++    if (v.playing) NotifyStop(v);
+     v.playing = false;
+     return 0;
+ }
+ // (this, time low, time high, flags): stops now, the release envelope is not reproduced
+ BUFFER(StopEx, 4) {
++    if (v.playing) NotifyStop(v);
+     v.playing = false;
+     return 0;
+ }
++// (this, count, DSBPOSITIONNOTIFY {offset, event} array): replaces the list, a count of 0 clears it
++BUFFER(SetNotificationPositions, 3) {
++    if (a[1] && !a[2]) return kInvalidCall;
++    v.notify.clear();
++    for (uint32_t i = 0; i < std::min<uint32_t>(a[1], 64); i++) {
++        uint32_t offset = R32(a[2] + i * 8), event = R32(a[2] + i * 8 + 4);
++        if (offset != kOffsetStop && offset >= v.bytes) return kInvalidCall;
++        v.notify.push_back({offset, event});
++    }
++    v.seen = int64_t(v.pos);
++    return 0;
++}
+ // (this, flags): 0 resumes, 1 pauses, 2 holds until IDirectSound_SynchPlayback
+ BUFFER(Pause, 2) {
+     v.paused = a[1] == 1;
+@@ -1001,6 +1063,7 @@ BUFFER(SetPlayRegion, 3) {
+     v.play_len = v.loop_len = a[2] ? a[2] : v.bytes - a[1];
+     v.loop_start = 0;
+     v.pos = 0;
++    v.seen = 0;
+     ForgetBlocks(v);
+     return 0;
+ }
+@@ -1022,6 +1085,7 @@ BUFFER(GetCurrentPosition, 3) {
+ }
+ BUFFER(SetCurrentPosition, 2) {
+     v.pos = FramesOf(v, a[1]);
++    v.seen = int64_t(v.pos);
+     return 0;
+ }
+ BUFFER(Lock, 8) {

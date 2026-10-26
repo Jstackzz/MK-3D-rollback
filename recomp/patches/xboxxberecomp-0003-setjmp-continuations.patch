@@ -1,0 +1,78 @@
+diff --git a/tools/recomp/analysis.cpp b/tools/recomp/analysis.cpp
+index 98682a5..8fe7a70 100644
+--- a/tools/recomp/analysis.cpp
++++ b/tools/recomp/analysis.cpp
+@@ -541,6 +541,13 @@ void Analysis::Run() {
+         }
+     }
+     EhContinuations();
++    // setjmp return points: a longjmp's jump there resumes like a C++ catch continuation, in the innermost frame
++    // that registers an SEH handler and holds the target's stack
++    for (uint32_t c : cfg.resume_points) {
++        MakeFunction(c);
++        if (functions.count(c)) continuations.insert(c);
++        else std::fprintf(stderr, "[xbe] continuations: %08X is not decodable code\n", c);
++    }
+     // every direct call from decoded code names a function
+     for (bool changed = true; changed;) {
+         changed = false;
+diff --git a/tools/recomp/analysis.h b/tools/recomp/analysis.h
+index 9cd65fa..54a7afc 100644
+--- a/tools/recomp/analysis.h
++++ b/tools/recomp/analysis.h
+@@ -26,6 +26,7 @@ struct Config {
+     std::string xbe_path;
+     uint32_t title = 0, entry = 0;  // the image xbe_symbols wrote the config for, 0 = unchecked
+     std::set<uint32_t> trace;       // functions whose calls and results are logged
++    std::set<uint32_t> resume_points;  // [xbe] continuations: setjmp return points a longjmp jumps back into
+     std::string out_dir;
+     std::string library;  // the game code DLL, named in the generated exports.def
+     std::vector<std::string> code_sections;
+diff --git a/tools/recomp/codegen_emit.cpp b/tools/recomp/codegen_emit.cpp
+index dadfc8e..080c3c9 100644
+--- a/tools/recomp/codegen_emit.cpp
++++ b/tools/recomp/codegen_emit.cpp
+@@ -99,10 +99,14 @@ std::string CodeGen::EmitFunction(uint32_t entry) {
+     for (uint32_t va : body) {
+         ZydisDecodedInstruction in;
+         ZydisDecodedOperand ops[ZYDIS_MAX_OPERAND_COUNT];
+-        if (an_.Decode(va, in, ops) && in.mnemonic == ZYDIS_MNEMONIC_MOV && ops[0].type == ZYDIS_OPERAND_TYPE_MEMORY &&
++        if (!an_.Decode(va, in, ops)) continue;
++        if (in.mnemonic == ZYDIS_MNEMONIC_MOV && ops[0].type == ZYDIS_OPERAND_TYPE_MEMORY &&
+             ops[0].mem.segment == ZYDIS_REGISTER_FS && ops[0].mem.base == ZYDIS_REGISTER_NONE &&
+             ops[0].mem.index == ZYDIS_REGISTER_NONE && ops[0].mem.disp.value == 0)
+             seh = true;
++        // a function that runs into a continuation (a call to setjmp followed by its return point) is where a
++        // longjmp to it lands: its frame catches the resume and runs the continuation in its place
++        if (an_.continuations.count(va + in.length)) seh = true;
+     }
+     std::string out;
+     out += F("X86_FUNC(__imp__%s) {\n", FuncName(entry).c_str());
+@@ -113,7 +117,13 @@ std::string CodeGen::EmitFunction(uint32_t entry) {
+     if (!entry_first) out += F("\tgoto loc_%08X;\n", entry);
+     if (labels_.count(entry) && entry_first) out += F("loc_%08X:;\n", entry);
+     out += body_;
+-    if (seh) out += "\t} catch (const X86Resume& r) {\n\t\tif (r.esp >= x86_frame) throw;\n\t\tx86_resume(ctx, base, r);\n\t}\n";
++    // the continuation may itself be left by another resume into this frame (a game that longjmps back into main
++    // each time it restarts a sequence), which a single catch cannot take, as it runs inside the handler: loop
++    if (seh)
++        out += "\t} catch (const X86Resume& first) {\n\t\tif (first.esp >= x86_frame) throw;\n\t\tX86Resume r = first;\n"
++               "\t\tfor (;;) {\n\t\t\ttry {\n\t\t\t\tx86_resume(ctx, base, r);\n\t\t\t\tbreak;\n"
++               "\t\t\t} catch (const X86Resume& again) {\n\t\t\t\tif (again.esp >= x86_frame) throw;\n"
++               "\t\t\t\tr = again;\n\t\t\t}\n\t\t}\n\t}\n";
+     out += "}\n";
+     if (an_.cfg.trace.count(entry))
+         out += F("X86_TRACED_FUNC(%s, __imp__%s, 0x%XU)\n\n", FuncName(entry).c_str(), FuncName(entry).c_str(), entry);
+diff --git a/tools/recomp/main.cpp b/tools/recomp/main.cpp
+index e44391b..0cda622 100644
+--- a/tools/recomp/main.cpp
++++ b/tools/recomp/main.cpp
+@@ -82,6 +82,8 @@ static bool LoadConfig(const fs::path& path, Config& cfg, const fs::path& xdk_di
+     if (auto v = t["xbe"]["entry"].value<int64_t>()) cfg.entry = uint32_t(*v);
+     if (auto a = t["xbe"]["trace"].as_array())
+         for (auto& i : *a) cfg.trace.insert(uint32_t(i.value_or(int64_t(0))));
++    if (auto a = t["xbe"]["continuations"].as_array())
++        for (auto& i : *a) cfg.resume_points.insert(uint32_t(i.value_or(int64_t(0))));
+     if (auto v = t["xbe"]["out"].value<std::string>()) cfg.out_dir = *v;
+     if (auto v = t["xbe"]["library"].value<std::string>()) cfg.library = *v;
+     if (auto v = t["xbe"]["partitions"].value<int64_t>()) cfg.partitions = uint32_t(*v);

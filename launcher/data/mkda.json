@@ -1,0 +1,73 @@
+{
+  "id": "mkda",
+  "title": "Mortal Kombat: Deadly Alliance",
+  "short": "Deadly Alliance",
+  "edition": "Xbox, USA, Rev 1",
+  "title_id": "4D57000C",
+  "default_exe": "MKDA.exe",
+  "xbe_sha1": "5aba0b06995b2179673a9ff05bcf5d0e16a9bc57",
+  "modes": [
+    {
+      "id": "kombat",
+      "name": "Kombat",
+      "description": "One-on-one fight, best of three rounds by default.",
+      "online": true,
+      "ranked": true,
+      "roster": "fighters",
+      "character_select": "launcher",
+      "rounds": [1, 3, 5],
+      "default_rounds": 3
+    },
+    {
+      "id": "practice",
+      "name": "Practice",
+      "description": "Offline training on this PC.",
+      "online": false,
+      "ranked": false,
+      "roster": "fighters",
+      "character_select": "launcher",
+      "rounds": [1],
+      "default_rounds": 1
+    }
+  ],
+  "rosters": {
+    "fighters": [
+      {"id": "BoRaiCho", "name": "Bo' Rai Cho"},
+      {"id": "Cyrax", "name": "Cyrax"},
+      {"id": "Drahmin", "name": "Drahmin"},
+      {"id": "Frost", "name": "Frost"},
+      {"id": "HsuHao", "name": "Hsu Hao"},
+      {"id": "Jax", "name": "Jax"},
+      {"id": "JohnnyCage", "name": "Johnny Cage"},
+      {"id": "Kano", "name": "Kano"},
+      {"id": "Kenshi", "name": "Kenshi"},
+      {"id": "Kitana", "name": "Kitana"},
+      {"id": "KungLao", "name": "Kung Lao"},
+      {"id": "LiMei", "name": "Li Mei"},
+      {"id": "Mavado", "name": "Mavado"},
+      {"id": "Nitara", "name": "Nitara"},
+      {"id": "QuanChi", "name": "Quan Chi"},
+      {"id": "Raiden", "name": "Raiden"},
+      {"id": "Reptile", "name": "Reptile"},
+      {"id": "Scorpion", "name": "Scorpion"},
+      {"id": "ShangTsung", "name": "Shang Tsung"},
+      {"id": "Sonya", "name": "Sonya Blade"},
+      {"id": "SubZero", "name": "Sub-Zero"},
+      {"id": "Blaze", "name": "Blaze", "secret": true},
+      {"id": "Mokap", "name": "Mokap", "secret": true}
+    ]
+  },
+  "not_playable": [
+    {"name": "Moloch", "note": "sub-boss, not playable"}
+  ],
+  "not_on_xbox": [
+    {"name": "Noob Saibot", "note": "Tournament Edition (Game Boy Advance) only"},
+    {"name": "Sareena", "note": "Tournament Edition (Game Boy Advance) only"},
+    {"name": "Sektor", "note": "Tournament Edition (Game Boy Advance) only"}
+  ],
+  "notes": "21 fighters plus the two secret characters Blaze and Mokap; the PS2, Xbox and GameCube versions share this roster.",
+  "sources": [
+    "https://en.wikipedia.org/wiki/Mortal_Kombat:_Deadly_Alliance",
+    "https://www.mortalkombatwarehouse.com/mkda/"
+  ]
+}

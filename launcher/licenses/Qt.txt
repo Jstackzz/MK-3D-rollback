@@ -1,0 +1,9 @@
+Qt 6.12.0 (https://www.qt.io)
+
+MK3DLauncher.exe uses Qt through its DLLs (Qt6Core, Qt6Gui, Qt6Network, Qt6Svg, Qt6Widgets and the
+plugin folders beside them) under the GNU Lesser General Public License version 3: LGPL-3.0.txt, which
+adds to GPL-3.0.txt. The DLLs are Qt's own builds, unchanged; you may replace them with your own build of
+the same Qt version. Qt's source code: https://download.qt.io/official_releases/qt/6.12/6.12.0/
+
+Qt contains third-party libraries under their own licenses, listed at
+https://doc.qt.io/qt-6/licenses-used-in-qt.html

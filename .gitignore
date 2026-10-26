@@ -1,0 +1,67 @@
+# Game data: never commit discs, ELFs, BIOS, or anything extracted from them
+orig/
+*.iso
+*.bin
+*.xbe
+*.xiso
+*.xiso.iso
+*.elf
+*.7z
+*.zip
+*.chd
+*.cso
+*.gz
+
+# Third-party checkouts (shallow clones for now; will become submodules)
+external/
+# Study-only clones of other projects
+reference/
+
+# Build output
+build/
+out/
+cmake-build-*/
+.vs/
+.vscode/
+*.user
+*.suo
+*.obj
+*.pdb
+*.ilk
+*.exp
+
+# Ghidra project files are large and machine-specific; keep only exports
+*.gpr
+*.rep/
+*.lock
+*.lock~
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Local notes and scratch
+*.log
+.DS_Store
+Thumbs.db
+
+# Player packages (tools/package.ps1): published as release downloads, not in the repository
+dist/
+
+# Ghidra decompiler and disassembly output and the discs' header dumps: derived from the games, never published
+research/**/q-*.txt
+research/**/decomp-*.txt
+research/**/xbe_info.json
+research/**/symbols-xbsdb.txt
+
+# Notes on source code that carries no license: study only, never published
+docs/research/tekken6-*.md
+
+# Per-game recompiler projects: the SDK junction, the player's assets and build output
+recomp/*/sdk/
+recomp/*/assets/
+recomp/*/out/
+recomp/*/game/
+recomp/*/native/

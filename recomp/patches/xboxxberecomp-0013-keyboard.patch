@@ -1,0 +1,83 @@
+diff --git a/runtime/core/input.cpp b/runtime/core/input.cpp
+index bb7f3a9..95b161c 100644
+--- a/runtime/core/input.cpp
++++ b/runtime/core/input.cpp
+@@ -1,13 +1,25 @@
+-// controllers through SDL: Xbox, PlayStation and Switch pads read into the console controller's report
++// controllers through SDL: Xbox, PlayStation and Switch pads read into the console controller's report; the keyboard
++// plays on port 0 too while the game's window has the focus (XBE_KEYBOARD=0 turns that off)
+ #include "core/input.h"
+ 
+ #include <algorithm>
++#include <cstdlib>
+ #include <iterator>
+ #include <mutex>
+ #include <utility>
+ 
+ #include <SDL3/SDL.h>
+ 
++#ifdef _WIN32
++#ifndef WIN32_LEAN_AND_MEAN
++#define WIN32_LEAN_AND_MEAN
++#endif
++#ifndef NOMINMAX
++#define NOMINMAX
++#endif
++#include <windows.h>
++#endif
++
+ #include "app/app.h"
+ #include "core/log.h"
+ 
+@@ -80,6 +92,41 @@ void Init() {
+     }
+ }
+ 
++#ifdef _WIN32
++// The keyboard as the controller on port 0, merged with a pad there: arrows or WASD move (the d-pad), J I K L are the
++// face buttons X Y A B (the four attacks of a fighting game's default layout), Space the right trigger (block), O the
++// left trigger, U and P white and black, Enter START, Backspace BACK. Only while one of this process's windows is in
++// front, so typing elsewhere never reaches the game.
++bool KeyboardOn() {
++    static const bool on = [] {
++        const char* v = std::getenv("XBE_KEYBOARD");
++        return !v || std::atoi(v) != 0;
++    }();
++    return on;
++}
++
++bool OurWindowInFront() {
++    HWND w = GetForegroundWindow();
++    DWORD pid = 0;
++    if (w) GetWindowThreadProcessId(w, &pid);
++    return pid == GetCurrentProcessId();
++}
++
++void MergeKeyboard(Pad& p) {
++    p.connected = true;  // a PC always has its keyboard
++    if (!OurWindowInFront()) return;
++    auto down = [](int vk) { return (GetAsyncKeyState(vk) & 0x8000) != 0; };
++    // d-pad up, down, left, right, start, back
++    const int dpad[6][2] = {{VK_UP, 'W'}, {VK_DOWN, 'S'}, {VK_LEFT, 'A'}, {VK_RIGHT, 'D'}, {VK_RETURN, 0}, {VK_BACK, 0}};
++    for (int i = 0; i < 6; i++)
++        if (down(dpad[i][0]) || (dpad[i][1] && down(dpad[i][1]))) p.buttons |= uint16_t(1 << i);
++    // analog buttons: A B X Y black white, left trigger, right trigger
++    const int analog[8] = {'K', 'L', 'J', 'I', 'P', 'U', 'O', VK_SPACE};
++    for (int i = 0; i < 8; i++)
++        if (down(analog[i])) p.analog[i] = 0xFF;
++}
++#endif
++
+ Pad Poll(int port) {
+     Pad p;
+     {
+@@ -109,6 +156,9 @@ Pad Poll(int port) {
+             p.ry = int16_t(-1 - axis(SDL_GAMEPAD_AXIS_RIGHTY));
+         }
+     }
++#ifdef _WIN32
++    if (port == 0 && KeyboardOn()) MergeKeyboard(p);
++#endif
+     if (app::kGame.pad) app::kGame.pad(port, p);
+     return p;
+ }

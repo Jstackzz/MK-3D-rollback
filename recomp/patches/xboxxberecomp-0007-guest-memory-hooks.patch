@@ -1,0 +1,101 @@
+diff --git a/runtime/kernel/files.cpp b/runtime/kernel/files.cpp
+index 5644ea7..f16c457 100644
+--- a/runtime/kernel/files.cpp
++++ b/runtime/kernel/files.cpp
+@@ -1,4 +1,5 @@
+ #include <algorithm>
++#include <atomic>
+ #include <cctype>
+ #include <chrono>
+ #include <cstdio>
+@@ -468,6 +469,12 @@ static uint64_t Offset(File& f, uint32_t off) {
+ }
+ 
+ // pages is the FILE_SEGMENT_ELEMENT array for scatter and gather, 0 for one buffer
++static std::atomic<GuestWriteHook> g_guest_write_hook{nullptr};
++void SetGuestWriteHook(GuestWriteHook hook) { g_guest_write_hook = hook; }
++void BeforeGuestWrite(uint32_t va, uint32_t len) {
++    if (GuestWriteHook h = g_guest_write_hook.load()) h(va, len);
++}
++
+ static uint32_t Transfer(const Args& a, bool write, uint32_t pages) {
+     uint32_t h = a[0], event = a[1], apc = a[2], apc_ctx = a[3], iosb = a[4], buf = a[5], len = a[6], off = a[7];
+     auto f = FileFromHandle(h);
+@@ -481,6 +488,7 @@ static uint32_t Transfer(const Args& a, bool write, uint32_t pages) {
+     while (n < len) {
+         uint32_t at = pages ? R32(pages + n / 0x1000 * 8) + n % 0x1000 : buf + n;
+         uint32_t chunk = pages ? std::min(len - n, 0x1000 - n % 0x1000) : len;
++        if (!write) BeforeGuestWrite(at, chunk);
+         size_t done = f->entry ? MountedDisc()->Read(*f->entry, pos + n, HostPtr(at), chunk)
+                       : write  ? std::fwrite(HostPtr(at), 1, chunk, f->fp)
+                                : std::fread(HostPtr(at), 1, chunk, f->fp);
+diff --git a/runtime/kernel/kernel.h b/runtime/kernel/kernel.h
+index 6e12a39..f684dfc 100644
+--- a/runtime/kernel/kernel.h
++++ b/runtime/kernel/kernel.h
+@@ -119,6 +119,13 @@ using ObjectRef = std::shared_ptr<Object>;
+ 
+ uint32_t NewHandle(ObjectRef obj);
+ ObjectRef FromHandle(uint32_t handle);
++
++// Called before the host OS itself writes guest memory (a file read straight into a guest buffer), where a write
++// fault cannot happen in user mode. A game layer that write-protects guest pages to track changes (rollback
++// netplay) registers a hook to make the range writable first.
++using GuestWriteHook = void (*)(uint32_t va, uint32_t len);
++void SetGuestWriteHook(GuestWriteHook hook);
++void BeforeGuestWrite(uint32_t va, uint32_t len);
+ bool CloseHandle(uint32_t handle);
+ uint32_t DuplicateHandle(uint32_t handle);
+ ObjectRef FromPointer(uint32_t guest);  // dispatcher object in guest memory, created on first use
+diff --git a/runtime/kernel/memory.cpp b/runtime/kernel/memory.cpp
+index be024fa..cc39c1a 100644
+--- a/runtime/kernel/memory.cpp
++++ b/runtime/kernel/memory.cpp
+@@ -1,6 +1,7 @@
+ #include "kernel/memory.h"
+ 
+ #include <algorithm>
++#include <atomic>
+ #include <cstring>
+ #include <map>
+ #include <mutex>
+@@ -73,6 +74,8 @@ bool Init() {
+ 
+ // page commit map, one byte per 4 KB page
+ static std::vector<uint8_t> g_committed(0x100000, 0);
++static std::atomic<CommitHook> g_commit_hook{nullptr};
++void SetCommitHook(CommitHook hook) { g_commit_hook = hook; }
+ 
+ bool Commit(uint32_t va, uint32_t size) {
+     if (!size || InPhysical(va)) return true;
+@@ -91,6 +94,7 @@ bool Commit(uint32_t va, uint32_t size) {
+     }
+ #endif
+     for (uint64_t p = first; p < end; p += kPage) g_committed[size_t(p >> 12)] = 1;
++    if (CommitHook hook = g_commit_hook.load()) hook(first, uint32_t(end - first), true);
+     return true;
+ }
+ 
+@@ -106,6 +110,7 @@ void Decommit(uint32_t va, uint32_t size) {
+     mprotect(g_base + first, size_t(end - first), PROT_NONE);
+ #endif
+     for (uint64_t p = first; p < end; p += kPage) g_committed[size_t(p >> 12)] = 0;
++    if (CommitHook hook = g_commit_hook.load()) hook(first, uint32_t(end - first), false);
+ }
+ 
+ bool IsCommitted(uint32_t va) { return InPhysical(va) || g_committed[va >> 12] != 0; }
+diff --git a/runtime/kernel/memory.h b/runtime/kernel/memory.h
+index 019aaff..e3abfd8 100644
+--- a/runtime/kernel/memory.h
++++ b/runtime/kernel/memory.h
+@@ -24,6 +24,10 @@ bool Init();
+ uint8_t* Base();
+ bool Commit(uint32_t va, uint32_t size);
+ void Decommit(uint32_t va, uint32_t size);
++// told about every committed or decommitted user range after the fact (page aligned), for a game layer that tracks
++// guest pages (rollback netplay)
++using CommitHook = void (*)(uint32_t va, uint32_t size, bool committed);
++void SetCommitHook(CommitHook hook);
+ bool IsCommitted(uint32_t va);
+ 
+ // user virtual space, NTSTATUS results

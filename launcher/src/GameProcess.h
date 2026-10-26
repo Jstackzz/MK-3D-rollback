@@ -1,0 +1,57 @@
+#pragma once
+// One game process and its session folder: environment, cmd.txt (launcher -> game) and
+// status.txt (game -> launcher), docs/PROTOCOL.md section 3.
+
+#include <QElapsedTimer>
+#include <QHash>
+#include <QObject>
+#include <QProcess>
+#include <QString>
+#include <QTimer>
+
+class GameProcess : public QObject {
+    Q_OBJECT
+public:
+    GameProcess(const QString& gameId, int instance, QObject* parent = nullptr);
+    ~GameProcess() override;
+
+    // Starts `exe` (a .py file is run with the configured Python, for the development stand-in).
+    // `netMode` false starts it plainly (first-launch compile), without MK3D_NET.
+    bool start(const QString& exe, QString* error, bool netMode = true);
+    void quit();  // "quit" command, then kill after 5 s
+    void kill();
+    bool isRunning() const;
+
+    QString gameId() const { return gameId_; }
+    int instance() const { return instance_; }
+    QString sessionDir() const { return sessionDir_; }
+    QString status() const { return status_; }  // first line of status.txt
+    QString state() const;                     // first word of it
+    bool isReady() const { return state() == QLatin1String("ready"); }
+
+    // Write one command line; if the previous command has not been taken yet it waits up to 2 s
+    // (a newer command replaces a waiting one).
+    void command(const QString& line);
+
+    static QHash<QString, QString> parseKeys(const QString& line);  // key=value tokens after the verb
+
+signals:
+    void statusChanged(const QString& line);
+    void outputLine(const QString& line);
+    void exited(int exitCode, bool crashed);
+
+private:
+    void poll();
+    void writeCommand(const QString& line);
+
+    QString gameId_;
+    int instance_;
+    QProcess* proc_ = nullptr;
+    QTimer poll_;
+    QString sessionDir_, cmdPath_, statusPath_;
+    QString status_;
+    QString pendingCmd_;
+    QElapsedTimer lastWrite_;
+    bool quitting_ = false;
+    QByteArray outBuf_;
+};

@@ -1,0 +1,13 @@
+diff --git a/runtime/kernel/threads.cpp b/runtime/kernel/threads.cpp
+index 56fadb8..bc7b0a5 100644
+--- a/runtime/kernel/threads.cpp
++++ b/runtime/kernel/threads.cpp
+@@ -76,6 +76,8 @@ void Unregister(Thread* t) {
+ 
+ void MarkExited(Thread& t, uint32_t code) {
+     t.exit_code = code;
++    // ETHREAD.ExitStatus: XAPI's GetExitCodeThread reads it from the guest object once SignalState is set
++    if (t.ethread) W32(t.ethread + 0x120, code);
+     std::lock_guard<std::mutex> lock(DispatchLock());
+     SetSignal(t, 1);
+     SignalChanged();

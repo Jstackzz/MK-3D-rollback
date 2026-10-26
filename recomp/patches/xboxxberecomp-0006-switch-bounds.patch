@@ -1,0 +1,194 @@
+diff --git a/tools/recomp/analysis.cpp b/tools/recomp/analysis.cpp
+index 8fe7a70..8d39a4f 100644
+--- a/tools/recomp/analysis.cpp
++++ b/tools/recomp/analysis.cpp
+@@ -2,6 +2,7 @@
+ 
+ #include <algorithm>
+ #include <cstdio>
++#include <cstdlib>
+ #include <deque>
+ 
+ Analysis::Analysis(const xbe::Image& image, const Config& config) : img(image), cfg(config) {
+@@ -55,11 +56,18 @@ bool Analysis::Decode(uint32_t va, ZydisDecodedInstruction& insn, ZydisDecodedOp
+ }
+ 
+ bool Analysis::ReadTable(uint32_t jmp_va, const ZydisDecodedOperand& mem, JumpTable& jt) {
++    static const uint32_t trace = [] {
++        const char* s = std::getenv("XBE_RECOMP_TRACE_TABLE");
++        return s ? uint32_t(std::strtoul(s, nullptr, 0)) : 0u;
++    }();
+     jt.insn = jmp_va;
+     jt.table = uint32_t(mem.mem.disp.value);
+     for (uint32_t i = 0; i < 1024; i++) {
+         uint32_t t;
+         if (!img.Read32(jt.table + i * 4, t)) break;
++        if (trace == jmp_va)
++            std::fprintf(stderr, "table %08X slot %08X = %08X code %d cover %d\n", jmp_va, jt.table + i * 4, t, IsCode(t),
++                         jt.table + i * 4 >= lo_ && jt.table + i * 4 < hi_ ? cover_[jt.table + i * 4 - lo_] : -1);
+         if (!IsCode(t)) {
+             if (i == 0 && jt.table == uint32_t(mem.mem.disp.value)) {
+                 // index 0 unused, its slot overlaps code: the table proper starts one entry later
+@@ -174,6 +182,14 @@ bool Analysis::SledTable(uint32_t jmp_va, const uint32_t* ring, int nring, JumpT
+     return !jt.targets.empty();
+ }
+ 
++static bool TraceWalk(uint32_t entry) {
++    static const uint32_t t = [] {
++        const char* s = std::getenv("XBE_RECOMP_TRACE_WALK");
++        return s ? uint32_t(std::strtoul(s, nullptr, 0)) : 0u;
++    }();
++    return t && t == entry;
++}
++
+ bool Analysis::Walk(uint32_t entry, bool trusted, std::vector<uint32_t>* calls) {
+     struct Pending {
+         uint32_t va;
+@@ -206,16 +222,16 @@ bool Analysis::Walk(uint32_t entry, bool trusted, std::vector<uint32_t>* calls)
+             if ((va != entry && cfg.function_ends.count(va)) || (stop && va >= stop)) break;
+             if (!IsCode(va)) {
+                 if (trusted) break;
+-                return false;
++                { if (TraceWalk(entry)) std::fprintf(stderr, "walk %08X fails at %08X (line %d)\n", entry, va, __LINE__); return false; }
+             }
+             if (cover_[va - lo_] != 0 && (!trusted || cover_[va - lo_] == 3)) {
+                 if (trusted) break;
+-                return false;
++                { if (TraceWalk(entry)) std::fprintf(stderr, "walk %08X fails at %08X (line %d)\n", entry, va, __LINE__); return false; }
+             }
+             Insn insn;
+             JumpTable jt;
+             if (!DecodeFlow(va, insn, &jt)) {
+-                if (!trusted) return false;
++                if (!trusted) { if (TraceWalk(entry)) std::fprintf(stderr, "walk %08X fails at %08X (line %d)\n", entry, va, __LINE__); return false; }
+                 insn.len = 1;
+                 insn.flow = Flow::Invalid;
+                 local.push_back({va, insn});
+@@ -228,7 +244,7 @@ bool Analysis::Walk(uint32_t entry, bool trusted, std::vector<uint32_t>* calls)
+                 bool data = false;
+                 for (uint32_t i = 0; i < insn.len; i++)
+                     data |= !(i && InTail(va + i)) && (!IsCode(va + i) || cover_[va + i - lo_] == 3);
+-                if (!trusted) return false;
++                if (!trusted) { if (TraceWalk(entry)) std::fprintf(stderr, "walk %08X fails at %08X (line %d)\n", entry, va, __LINE__); return false; }
+                 if (data) break;
+             }
+             local.push_back({va, insn});
+@@ -240,13 +256,13 @@ bool Analysis::Walk(uint32_t entry, bool trusted, std::vector<uint32_t>* calls)
+                 } else if (IsCode(insn.target)) {
+                     found_calls.push_back(insn.target);
+                 } else if (!trusted) {
+-                    return false;
++                    { if (TraceWalk(entry)) std::fprintf(stderr, "walk %08X fails at %08X (line %d)\n", entry, va, __LINE__); return false; }
+                 }
+             } else if (insn.flow == Flow::Jcc) {
+-                if (!IsCode(insn.target) && !trusted) return false;
++                if (!IsCode(insn.target) && !trusted) { if (TraceWalk(entry)) std::fprintf(stderr, "walk %08X fails at %08X (line %d)\n", entry, va, __LINE__); return false; }
+                 work.push_back(insn.target);
+             } else if (insn.flow == Flow::Jmp) {
+-                if (!IsCode(insn.target) && !trusted) return false;
++                if (!IsCode(insn.target) && !trusted) { if (TraceWalk(entry)) std::fprintf(stderr, "walk %08X fails at %08X (line %d)\n", entry, va, __LINE__); return false; }
+                 work.push_back(insn.target);
+                 break;
+             } else if (insn.flow == Flow::JmpIndirect) {
+@@ -266,7 +282,19 @@ bool Analysis::Walk(uint32_t entry, bool trusted, std::vector<uint32_t>* calls)
+                     uint32_t bound = 0;
+                     uint32_t byte_table = 0;
+                     ZydisRegister byte_idx = ZYDIS_REGISTER_NONE;
+-                    for (int k = 1; k < 4 && k < nring; k++) {
++                    // the index register loaded from memory ("mov r, [ebp-x]"): a "cmp dword ptr [ebp-x], n" before
++                    // that load bounds it, as compilers without register allocation write switches
++                    bool from_mem = false;
++                    ZydisDecodedOperand loaded{};
++                    auto same_mem = [](const ZydisDecodedOperand& a, const ZydisDecodedOperand& b) {
++                        return a.type == ZYDIS_OPERAND_TYPE_MEMORY && b.type == ZYDIS_OPERAND_TYPE_MEMORY &&
++                               a.mem.base == b.mem.base && a.mem.index == b.mem.index && a.mem.scale == b.mem.scale &&
++                               a.mem.disp.value == b.mem.disp.value && a.mem.segment == b.mem.segment;
++                    };
++                    // a register compare sits within 3 instructions of the jump; the stack variable form, "cmp [v], n;
++                    // ja; mov r, [v]; (movzx i, byte [r + bytes];) jmp [i*4 + table]", within 5
++                    for (int k = 1; k < 6 && k < nring; k++) {
++                        if (k >= 4 && !from_mem) break;
+                         uint32_t pa = ring[(nring - 1 - k) & 7];
+                         ZydisDecodedInstruction pi;
+                         ZydisDecodedOperand po[ZYDIS_MAX_OPERAND_COUNT];
+@@ -277,13 +305,33 @@ bool Analysis::Walk(uint32_t entry, bool trusted, std::vector<uint32_t>* calls)
+                             po[1].mem.base != ZYDIS_REGISTER_NONE && po[1].mem.disp.has_displacement) {
+                             byte_table = uint32_t(po[1].mem.disp.value);
+                             byte_idx = po[1].mem.base;
++                            continue;
+                         }
+-                        if (pi.mnemonic == ZYDIS_MNEMONIC_CMP && po[0].type == ZYDIS_OPERAND_TYPE_REGISTER &&
+-                            po[1].type == ZYDIS_OPERAND_TYPE_IMMEDIATE) {
++                        if (pi.mnemonic == ZYDIS_MNEMONIC_MOV && !from_mem && po[0].type == ZYDIS_OPERAND_TYPE_REGISTER &&
++                            po[1].type == ZYDIS_OPERAND_TYPE_MEMORY && po[1].size == 32) {
+                             ZydisRegister r = ZydisRegisterGetLargestEnclosing(ZYDIS_MACHINE_MODE_LEGACY_32, po[0].reg.value);
+-                            if (r == idx || r == byte_idx) bound = uint32_t(po[1].imm.value.u) + 1;
++                            if (r == (byte_table ? byte_idx : idx)) {
++                                from_mem = true;
++                                loaded = po[1];
++                                continue;
++                            }
++                        }
++                        if (pi.mnemonic == ZYDIS_MNEMONIC_CMP && po[1].type == ZYDIS_OPERAND_TYPE_IMMEDIATE) {
++                            if (po[0].type == ZYDIS_OPERAND_TYPE_REGISTER) {
++                                ZydisRegister r = ZydisRegisterGetLargestEnclosing(ZYDIS_MACHINE_MODE_LEGACY_32, po[0].reg.value);
++                                if (r == idx || r == byte_idx) bound = uint32_t(po[1].imm.value.u) + 1;
++                            } else if (from_mem && po[0].size == 32 && same_mem(po[0], loaded)) {
++                                bound = uint32_t(po[1].imm.value.u) + 1;
++                            }
+                             break;
+                         }
++                        // anything else that writes the index register or the loaded memory ends the search
++                        if (pi.operand_count_visible && po[0].type == ZYDIS_OPERAND_TYPE_REGISTER &&
++                            (po[0].actions & ZYDIS_OPERAND_ACTION_MASK_WRITE)) {
++                            ZydisRegister r = ZydisRegisterGetLargestEnclosing(ZYDIS_MACHINE_MODE_LEGACY_32, po[0].reg.value);
++                            if (r == idx || r == byte_idx) break;
++                        }
++                        if (from_mem && same_mem(po[0], loaded) && (po[0].actions & ZYDIS_OPERAND_ACTION_MASK_WRITE)) break;
+                     }
+                     if (bound && bound < 4096) {
+                         uint32_t n = bound;
+@@ -292,19 +340,36 @@ bool Analysis::Walk(uint32_t entry, bool trusted, std::vector<uint32_t>* calls)
+                             for (uint32_t i = 0; i < bound; i++) {
+                                 int64_t o = img.Offset(byte_table + i);
+                                 if (o >= 0) mx = std::max<uint32_t>(mx, img.file[size_t(o)]);
+-                                if (byte_table + i >= lo_ && byte_table + i < hi_) cover_[byte_table + i - lo_] = 3;
+                             }
+                             n = mx + 1;
+                         }
+-                        jt.targets.clear();
+-                        jt.slots.clear();
++                        // a bound that names a target outside code is not this table's (an index scaled before the
++                        // compare, say): keep the table as read
+                         uint32_t base = uint32_t(ji.operand_count ? jo[0].mem.disp.value : jt.table);
+-                        for (uint32_t i = 0; i < n; i++) {
++                        std::vector<uint32_t> targets, slots;
++                        bool sane = n <= 1024;
++                        for (uint32_t i = 0; sane && i < n; i++) {
+                             uint32_t t;
+-                            if (!img.Read32(base + i * 4, t)) break;
+-                            jt.targets.push_back(t);
+-                            jt.slots.push_back(base + i * 4);
++                            if (!img.Read32(base + i * 4, t) || !IsCode(t)) sane = false;
++                            targets.push_back(t);
++                            slots.push_back(base + i * 4);
+                         }
++                        if (sane) {
++                            if (byte_table)
++                                for (uint32_t i = 0; i < bound; i++)
++                                    if (byte_table + i >= lo_ && byte_table + i < hi_) cover_[byte_table + i - lo_] = 3;
++                            jt.targets = std::move(targets);
++                            jt.slots = std::move(slots);
++                        } else {
++                            bound = 0;
++                        }
++                    }
++                    static const bool list_tables = std::getenv("XBE_RECOMP_LIST_TABLES") != nullptr;
++                    if (list_tables && !bound) {
++                        std::fprintf(stderr, "unbounded table: jmp %08X table %08X bytes %08X entries %zu:", va,
++                                     uint32_t(jo[0].mem.disp.value), byte_table, jt.targets.size());
++                        for (uint32_t t : jt.targets) std::fprintf(stderr, " %08X", t);
++                        std::fprintf(stderr, "\n");
+                     }
+                     if (!bound && byte_table) {
+                         // unbounded index table: it runs while its bytes index the dword table

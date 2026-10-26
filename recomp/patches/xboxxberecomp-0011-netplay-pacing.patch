@@ -1,0 +1,86 @@
+diff --git a/runtime/app/app.h b/runtime/app/app.h
+index 11ca439..a248d14 100644
+--- a/runtime/app/app.h
++++ b/runtime/app/app.h
+@@ -100,5 +100,8 @@ extern const GameInfo kGame;
+ 
+ // sleeps out the rest of the frame for the fps cap
+ void Pace();
++// moves the frame cadence: Pace's next deadlines come ns later (netplay time sync slows down this way; a sleep
++// elsewhere would be made up by running the next frames back to back)
++void PaceShift(int64_t ns);
+ 
+ }  // namespace app
+diff --git a/runtime/app/main.cpp b/runtime/app/main.cpp
+index 7fd948a..86876b4 100644
+--- a/runtime/app/main.cpp
++++ b/runtime/app/main.cpp
+@@ -5,6 +5,7 @@
+ #ifndef NOMINMAX
+ #define NOMINMAX
+ #endif
++#include <atomic>
+ #include <windows.h>
+ #include <dbghelp.h>
+ #include <timeapi.h>
+@@ -220,9 +221,17 @@ uint32_t RefreshRate() {
+ 
+ }  // namespace
+ 
++namespace {
++std::chrono::steady_clock::time_point g_pace_next = std::chrono::steady_clock::now();
++std::atomic<int64_t> g_pace_shift{0};  // ns PaceShift asked for, taken by the next Pace
++}  // namespace
++
++void PaceShift(int64_t ns) { g_pace_shift += ns; }
++
+ void Pace() {
+     using clock = std::chrono::steady_clock;
+-    static clock::time_point next = clock::now();
++    clock::time_point& next = g_pace_next;
++    next += std::chrono::nanoseconds(g_pace_shift.exchange(0));
+     uint32_t cap = Get().fps_cap;
+     // a few under the refresh rate, so a variable refresh display stays in its range and vsync never waits a whole
+     // refresh
+diff --git a/runtime/xdk/d3d8.cpp b/runtime/xdk/d3d8.cpp
+index ad97bbf..0ce0930 100644
+--- a/runtime/xdk/d3d8.cpp
++++ b/runtime/xdk/d3d8.cpp
+@@ -577,8 +577,11 @@ HLE_STDCALL(D3DDevice_GetDepthStencilSurface2, 0) {
+ 
+ namespace {
+ std::atomic<uint32_t> g_presents{0};
++std::atomic<bool> g_skip_present{false};
+ }  // namespace
+ 
++void d3d::SetSkipPresent(bool skip) { g_skip_present = skip; }
++
+ HLE_STDCALL(D3DDevice_Swap, 1) {
+     app::SplashFirstFrame();
+     // handed over from the previous instance: the window opens on the second frame, the first picture with
+@@ -603,8 +606,10 @@ HLE_STDCALL(D3DDevice_Swap, 1) {
+         }
+     }
+     Walk(Dev(kDevPush));  // reports asked for at the end of the frame
+-    if (g_backend) g_backend->Present(SurfaceOf(g_buffers[1]));
+-    app::Pace();
++    if (!g_skip_present) {
++        if (g_backend) g_backend->Present(SurfaceOf(g_buffers[1]));
++        app::Pace();
++    }
+     // like the XDK, the surfaces stay put and their memory rotates: titles keep back buffer pointers and copy its data
+     uint32_t last = g_buffers[g_buffer_count - 1], data = R32(last + 4), lk = R32(last + 8);
+     for (uint32_t i = g_buffer_count - 1; i > 0; i--) {
+diff --git a/runtime/xdk/d3d8.h b/runtime/xdk/d3d8.h
+index 977d028..b9a8640 100644
+--- a/runtime/xdk/d3d8.h
++++ b/runtime/xdk/d3d8.h
+@@ -8,4 +8,8 @@ namespace d3d {
+ gpu::State& State();
+ std::recursive_mutex& Lock();
+ 
++// Netplay rollback: a frame run again to catch up is neither shown nor paced (Swap still rotates the frame buffers
++// and counts the swap, as the title sees them); set by the game layer before the frame runs
++void SetSkipPresent(bool skip);
++
+ }  // namespace d3d
