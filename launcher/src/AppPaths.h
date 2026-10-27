@@ -44,6 +44,7 @@ bool vsync();
 int localTestPort(int instance);
 bool udpLoopback();  // development: matches on loopback only (one-PC tests, no firewall prompt)
 bool upnp();         // open the game UDP port on the router (UPnP)
+bool hideIp();       // matches through the server's relay: no opponent learns this player's address
 }  // namespace cfg
 
 namespace applog {

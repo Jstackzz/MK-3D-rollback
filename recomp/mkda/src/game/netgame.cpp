@@ -102,6 +102,8 @@ enum ReadyWord {
     kWordFatalities,
     kWordBonusGames,
     kWordDifficulty,
+    kWordCostumeP1,  // each player's costume (events.h kCostume): both games must have each player's own
+    kWordCostumeP2,
     kWordConfig,  // this PC's player's configuration: 17 actions of 3 words
     kWordCount = kWordConfig + kConfigWords * kConfigActions
 };
@@ -180,6 +182,8 @@ void ReadyWords(std::vector<uint32_t>& out) {
     out[kWordFatalities] = kernel::R32(kOptFatalities);
     out[kWordBonusGames] = kernel::R32(kOptBonusGames);
     out[kWordDifficulty] = kernel::R32(kOptDifficulty);
+    out[kWordCostumeP1] = kernel::R32(kernel::R32(kCostume[0]));
+    out[kWordCostumeP2] = kernel::R32(kernel::R32(kCostume[1]));
     uint32_t config = LocalConfig();
     for (uint32_t i = 0; i < kConfigWords * kConfigActions; i++) out[kWordConfig + i] = kernel::R32(config + i * 4);
 }
@@ -206,6 +210,11 @@ void Agree(X86Context&, int side, const std::vector<uint32_t>& mine, const std::
     if (theirs[kWordArena] != mine[kWordArena])
         LOGE("netplay: the arenas differ (theirs %u, ours %u): the fight's arena loaded already, the games will part",
              theirs[kWordArena], mine[kWordArena]);
+    if (theirs[kWordCostumeP1] != mine[kWordCostumeP1] || theirs[kWordCostumeP2] != mine[kWordCostumeP2])
+        LOGE("netplay: the costumes differ (theirs %u and %u, ours %u and %u): the fighters loaded already",
+             theirs[kWordCostumeP1], theirs[kWordCostumeP2], mine[kWordCostumeP1], mine[kWordCostumeP2]);
+    else
+        LOGR("netplay: arena %u, costumes %u and %u", mine[kWordArena], mine[kWordCostumeP1], mine[kWordCostumeP2]);
     uint32_t frames = std::max(mine[kWordFrames], theirs[kWordFrames]);
     uint32_t game_frames = std::max(mine[kWordGameFrames], theirs[kWordGameFrames]);
     LOGI("netplay: frame counters %u and %u (ours were %u and %u)", frames, game_frames, mine[kWordFrames],

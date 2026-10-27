@@ -400,7 +400,8 @@ bool OpenNow(const Settings& st) {
     g_left_seq = 0xFFFF;
     g_desync_frame = 0;
     SetStatus(Status::Local);
-    LOGR("netplay: UDP %u, peer %s, side %d, %s with %d frames of delay%s%s", st.bind, st.peer.c_str(), g_cfg.side,
+    // no address in the log (the other player's, or the server's relay): players pass their logs around
+    LOGR("netplay: UDP %u, side %d, %s with %d frames of delay%s%s", st.bind, g_cfg.side,
          g_cfg.rollback ? "rollback" : "lockstep", g_cfg.delay, g_cfg.feed_on ? ", a feed for spectators" : "",
          g_cfg.lag || g_cfg.jitter || g_cfg.loss ? "," : "");
     if (g_cfg.lag || g_cfg.jitter || g_cfg.loss)
@@ -508,6 +509,11 @@ void Send(const Writer& w) {
     int extra = g_cfg.jitter ? int(g_rng() % uint32_t(g_cfg.jitter + 1)) : 0;
     g_outbox.push_back({Clock::now() + std::chrono::milliseconds(g_cfg.lag + extra), std::vector<uint8_t>(w.b, w.b + w.n)});
 }
+
+// How far past this game's frame a packet's inputs and checks may name frames: a player's game waits for the other's
+// inputs long before it gets that far ahead, a spectator's feed holds at most a whole match. A hostile sender cannot
+// fill the maps with frames that are never reached (and never pruned).
+constexpr uint32_t kMaxAhead = 600, kMaxFeedAhead = 60 * 3600;
 
 // the players' picks on the select screen for the next match (SetLocalPick / PeerPick)
 constexpr int kMaxPickWords = 8;
@@ -654,6 +660,11 @@ void Receive() {
         int fl = sizeof from;
         int n = recvfrom(g_sock, reinterpret_cast<char*>(b), sizeof b, 0, reinterpret_cast<sockaddr*>(&from), &fl);
         if (n < 8) return;
+        // only the endpoint this match was set up with (the other player's game, or the server's relay) is heard:
+        // anyone else who learned the port could otherwise send this game inputs or end its match
+        if (from.sin_family != AF_INET || from.sin_addr.s_addr != g_cfg.peer.sin_addr.s_addr ||
+            from.sin_port != g_cfg.peer.sin_port)
+            continue;
         uint32_t magic;
         std::memcpy(&magic, b, 4);
         if (magic != kMagic) continue;
@@ -702,13 +713,14 @@ void Receive() {
             uint32_t first = u32(20);
             uint8_t cnt = b[24];
             for (int i = 0; i < cnt && 25 + i * 8 + 8 <= n; i++) {
+                if (first + uint32_t(i) > g_frame + kMaxAhead) break;
                 Input in;
                 in.buttons = u32(25 + i * 8);
                 in.sticks = u32(29 + i * 8);
                 g_theirs.emplace(first + uint32_t(i), in);
             }
             UpdateContiguous();
-        } else if (type == kCheck && n >= 21 && seq == g_seq) {
+        } else if (type == kCheck && n >= 21 && seq == g_seq && u32(8) <= g_frame + kMaxAhead) {
             g_their_checks[u32(8)] = Check{u32(12), u32(16), b[20] != 0};
         } else if (type == kHello && n >= 9 && seq == g_seq && !InSync()) {
             // the other player's pick for the match set up next
@@ -776,13 +788,14 @@ void HandleFeed(const uint8_t* b, int n) {
     } else if (type == kFeedOwn && n >= 13 && seq == sync_seq) {
         const uint32_t first = u32(8);
         for (int i = 0; i < b[12] && 13 + i * 8 + 8 <= n; i++) {
+            if (first + uint32_t(i) > g_frame + kMaxFeedAhead) break;
             Input in;
             in.buttons = u32(13 + i * 8);
             in.sticks = u32(17 + i * 8);
             w.inputs.emplace(first + uint32_t(i), in);
         }
         while (w.inputs.count(w.contiguous)) w.contiguous++;
-    } else if (type == kFeedCheck && n >= 21 && seq == sync_seq) {
+    } else if (type == kFeedCheck && n >= 21 && seq == sync_seq && u32(8) <= g_frame + kMaxFeedAhead) {
         g_their_checks[u32(8)] = Check{u32(12), u32(16), b[20] != 0};
     } else if (type == kFeedEnd && n >= 13 && seq == sync_seq && !w.ended) {
         w.ended = true;

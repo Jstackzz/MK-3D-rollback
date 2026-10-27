@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 
+from server.app import ServerConfig
+
 from .conftest import hello_and_accept, queue_msg, run_to_go
 
 
@@ -129,6 +131,7 @@ async def test_failed_punch_falls_back_to_the_relay(server, connect, udp_peers):
 
 
 async def test_relay_only_skips_the_direct_attempt(server, connect, udp_peers):
+    assert not ServerConfig().relay_only  # a server's default: straight, unless a player hides their address
     server.cfg.relay_only = True
     a, b = await connect("Kobra"), await connect("Kira")
     ua, ub = await udp_peers(), await udp_peers()
@@ -139,7 +142,9 @@ async def test_relay_only_skips_the_direct_attempt(server, connect, udp_peers):
     await hello_and_accept(server, b, ub, fb)
     pa, pb = await a.expect("match_peer"), await b.expect("match_peer")
     assert pa["relay"] is True and pb["relay"] is True
-    await relay_to_go(server, a, b, ua, ub, pa, pb)
+    assert pa["peer"] == pb["peer"] == {"public": "", "lan": ""}  # neither gets the other's address
+    ga, gb = await relay_to_go(server, a, b, ua, ub, pa, pb)
+    assert ga["remote"] == gb["remote"] == f"127.0.0.1:{server.udp_port}"  # their games send to the server only
 
 
 async def test_relay_failure_cancels(server, connect, udp_peers):
@@ -253,3 +258,18 @@ async def test_full_flow_helper(server, connect, udp_peers):
     await b.request(queue_msg(game="mka", mode="motor"))
     gos = await run_to_go(server, [(a, ua), (b, ub)])
     assert gos[0]["game"] == "mka" and gos[0]["mode"] == "motor"
+
+
+async def test_a_player_who_hides_their_address_plays_through_the_relay(server, connect, udp_peers):
+    a, b = await connect("Havik"), await connect("Hotaru")
+    ua, ub = await udp_peers(), await udp_peers()
+    await a.request({**queue_msg(), "relay": True})  # only one of the two asks
+    await b.request(queue_msg())
+    fa, fb = await a.expect("match_found"), await b.expect("match_found")
+    await hello_and_accept(server, a, ua, fa)
+    await hello_and_accept(server, b, ub, fb)
+    pa, pb = await a.expect("match_peer"), await b.expect("match_peer")
+    assert pa["relay"] is True and pb["relay"] is True
+    assert pa["peer"] == pb["peer"] == {"public": "", "lan": ""}
+    ga, gb = await relay_to_go(server, a, b, ua, ub, pa, pb)
+    assert ga["remote"] == gb["remote"] == f"127.0.0.1:{server.udp_port}"

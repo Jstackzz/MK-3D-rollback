@@ -6,11 +6,12 @@
 //                                screen, so the autopilot is done once the menu took it
 //   MKA_P1, MKA_P2=<character>   who each side picks (default: what the cursor starts on): the game's name ("SUB-ZERO"),
 //                                the launcher's roster id (launcher/data/mka.json: "SubZero", "JohnnyCage") or the
-//                                index; all characters are unlocked when either is given, or with MKA_UNLOCK_ALL=1
+//                                index; every character, costume and arena is unlocked when either is given, or with
+//                                MKA_UNLOCK_ALL=1 (a launcher match always)
 //   MKA_AUTOPILOT_HOLD=1         stop at character select
-//   MK3D_TRAINING=1              to practice's select screen, every character unlocked (the created fighter as the
-//                                profile has it); the player picks there (the launcher's practice: its own button, or
-//                                while a search waits)
+//   MK3D_TRAINING=1              to practice's select screen, every character, costume and arena unlocked (the created
+//                                fighter as the profile has it); the player picks there (the launcher's practice: its
+//                                own button, or while a search waits)
 //   MKA_TRACK=<n>                Motor Kombat's track as its select numbers them (43 the first, the default)
 //
 //   1. START every 0.7 s until the main menu task starts (skips the movies and the title; its first start opens the
@@ -54,8 +55,11 @@ enum class Phase { Off, ToMenu, Settle, Hold, Choose, Select, Kart, Done };
 constexpr uint32_t kRecord[2] = {kP1Record, kP2Record};
 constexpr uint32_t kGrid = 0x561B08, kMoves = 0x561F08;  // 0x10 bytes a slot
 constexpr int kSlots = 64;
-constexpr uint32_t kUnlockMasks[] = {0x7363C8, 0x7363D0};
+// 64-bit unlock masks: characters, alternate costumes, arenas; the built-in ones in the same order (the rebuild
+// 0x1FC5xx copies them in, then ORs in each profile's)
+constexpr uint32_t kUnlockMasks[] = {0x7363C8, 0x7363D0, 0x7363D8};
 constexpr uint32_t kDefaultMask = 0x561968;
+constexpr uint32_t kBuiltIn[] = {kDefaultMask, 0x5BD988, 0x548A40};
 constexpr int kCreatedFighter = 0x3E;
 constexpr uint16_t kMoveButton[4] = {0x04, 0x08, 0x01, 0x02};  // LEFT, RIGHT, UP, DOWN: the moves table's order
 constexpr uint16_t kStart = 0x10;
@@ -186,27 +190,28 @@ const bool g_loaded = [] {
 // a short press every cycle seconds, the first press seconds of each
 bool Pulse(double t, double cycle, double press) { return t - int(t / cycle) * cycle < press; }
 
-// players picking on the select screen get the characters only (an alternate costume one of them chose would have to
-// come over too; the costume bits do, ExchangePicks, but only for what the game offers unlocked anyway)
 bool PlayersPick() { return g_req.by_player[0] || g_req.by_player[1]; }
 
+bool Online() { return g_req.local_side >= 0 || g_req.watch; }
+
+// Every character, alternate costume and arena, for as long as the game runs (online matches and practice): the
+// masks the checks read and the built-in ones the checks OR in and every rebuild starts from, so a profile's saved
+// unlocks (its own bits) stay its own. The created fighter lives in a profile: it stays as the profile has it, and
+// locked online (the other game has no such fighter). A costume a player picks on the select screen goes to the
+// other game with the pick (ExchangePicks).
 void Unlock() {
-    for (uint32_t m : kUnlockMasks) {
-        if (m == kUnlockMasks[1] && PlayersPick()) continue;  // alternates
-        kernel::W32(m, 0xFFFFFFFF);
-        kernel::W32(m + 4, 0xFFFFFFFF);
-    }
+    const uint32_t created = 1u << (kCreatedFighter - 32);
+    for (const uint32_t* set : {kUnlockMasks, kBuiltIn})
+        for (int i = 0; i < 3; i++) {
+            kernel::W32(set[i], 0xFFFFFFFF);
+            const uint32_t own = Online() ? 0 : kernel::R32(set[i] + 4) & created;
+            kernel::W32(set[i] + 4, i == 0 ? ~created | own : 0xFFFFFFFF);
+        }
 }
 
-// practice offers every character for as long as the game runs: the built-in ones, which every check ORs in and every
-// rebuild of the mask starts from, so a profile's saved unlocks stay its own; the created fighter's bit stays as it was
 void UnlockForPractice() {
-    const uint32_t created = 1u << (kCreatedFighter - 32);
-    for (uint32_t m : {kDefaultMask, kUnlockMasks[0]}) {
-        kernel::W32(m, 0xFFFFFFFF);
-        kernel::W32(m + 4, kernel::R32(m + 4) | ~created);
-    }
-    LOGR("autopilot: practice offers every character");
+    Unlock();
+    LOGR("autopilot: practice offers every character, costume and arena");
 }
 
 int CharacterAt(int slot) { return int(kernel::R32(kGrid + uint32_t(slot) * 0x10)); }
@@ -309,16 +314,23 @@ int SideOf(int port) {
 }
 
 // An online match whose players pick on the select screen: this PC's player picks for their side with their own
-// controller (the pads route it to that side's port, LocalPickPort), and the pick (character, costume bits) goes to
-// the other game with the HELLOs (net::SetLocalPick); the other side waits for the other player's pick, then the
-// autopilot makes it and sets the same costume bits. The screen goes back to the main menu after 45 s without a press
+// controller (the pads route it to that side's port, LocalPickPort), and the pick (character, alternate costume) goes
+// to the other game with the HELLOs (net::SetLocalPick); the other side waits for the other player's pick, then the
+// autopilot makes it and sets the same costume. The screen goes back to the main menu after 45 s without a press
 // (2700 frames), so a side still waiting moves its cursor now and then. A spectator's game waits for both players'
 // picks that way.
+//
+// A pick's costume is a flag in the select block until the screen ends, which ORs the flags into the records'
+// costume bits (cleared when it began): the alternate costume (+0x24 P1, +0x58 P2; sub_00207930 sets it when the
+// pick is confirmed with logical button 0xB held and the alternate unlocked) and the other colours (+0x28, +0x5C;
+// sub_00207B90 gives them to the second of two players picking the same character in the same costume). The picks
+// come in a different order on each PC, so online both games give the other colours to P2.
+constexpr uint32_t kSelectAlternate[2] = {0x24, 0x58}, kSelectColours[2] = {0x28, 0x5C};
 constexpr int kWaitPick = -2;            // characters[]: the other player has not picked yet
 constexpr double kPlayerPickTime = 40;   // seconds this PC's player has (the screen's own 45), then the cursor's
 bool g_local_pick_sent = false;
 bool g_local_forced = false;             // the time ran out: the autopilot picks for this PC's player
-bool g_costume_due[2] = {};              // a player's costume bits from their game, set once the autopilot picked
+bool g_costume_due[2] = {};              // a player's costume from their game, set once the autopilot picked
 uint32_t g_their_costume[2] = {};
 
 void ResetPlayerPicks() {
@@ -333,11 +345,13 @@ void ResetPlayerPicks() {
 void ExchangePicks(double t) {
     const int me = g_req.local_side;
     if (me < 0 && !g_req.watch) return;
+    const uint32_t block = SelectBlock();
     if (me >= 0 && g_req.by_player[me] && !g_local_pick_sent && Picked(me)) {
-        const uint32_t words[2] = {kernel::R32(kRecord[me] + kRecordCharacter), kernel::R32(kRecord[me] + kRecordCostume)};
+        const uint32_t words[2] = {kernel::R32(kRecord[me] + kRecordCharacter),
+                                   kernel::R32(block + kSelectAlternate[me]) ? 1u : 0u};
         mk3d::net::SetLocalPick(words, 2);
         g_local_pick_sent = true;
-        LOGR("autopilot: this player picked character %u, costume bits %X", words[0], words[1]);
+        LOGR("autopilot: this player picked character %u, costume %u", words[0], words[1]);
         LogSelectState("picked");
     }
     if (me >= 0 && g_req.by_player[me] && !g_local_forced && !g_local_pick_sent && t > kPlayerPickTime) {
@@ -353,16 +367,21 @@ void ExchangePicks(double t) {
             const bool in = g_req.watch ? mk3d::net::WatchPick(other, words, n) : mk3d::net::PeerPick(words, n);
             if (in && n > 0 && SlotOf(int(words[0])) >= 0) {
                 g_req.characters[other] = int(words[0]);
-                g_their_costume[other] = n > 1 ? words[1] : 0;
+                g_their_costume[other] = n > 1 && words[1] ? 1 : 0;
                 g_costume_due[other] = true;
-                LOGR("autopilot: P%d picked character %u, costume bits %X", other + 1, words[0],
-                     g_their_costume[other]);
+                LOGR("autopilot: P%d picked character %u, costume %u", other + 1, words[0], g_their_costume[other]);
             }
         }
         if (g_costume_due[other] && Picked(other)) {
-            kernel::W32(kRecord[other] + kRecordCostume, g_their_costume[other]);
+            kernel::W32(block + kSelectAlternate[other], g_their_costume[other]);
             g_costume_due[other] = false;
         }
+    }
+    if (Picked(0) && Picked(1) && !g_costume_due[0] && !g_costume_due[1]) {
+        const bool mirror = kernel::R32(kRecord[0] + kRecordCharacter) == kernel::R32(kRecord[1] + kRecordCharacter) &&
+                            kernel::R32(block + kSelectAlternate[0]) == kernel::R32(block + kSelectAlternate[1]);
+        kernel::W32(block + kSelectColours[0], 0);
+        kernel::W32(block + kSelectColours[1], mirror ? 1 : 0);
     }
 }
 

@@ -131,7 +131,7 @@ void GamepadNav::tick() {
     }
     const unsigned now = readButtons();
     raw_ = now;
-    const bool front = LauncherInFront();
+    const bool front = LauncherInFront() && !(paused && paused());
     if (front && !front_) sinceFront_.start();  // a launcher window came up, over a game maybe
     front_ = front;
     if (!front) {

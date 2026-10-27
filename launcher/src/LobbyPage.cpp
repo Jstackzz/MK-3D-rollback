@@ -1,5 +1,6 @@
 #include "LobbyPage.h"
 
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDateTime>
 #include <QHBoxLayout>
@@ -19,6 +20,7 @@
 #include "GameData.h"
 #include "MatchController.h"
 #include "ServerClient.h"
+#include "Style.h"
 
 namespace {
 QString s(const QJsonObject& o, const char* k) { return o.value(QLatin1String(k)).toString(); }
@@ -93,11 +95,14 @@ LobbyPage::LobbyPage(ServerClient* server, MatchController* controller, QWidget*
     auto* pv = new QVBoxLayout(panel);
     pv->setContentsMargins(0, 0, 0, 0);
     lobbyTitle_ = ui::label(QString(), "Big");
+    lobbyTitle_->setTextFormat(Qt::PlainText);  // the lobby's name is whatever its host typed: never markup
     lobbyInfo_ = ui::label(QString(), "Muted");
     lobbyInfo_->setWordWrap(true);
     pv->addWidget(lobbyTitle_);
     pv->addWidget(lobbyInfo_);
-    members_ = makeTable({tr("Player"), tr("Fighter"), tr("Ready")});
+    deathTraps_ = new QCheckBox(tr("Death traps"));
+    pv->addWidget(deathTraps_);
+    members_ = makeTable({tr("Player"), tr("Fighter"), tr("Ready"), tr("Connection")});
     members_->setMaximumHeight(150);
     pv->addWidget(members_);
     auto* controls = new QHBoxLayout;
@@ -156,6 +161,9 @@ LobbyPage::LobbyPage(ServerClient* server, MatchController* controller, QWidget*
                        {QStringLiteral("role"), watchNow ? QStringLiteral("spectator") : QStringLiteral("player")}});
     });
     connect(start_, &QPushButton::clicked, this, [this] { server_->send({{QStringLiteral("type"), QStringLiteral("lobby_start")}}); });
+    connect(deathTraps_, &QCheckBox::toggled, this, [this](bool on) {
+        server_->send({{QStringLiteral("type"), QStringLiteral("lobby_settings")}, {QStringLiteral("death_traps"), on}});
+    });
     connect(ready_, &QPushButton::clicked, this, [this](bool on) {
         if (on) {
             QString err;
@@ -165,8 +173,11 @@ LobbyPage::LobbyPage(ServerClient* server, MatchController* controller, QWidget*
                 return;
             }
         }
-        server_->send({{QStringLiteral("type"), QStringLiteral("lobby_ready")}, {QStringLiteral("ready"), on},
-                       {QStringLiteral("delay"), cfg::inputDelay()}});
+        QJsonObject ready{{QStringLiteral("type"), QStringLiteral("lobby_ready")}, {QStringLiteral("ready"), on},
+                          {QStringLiteral("delay"), cfg::inputDelay()}, {QStringLiteral("relay"), cfg::hideIp()},
+                          {QStringLiteral("link"), server_->linkType()}};
+        if (controller_->serverRttMs() >= 0) ready.insert(QStringLiteral("server_rtt"), controller_->serverRttMs());
+        server_->send(ready);
     });
     connect(character_, &QComboBox::activated, this, [this] {
         const QString id = character_->currentData().toString();  // empty: picked on the game's select screen
@@ -180,9 +191,11 @@ LobbyPage::LobbyPage(ServerClient* server, MatchController* controller, QWidget*
     connect(send, &QPushButton::clicked, this, &LobbyPage::sendChat);
     connect(chatInput_, &QLineEdit::returnPressed, this, &LobbyPage::sendChat);
     connect(server_, &ServerClient::message, this, &LobbyPage::onMessage);
+    // signed out or offline: the server took this player out of the lobby (a lobby is the session's), so the page
+    // goes back to the list rather than showing a room it is no longer in
     connect(server_, &ServerClient::stateChanged, this, [this](ServerClient::State st) {
-        if (st == ServerClient::State::Offline) leftLobby();
         if (st == ServerClient::State::LoggedIn) refresh();
+        else leftLobby();
     });
 }
 
@@ -225,14 +238,18 @@ void LobbyPage::createLobby() {
     }
     CreateLobbyDialog dlg(*g, tr("%1's lobby").arg(server_->accountName()), this);
     if (dlg.exec() != QDialog::Accepted) return;
-    server_->send({{QStringLiteral("type"), QStringLiteral("lobby_create")},
-                   {QStringLiteral("name"), dlg.name()},
-                   {QStringLiteral("game"), gameId_},
-                   {QStringLiteral("mode"), dlg.mode()},
-                   {QStringLiteral("password"), dlg.password()},
-                   {QStringLiteral("rounds"), dlg.rounds()},
-                   {QStringLiteral("region"), cfg::region()},
-                   {QStringLiteral("character"), savedCharacter(gameId_, dlg.mode())}});
+    QJsonObject msg{{QStringLiteral("type"), QStringLiteral("lobby_create")},
+                    {QStringLiteral("name"), dlg.name()},
+                    {QStringLiteral("game"), gameId_},
+                    {QStringLiteral("mode"), dlg.mode()},
+                    {QStringLiteral("password"), dlg.password()},
+                    {QStringLiteral("rounds"), dlg.rounds()},
+                    {QStringLiteral("region"), cfg::region()},
+                    {QStringLiteral("character"), savedCharacter(gameId_, dlg.mode())},
+                    {QStringLiteral("death_traps"), dlg.deathTraps()},  // the window's box (0.1.7 never sent it)
+                    {QStringLiteral("link"), server_->linkType()}};
+    if (controller_->serverRttMs() >= 0) msg.insert(QStringLiteral("server_rtt"), controller_->serverRttMs());
+    server_->send(msg);
 }
 
 bool LobbyPage::spectating() const {
@@ -257,9 +274,11 @@ void LobbyPage::join(const QString& code, bool locked, bool spectate) {
     QString game = gameId_, mode = QStringLiteral("kombat");
     for (int r = 0; r < list_->rowCount(); ++r)
         if (list_->item(r, 0)->text() == code) mode = list_->item(r, 3)->data(Qt::UserRole).toString();
-    server_->send({{QStringLiteral("type"), QStringLiteral("lobby_join")}, {QStringLiteral("lobby"), code},
-                   {QStringLiteral("password"), password}, {QStringLiteral("character"), savedCharacter(game, mode)},
-                   {QStringLiteral("spectate"), spectate}});
+    QJsonObject msg{{QStringLiteral("type"), QStringLiteral("lobby_join")}, {QStringLiteral("lobby"), code},
+                    {QStringLiteral("password"), password}, {QStringLiteral("character"), savedCharacter(game, mode)},
+                    {QStringLiteral("spectate"), spectate}, {QStringLiteral("link"), server_->linkType()}};
+    if (controller_->serverRttMs() >= 0) msg.insert(QStringLiteral("server_rtt"), controller_->serverRttMs());
+    server_->send(msg);
 }
 
 void LobbyPage::sendChat() {
@@ -349,6 +368,9 @@ void LobbyPage::showLobby(const QJsonObject& lobby) {
             meWatching = spectator;
             myChar = s(mem, "character");
         }
+        // the member's connection (its own column): the link's icon, and their ping to the server
+        const QString link = s(mem, "link");
+        const int ping = mem.value(QStringLiteral("ping")).toInt(-1);
         const QString name = s(mem, "name") + (mem.value(QStringLiteral("host")).toBool() ? tr("  (host)") : QString());
         const QString fighter = s(mem, "character");
         const QStringList cells = {name,
@@ -356,8 +378,13 @@ void LobbyPage::showLobby(const QJsonObject& lobby) {
                                    : fighter.isEmpty() || fighter == QLatin1String("-")
                                        ? tr("picks in the game")
                                        : (g ? g->characterName(fighter) : fighter),
-                                   spectator ? tr("WATCHING") : ready ? tr("READY") : tr("-")};
+                                   spectator ? tr("WATCHING") : ready ? tr("READY") : tr("-"),
+                                   ping >= 0 ? tr("%1 ms").arg(ping) : QString()};
         for (int c = 0; c < cells.size(); ++c) members_->setItem(i, c, new QTableWidgetItem(cells[c]));
+        if (const QPixmap icon = style::linkIcon(link, 16); !icon.isNull()) {
+            members_->item(i, 3)->setIcon(QIcon(icon));
+            members_->item(i, 3)->setToolTip(style::linkName(link));
+        }
     }
     if (g && (newLobby || character_->count() == 0)) {
         const QSignalBlocker block(character_);
@@ -388,6 +415,15 @@ void LobbyPage::showLobby(const QJsonObject& lobby) {
     start_->setVisible(host);
     start_->setEnabled(host && allReady && !inMatch);
     start_->setText(inMatch ? tr("MATCH IN PROGRESS") : tr("START"));
+    {
+        const QSignalBlocker block(deathTraps_);
+        deathTraps_->setChecked(lobby.value(QStringLiteral("death_traps")).toBool(true));
+    }
+    deathTraps_->setVisible(m && m->deathTraps);
+    deathTraps_->setEnabled(host && !inMatch);
+    deathTraps_->setToolTip(host ? tr("For this lobby's matches. Changing it between matches has both players press "
+                                      "Ready again.")
+                                 : tr("The host chooses this for the lobby's matches."));
     if (newLobby) {
         chat_->clear();
         for (const auto& cv : lobby.value(QStringLiteral("chat")).toArray()) {

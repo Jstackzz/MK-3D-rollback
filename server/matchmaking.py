@@ -30,6 +30,8 @@ class QueueEntry:
     public_ip: str | None = None
     server_rtt: int | None = None  # client's UDP round trip to the server, ms
     death_traps: bool = True  # the arenas' death traps the player wants (ranked never has them)
+    relay: bool = False  # hides their address: their matches go through the server's relay
+    link: str = ""  # the PC's connection to its router: "ethernet", "wifi", "other" ("" unknown)
 
     @property
     def traps(self) -> bool:
@@ -55,6 +57,16 @@ class MatchmakingConfig:
     elo_max: int = 600
     region_widen_after: float = 20.0
     allow_same_ip: bool = False
+    # a search that finds nobody raises its max ping (unless strict): after ping_widen_after seconds by
+    # ping_widen_step ms, again every ping_widen_every seconds, up to ping_widen_cap ms
+    ping_widen_after: float = 30.0
+    ping_widen_every: float = 15.0
+    ping_widen_step: int = 25
+    ping_widen_cap: int = 250
+
+    def widen_rule(self) -> dict[str, float | int]:
+        return {"after": self.ping_widen_after, "every": self.ping_widen_every, "step": self.ping_widen_step,
+                "cap": self.ping_widen_cap}
 
 
 @dataclass
@@ -95,9 +107,21 @@ def elo_window(entry: QueueEntry, now: float, cfg: MatchmakingConfig) -> int:
     return min(cfg.elo_max, cfg.elo_base + cfg.elo_step * steps)
 
 
-def ping_limit(a: QueueEntry, b: QueueEntry) -> int:
-    """The tighter of the two max_ping settings; 0 means no limit."""
-    limits = [p for p in (a.max_ping, b.max_ping) if p > 0]
+def max_ping_now(entry: QueueEntry, now: float, cfg: MatchmakingConfig) -> int:
+    """A search's max_ping as waiting has raised it (MatchmakingConfig.ping_widen_*); 0 (any) and strict ones stay."""
+    if entry.max_ping <= 0 or entry.strict:
+        return entry.max_ping
+    over = now - entry.since - cfg.ping_widen_after
+    if over < 0:
+        return entry.max_ping
+    raised = entry.max_ping + cfg.ping_widen_step * (1 + int(over // cfg.ping_widen_every))
+    return max(entry.max_ping, min(cfg.ping_widen_cap, raised))
+
+
+def ping_limit(a: QueueEntry, b: QueueEntry, now: float = 0.0, cfg: MatchmakingConfig | None = None) -> int:
+    """The tighter of the two max_ping limits (as waiting raised them, given `cfg`); 0 means no limit."""
+    pair = (max_ping_now(a, now, cfg), max_ping_now(b, now, cfg)) if cfg else (a.max_ping, b.max_ping)
+    limits = [p for p in pair if p > 0]
     return min(limits) if limits else 0
 
 
@@ -107,7 +131,8 @@ def estimated_ping(a: QueueEntry, b: QueueEntry) -> int:
     return a.server_rtt + b.server_rtt
 
 
-def compatible(a: QueueEntry, b: QueueEntry, now: float, cfg: MatchmakingConfig, cache: PingCache) -> bool:
+def compatible(a: QueueEntry, b: QueueEntry, now: float, cfg: MatchmakingConfig, cache: PingCache,
+               relayed: bool = False) -> bool:
     if a.account_id == b.account_id or a.key != b.key:
         return False
     if a.ranked and not cfg.allow_same_ip and a.public_ip and a.public_ip == b.public_ip:
@@ -118,10 +143,14 @@ def compatible(a: QueueEntry, b: QueueEntry, now: float, cfg: MatchmakingConfig,
         if now - a.since < cfg.region_widen_after or now - b.since < cfg.region_widen_after:
             return False
     measured = cache.get(a.account_id, b.account_id, now)
+    if measured is None and (relayed or a.relay or b.relay) and a.server_rtt is not None and b.server_rtt is not None:
+        # the match would go through the server: its round trip is each player's to the server, so a pair over a
+        # player's limit is not offered a match that would be cancelled for its ping
+        measured = estimated_ping(a, b)
     if measured is not None:
         if measured == UNREACHABLE:
             return False
-        limit = ping_limit(a, b)
+        limit = ping_limit(a, b, now, cfg)
         if limit and measured > limit:
             return False
     if a.ranked and abs(a.elo - b.elo) > min(elo_window(a, now, cfg), elo_window(b, now, cfg)):
@@ -130,7 +159,7 @@ def compatible(a: QueueEntry, b: QueueEntry, now: float, cfg: MatchmakingConfig,
 
 
 def find_pairs(
-    entries: list[QueueEntry], now: float, cfg: MatchmakingConfig, cache: PingCache
+    entries: list[QueueEntry], now: float, cfg: MatchmakingConfig, cache: PingCache, relayed: bool = False
 ) -> list[tuple[QueueEntry, QueueEntry]]:
     """Pairs to start, longest-waiting players first. Each entry appears in at most one pair."""
     ordered = sorted(entries, key=lambda e: (e.since, e.account_id))
@@ -140,7 +169,7 @@ def find_pairs(
         if a.account_id in taken:
             continue
         candidates = [
-            b for b in ordered if b.account_id not in taken and compatible(a, b, now, cfg, cache)
+            b for b in ordered if b.account_id not in taken and compatible(a, b, now, cfg, cache, relayed)
         ]
         if not candidates:
             continue

@@ -1,0 +1,47 @@
+diff --git a/runtime/app/app.h b/runtime/app/app.h
+--- a/runtime/app/app.h
++++ b/runtime/app/app.h
+@@ -95,6 +95,9 @@
+     void (*ui)(double fps);        // each frame inside the ImGui frame, UiLock held
+     void (*pad)(int port, input::Pad& pad);  // a polled pad before the game gets it
+     void (*rumble)(int port, uint16_t& left, uint16_t& right);
++    // the title lays out a 16:9 frame when told the TV is widescreen; false: it never does, so it is told 4:3 and
++    // shown 4:3 between bars instead of stretched
++    bool widescreen = true;
+ };
+ extern const GameInfo kGame;
+ 
+diff --git a/runtime/app/settings.cpp b/runtime/app/settings.cpp
+--- a/runtime/app/settings.cpp
++++ b/runtime/app/settings.cpp
+@@ -111,6 +111,7 @@
+ }
+ 
+ bool Widescreen() {
++    if (!kGame.widescreen) return false;
+     // asked per frame and per HUD quad: the desktop mode lookup only runs when the resolution setting changes
+     static std::atomic<uint64_t> key{~0ull};
+     static std::atomic<bool> wide{true};
+diff --git a/runtime/gpu/shaders.cpp b/runtime/gpu/shaders.cpp
+--- a/runtime/gpu/shaders.cpp
++++ b/runtime/gpu/shaders.cpp
+@@ -226,6 +226,11 @@
+     // surf.w set: a point, which stays put since pulled out it would leave the target
+     if (surf.w == 0 && abs(p.x - (surf.x - 0.5)) < 1e-3) p.x = surf.x;
+     if (surf.w == 0 && abs(p.y - (surf.y - 0.5)) < 1e-3) p.y = surf.y;
++    // upscaled, a host pixel centre can fall exactly on a quad's left or top edge (scale * x ends in .5): its texture
++    // coordinate is then a texel boundary that rounds either way, so a point sampled atlas shows the texel beside the
++    // glyph (Deadly Alliance's font cells have opaque borders). A 1/64 console pixel push right and down keeps the
++    // centres off the edges; every draw moves alike, so depth-equal passes still meet.
++    p.xy += 1.0 / 64;
+     q.x = p.x * 2 / surf.x - 1;
+     q.y = 1 - p.y * 2 / surf.y;
+     q.z = p.z * surf.z;
+@@ -844,6 +849,7 @@
+     float2 sp = (float2(cp.x, -cp.y) / cp.w + 1) * 0.5 * surf.xy;
+     if (surf.w == 0 && abs(sp.x - (surf.x - 0.5)) < 1e-3) cp.x = cp.w;
+     if (surf.w == 0 && abs(sp.y - (surf.y - 0.5)) < 1e-3) cp.y = -cp.w;
++    cp.xy += float2(2.0 / 64 / surf.x, -2.0 / 64 / surf.y) * cp.w;  // the pretransformed path's 1/64 pixel push
+     o.pos = cp;
+     o.d0 = saturate(oD0);
+     o.d1 = saturate(oD1);

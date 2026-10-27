@@ -135,7 +135,9 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    folder and executable (defaults: `games\<game>` and the executable in it
    beside the launcher of a player package, else `recomp/<game>` and
    `recomp/<game>/out/build/release/<MKD|MKA|MKDA>.exe`), input delay (0-4),
-   region, max ping, the game UDP port (default 7001) and the display (window
+   region, max ping, the game UDP port (default 7001), *Hide my IP address
+   from opponents* (cfg `online/hide_ip`: `relay` in `queue_join` and
+   `lobby_ready`, PROTOCOL.md 1.7) and the display (window
    mode, resolution, v-sync: borderless at the monitor's own resolution unless
    changed; a game takes them over its `settings.toml` when it starts). A
    `defaults.ini` beside the launcher (a player package's server) supplies
@@ -165,7 +167,8 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    point, and *Leave set* asks first when leaving would lose the set.
 5. **Lobby**: create (optional password, best of 1/3/5, death traps), join from
    the list or by 5-letter code, pick a fighter (or *Pick in the game*), chat,
-   *Ready*; the host starts. *Watch selected* (or *Watch* in the lobby) makes
+   *Ready*; the host starts, and switches the lobby's death traps between
+   matches (the box under its name, `lobby_settings`; both ready again). *Watch selected* (or *Watch* in the lobby) makes
    you a spectator: each lobby match plays in your game from both players'
    feeds (docs/PROTOCOL.md 1.10.1; `FeedLink` passes them between game and
    server: a player's game writes to a TCP port of the launcher's on
@@ -173,8 +176,9 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
 6. **Single player**: *PLAY* starts the game plainly (no `MK3D_NET`), so it
    runs its own menus as on the console, its practice mode included;
    *PRACTICE* starts it with `MK3D_TRAINING=1` (below), straight to practice's
-   character select with every fighter unlocked (each game's autopilot sets
-   the built-in roster, which every unlock check ORs in and nothing saves);
+   character select with every fighter, costume and arena unlocked (each
+   game's autopilot sets the built-in masks, which every unlock check ORs in
+   and nothing saves, as it does in every launcher match);
    *Close the game* closes its window as the player would. One game runs at a time,
    but a queue search can run alongside it (standby): no match game boots
    while it is open (one that was waiting is frozen), the match-found prompt
@@ -246,7 +250,12 @@ clicks (a combo box opens its list, which then takes up / down / A / B), B is
 Esc in a dialog except MATCH FOUND and the rematch prompt
 (`GamepadNav::keepFromBack`), LB / RB step the pages, START presses FIND MATCH
 on a queue page. Buttons held when a launcher window comes to the front (a
-prompt over the game) count only once let go, after 250 ms of quiet. The focus
+prompt over the game) count only once let go, after 250 ms of quiet. While a
+match is connecting, played, reported or watched (`MatchController::inMatch`)
+the controller does nothing in the launcher at all (`GamepadNav::paused`): a
+launcher left as the foreground window by a game that could not take the focus
+used to act on a fight's presses, and a player's buttons once reached the
+account menu's Sign out mid-match (Sign out is disabled during a match too). The focus
 shows gold (`Style.cpp`). `MK3D_PAD_ANY_WINDOW=1` takes any active launcher
 window as in front, for tests on Qt's offscreen platform with an SDL virtual
 gamepad.
@@ -388,6 +397,11 @@ while the server runs (WAL mode).
 - NAT traversal: UPnP on each player's router, UDP hole punching, then the
   server's relay (PROTOCOL.md 2.4, 2.5). No NAT-PMP / PCP; IPv4 only. A
   relayed match costs the detour through the server in delay.
+- Addresses: the launcher never shows or logs another player's address (or its
+  own public one); the game's start line in the log says `remote=(hidden)`. A
+  direct match still lets the two PCs see each other's address at the network
+  level; *Hide my IP address* (or a server run with `--relay-only`) relays the
+  match so neither does.
 - Results are self-reported: agreement counts, disagreement voids the match,
   a single report counts for nothing, and two colluding accounts can trade
   wins. Closing the game during a match loses a ranked set (PROTOCOL.md 1.9);

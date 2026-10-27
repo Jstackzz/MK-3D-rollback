@@ -2,6 +2,7 @@
 // One TLS connection to the MK3D server (docs/PROTOCOL.md section 1): NDJSON framing, pinned
 // SHA-256 certificate fingerprint, hello/welcome, token resume, keepalive and reconnect.
 
+#include <QElapsedTimer>
 #include <QHostAddress>
 #include <QJsonObject>
 #include <QObject>
@@ -33,6 +34,11 @@ public:
     QHostAddress serverAddress() const;
     quint16 serverUdpPort() const;
     QHostAddress localAddress() const;
+    // the last round trip of a ping to the server (ms, -1 not measured yet), and the kind of network this PC reaches
+    // it through: "ethernet", "wifi", "other" ("" unknown); both go to the server with searches and lobbies, which
+    // show them to the opponent
+    int rttMs() const { return rttMs_; }
+    QString linkType() const;
 
     int send(QJsonObject msg);  // adds and returns a request id; -1 when offline
     int login(const QString& name, const QString& password);
@@ -66,6 +72,9 @@ private:
 
     QSslSocket* sock_;
     QTimer pingTimer_;
+    void sendPing();
+    int pingId_ = -1, rttMs_ = -1;
+    QElapsedTimer pingClock_;
     QTimer reconnectTimer_;
     QByteArray buffer_;
     State state_ = State::Offline;

@@ -22,12 +22,15 @@ param(
     [string]$CharB = 'Kobra',
     [string]$InputA = '',        # <GAME>_INPUT of each game (default: the same scripted attacker for both)
     [string]$InputB = '',
+    [string]$EnvA = '',          # more KEY=VALUE pairs for A's launcher and game only, ';' separated
+                                 # (MKDA_TEST_COSTUME=1: A's player picks the alternate costume)
     [int]$Matches = 1,           # lobby: matches to play there one after the other (the games park and start again)
     [int]$Rematches = 0,         # casual: rematches both choose after the first match (a ranked set plays on by
                                  # itself until one player has won it)
     [string[]]$RematchChoice = @(),  # casual: what both choose each time, rematch (the same fighters) or select (both
                                  # pick again), e.g. select,rematch, the last one repeating; default rematch
     [switch]$Relay,              # the server relays every match (--relay-only): the relay path, on one PC
+    [switch]$HideIpA,            # A hides its IP address (Settings): its matches go through the server's relay
     [switch]$StandbyA,           # A plays single player while it searches (--solo): the match freezes it, then A
                                  # leaves the series (--leave-series) and single player runs on
     [switch]$PracticeA,          # A practises while it searches (practice while you wait): the match freezes the
@@ -37,6 +40,8 @@ param(
     [switch]$PickInGame,         # both players pick on the game's own select screen (their scripts move the cursor
                                  # and press A first); otherwise the launchers pick CharA and CharB
     [switch]$MixedPicks,         # with -PickInGame: only A picks in the game, B's launcher picks CharB
+    [string]$PickButtonA = 'A',  # with -PickInGame: the button A's player confirms the pick with (another one can
+                                 # pick an alternate costume)
     [switch]$Watch,              # lobby: C watches it (a spectator)
     [int]$WatchDelay = 0,        # seconds after B before C starts (a spectator who comes in late)
     [string]$DeathTraps = '',    # on / off: the death traps the host's lobby (or both searches: a casual search
@@ -76,6 +81,7 @@ delay=2
 game_port=$($p[1])
 pick_in_game=$(if ($PickInGame -and ($p[0] -eq 'a' -or -not $MixedPicks)) { 'true' } else { 'false' })
 practice_while_waiting=$(if ($PracticeA -and $p[0] -eq 'a') { 'true' } else { 'false' })
+hide_ip=$(if ($HideIpA -and $p[0] -eq 'a') { 'true' } else { 'false' })
 
 [account]
 remember=false
@@ -98,7 +104,7 @@ $server = Start-Process -FilePath $py -ArgumentList $serverArgs `
 Start-Sleep -Seconds 2
 $attacks = & $py -I -c "import itertools; seq=['RIGHT:0.4','X','X','Y','A','B','X','Y','X+Y','LEFT:0.3','B','A']; print(','.join(f'{25+i*0.33:.2f}:{s}' for i,s in enumerate(itertools.islice(itertools.cycle(seq),2500))))"
 # picking in the game the script starts when the player gets the cursor: each moves theirs, then confirms
-$pickA = if ($PickInGame) { '1.0:RIGHT,1.6:RIGHT,2.4:A,' } else { '' }
+$pickA = if ($PickInGame) { "1.0:RIGHT,1.6:RIGHT,2.4:$PickButtonA," } else { '' }
 $pickB = if ($PickInGame -and -not $MixedPicks) { '1.2:DOWN,2.0:LEFT,2.8:A,3.6:A,' } else { '' }
 if (-not $InputA) { $InputA = $pickA + $attacks }
 if (-not $InputB) { $InputB = $pickB + $attacks }
@@ -118,7 +124,10 @@ $how = if ($Queue -eq 'lobby') { @('--lobby', 'host', '--lobby-name', "e2e$stamp
 if ($StandbyA) { $how += @('--solo', '--leave-series') }
 if ($DeathTraps) { $how += @('--death-traps', $DeathTraps) }
 if ($PracticeA) { $how += @('--leave-series') }
+$onlyA = @($EnvA -split ';' | Where-Object { $_ -like '*=*' })  # not -match: it would set $Matches, a parameter here
+foreach ($pair in $onlyA) { $k, $v = $pair -split '=', 2; Set-Item "env:$k" $v }
 $la = Start-Process -FilePath $launcher -ArgumentList (@('--config', "`"$work\a\mk3d-launcher.ini`"", '--user', "e2eA$stamp", '--register') + $how + @('--game', $Game, '--mode', $Mode, '--character', $CharA, '--auto-accept', '3')) -PassThru
+foreach ($pair in $onlyA) { Remove-Item "env:$(($pair -split '=', 2)[0])" -ErrorAction SilentlyContinue }
 Start-Sleep -Seconds ([Math]::Max(1, $DelayB))
 Set-Item "env:${x}_INPUT" $InputB
 $how = if ($Queue -eq 'lobby') { @('--lobby', 'join', '--lobby-name', "e2e$stamp", '--lobby-matches', "$Matches") } else { $queueArgs }
@@ -178,7 +187,7 @@ foreach ($s in $who) {
         # a game older than its session log has none (Select-String stops the script on a missing path)
         $log = Join-Path $_.FullName 'game.log'
         if (Test-Path $log) {
-            Select-String -Path $log -Pattern 'link: start|picked character|death traps|watching|DESYNC|leaving the match' | ForEach-Object { "[$s] $($_.Line)" }
+            Select-String -Path $log -Pattern 'link: start|link: arena|netplay: arena|costume|picked character|death traps|watching|DESYNC|leaving the match|differ' | ForEach-Object { "[$s] $($_.Line)" }
         }
     }
 }

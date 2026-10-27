@@ -22,29 +22,25 @@ namespace {
 // fight the next arena of a list (0x24D800, -1 at the end) that is open (sub_00116400: a bit of 0x273584, or of the
 // profile's 0x421538), from a cycle index (0x2C5DE8) that moves on every fight. Two players who fought a different
 // number of fights since they started their games, or with different profiles, would load different arenas. Both
-// take the arena from the match's seed instead, among the ones open without a profile (or the stage the launcher
-// names, an arena id), through the engine's own chosen arena (0x42C754, events.h SetNextArena).
+// take the arena from the match's seed instead, among all of the list (a launcher match has every arena open, the
+// autopilot's Unlock; or the stage the launcher names, an arena id), through the engine's own chosen arena (0x42C754,
+// events.h SetNextArena).
 void PickArena(uint32_t seed, const std::string& stage) {
-    uint32_t open = kernel::R32(kArenaDefaults), ids[64], all[64], n = 0, n_all = 0;
+    uint32_t ids[64], n = 0;
     for (uint32_t i = 0; i < 64; i++) {
         int32_t id = int32_t(kernel::R32(kArenaList + 4 * i));
         if (id < 0) break;
         if (id >= 0x19) continue;  // what the chosen arena takes: 0 to 24
-        all[n_all++] = uint32_t(id);
-        if (open >> id & 1) ids[n++] = uint32_t(id);
+        ids[n++] = uint32_t(id);
     }
-    if (!n) {
-        if (!n_all) return;
-        for (uint32_t i = 0; i < n_all; i++) ids[i] = all[i];
-        n = n_all;
-    }
+    if (!n) return;
     uint32_t arena = ids[seed % n];
     if (!stage.empty()) {
         char* end = nullptr;
         unsigned long id = std::strtoul(stage.c_str(), &end, 10);
         if (end && !*end && id < 0x19) arena = uint32_t(id);
     }
-    LOGI("link: arena %u (seed %u, %u open)", arena, seed, n);
+    LOGR("link: arena %u (seed %u, %u on the list)", arena, seed, n);
     SetNextArena(int(arena));
 }
 

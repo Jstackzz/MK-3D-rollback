@@ -180,6 +180,20 @@ int MatchController::searchSeconds() const {
     return searchClock_.isValid() ? static_cast<int>(searchClock_.elapsed() / 1000) : 0;
 }
 
+// as the server computes it (server/matchmaking.py max_ping_now)
+int MatchController::raisedMaxPing() const {
+    const int set = request_.maxPing;
+    if (phase_ != Phase::Searching || pingWiden_.isEmpty() || set <= 0 || !searchClock_.isValid()) return 0;
+    const double over = searchClock_.elapsed() / 1000.0 - pingWiden_.value(QStringLiteral("after")).toDouble(30);
+    if (over < 0) return 0;
+    const double every = qMax(1.0, pingWiden_.value(QStringLiteral("every")).toDouble(15));
+    const int raised = qMin(pingWiden_.value(QStringLiteral("cap")).toInt(250),
+                            set + pingWiden_.value(QStringLiteral("step")).toInt(25) * (1 + int(over / every)));
+    return raised > set ? raised : 0;
+}
+
+int MatchController::serverRttMs() const { return udp_->serverRttMs() >= 0 ? udp_->serverRttMs() : server_->rttMs(); }
+
 QString MatchController::gameStatus() const {
     if (localA_ || localB_)
         return tr("local test: 1 %1 / 2 %2").arg(localA_ ? localA_->status() : QStringLiteral("-"),
@@ -302,8 +316,11 @@ bool MatchController::findMatch(const QueueRequest& req, QString* error) {
                     {QStringLiteral("strict"), req.strict},
                     {QStringLiteral("character"), req.character},
                     {QStringLiteral("delay"), req.delay},
-                    {QStringLiteral("death_traps"), req.deathTraps}};
-    if (udp_->serverRttMs() >= 0) msg.insert(QStringLiteral("server_rtt"), udp_->serverRttMs());
+                    {QStringLiteral("death_traps"), req.deathTraps},
+                    {QStringLiteral("relay"), cfg::hideIp()},
+                    {QStringLiteral("link"), server_->linkType()}};
+    if (serverRttMs() >= 0) msg.insert(QStringLiteral("server_rtt"), serverRttMs());
+    pingWiden_ = {};
     server_->send(msg);
     searchClock_.start();
     setPhase(Phase::Searching, tr("Searching for a %1 %2 opponent...")
@@ -361,6 +378,7 @@ void MatchController::onServerMessage(const QJsonObject& msg) {
     const QString type = str(msg, "type");
     const QString match = str(msg, "match");
     if (type == QLatin1String("queued")) {
+        pingWiden_ = msg.value(QStringLiteral("ping_widen")).toObject();
         if (phase_ == Phase::Idle) {
             searchClock_.start();
             setPhase(Phase::Searching, tr("Searching..."));
@@ -375,6 +393,7 @@ void MatchController::onServerMessage(const QJsonObject& msg) {
     } else if (type == QLatin1String("match_found")) {
         found_ = msg;
         go_ = {};
+        if (msg.contains(QStringLiteral("connection"))) log(tr("Opponent's connection: %1").arg(connectionText(msg)));
         resultSent_ = false;
         closeFeed();
         QString err;
@@ -412,7 +431,7 @@ void MatchController::onServerMessage(const QJsonObject& msg) {
         setPhase(Phase::Connecting, tr("Connecting to %1...").arg(opponentName()));
         const QJsonObject peer = msg.value(QStringLiteral("peer")).toObject();
         const QString pub = reachableFromHere(str(peer, "public"));
-        if (pub != str(peer, "public")) log(tr("%1 plays beside the server: reaching it at %2").arg(opponentName(), pub));
+        if (pub != str(peer, "public")) log(tr("%1 plays beside the server: reaching them on its network").arg(opponentName()));
         udp_->startPunch(match, str(msg, "key"), msg.value(QStringLiteral("side")).toInt(), str(peer, "lan"), pub,
                          punchMs);
     } else if (type == QLatin1String("match_go")) {
@@ -638,8 +657,34 @@ void MatchController::onPunchDone(bool ok, int rtt, const QString& remote, const
         report.insert(QStringLiteral("via"), via);
     }
     server_->send(report);
-    log(ok ? tr("Connected to %1 via %2 (%3), %4 ms").arg(opponentName(), via, remote).arg(rtt)
+    // never the address: it is the opponent's (or the server's), and players show these pages on stream
+    log(ok ? tr("Connected to %1 %2, %3 ms")
+                 .arg(opponentName(), via == QLatin1String("relay") ? tr("through the server") : tr("directly"))
+                 .arg(rtt)
            : tr("Could not reach %1 this way").arg(opponentName()));
+}
+
+// match_found's `connection`: the opponent's link and ping, and the expected ping between the two when known
+QString MatchController::connectionText(const QJsonObject& found) {
+    const QJsonObject c = found.value(QStringLiteral("connection")).toObject();
+    const QString link = c.value(QStringLiteral("link")).toString();
+    QStringList parts{link == QLatin1String("ethernet") ? tr("Ethernet (wired)")
+                      : link == QLatin1String("wifi")   ? tr("Wi-Fi")
+                      : link == QLatin1String("other")  ? tr("other connection")
+                                                        : tr("connection type unknown")};
+    if (const QString ping = pingText(found); !ping.isEmpty()) parts << ping;
+    return parts.join(QStringLiteral("  ·  "));
+}
+
+QString MatchController::pingText(const QJsonObject& found) {
+    const QJsonObject c = found.value(QStringLiteral("connection")).toObject();
+    const int estimate = c.value(QStringLiteral("estimate")).toInt(-1);
+    const int theirs = c.value(QStringLiteral("ping")).toInt(-1);
+    if (estimate >= 0)
+        return (c.value(QStringLiteral("measured")).toBool() ? tr("ping %1 ms between you (measured last time)")
+                                                             : tr("ping about %1 ms between you")).arg(estimate);
+    if (theirs >= 0) return tr("their ping to the server %1 ms").arg(theirs);
+    return {};
 }
 
 QString MatchController::startLine(const QJsonObject& go) const {

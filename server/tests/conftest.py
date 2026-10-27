@@ -29,6 +29,7 @@ async def server(tmp_path, tls_files) -> AsyncIterator[Server]:
     cfg = ServerConfig(
         host="127.0.0.1", port=0, udp_port=0, db_path=str(tmp_path / "test.sqlite"), certfile=cert, keyfile=key,
         tick_seconds=0.05, online_push_interval=0.1, mm=MatchmakingConfig(allow_same_ip=True),
+        relay_only=False,  # the tests take the direct way unless they ask for the relay (a server's default)
     )
     srv = Server(cfg)
     await srv.start()

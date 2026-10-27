@@ -116,7 +116,8 @@ bool SameMatch(uint32_t start, uint32_t now) { return now == start; }
 enum ReadyWord {
     kWordMode, kWordP1, kWordP2, kWordFrames, kWordGameFrames, kWordArena, kWordKarts,
     kWordOptions = kWordKarts + 4,  // the options a launcher match sets (linkgame.cpp): round time, blood, death traps
-    kWordCount = kWordOptions + 3
+    kWordCostumes = kWordOptions + 3,  // each player's costume bits (record + 0x14): both games must have each's own
+    kWordCount = kWordCostumes + 2
 };
 constexpr uint32_t kOptions[3] = {0x723BC4, 0x723BC8, 0x723BCC};
 
@@ -193,6 +194,8 @@ void ReadyWords(std::vector<uint32_t>& out) {
     out[kWordArena] = kernel::R32(GameMode() == kModeKart ? kTrackChoice : kArena);
     for (uint32_t i = 0; i < 4; i++) out[kWordKarts + i] = kernel::R32(kKartChoice + i * 0xC);
     for (uint32_t i = 0; i < 3; i++) out[kWordOptions + i] = kernel::R32(kOptions[i]);
+    out[kWordCostumes] = kernel::R32(kP1Record + kRecordCostume);
+    out[kWordCostumes + 1] = kernel::R32(kP2Record + kRecordCostume);
 }
 
 std::string Describe() {
@@ -227,6 +230,15 @@ void Agree(X86Context&, int, const std::vector<uint32_t>& mine, const std::vecto
     if (mine[kWordMode] != kModeKart) {
         LOGR("netplay: round time %u s, blood %u, death traps %s", mine[kWordOptions], mine[kWordOptions + 1],
              mine[kWordOptions + 2] ? "on" : "off");
+        if (theirs[kWordArena] != mine[kWordArena])
+            LOGE("netplay: the arenas differ (theirs %u, ours %u): the fight's arena loaded already, the games will "
+                 "part", theirs[kWordArena], mine[kWordArena]);
+        if (theirs[kWordCostumes] != mine[kWordCostumes] || theirs[kWordCostumes + 1] != mine[kWordCostumes + 1])
+            LOGE("netplay: the costumes differ (theirs %X and %X, ours %X and %X): the fighters loaded already",
+                 theirs[kWordCostumes], theirs[kWordCostumes + 1], mine[kWordCostumes], mine[kWordCostumes + 1]);
+        else
+            LOGR("netplay: arena %u, costume bits %X and %X", mine[kWordArena], mine[kWordCostumes],
+                 mine[kWordCostumes + 1]);
         for (uint32_t i = 0; i < 3; i++)
             if (theirs[kWordOptions + i] != mine[kWordOptions + i])
                 LOGE("netplay: the games' options differ (round time, blood, death traps: theirs %u %u %u)",

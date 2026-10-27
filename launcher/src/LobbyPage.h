@@ -6,6 +6,7 @@
 
 #include "Widgets.h"
 
+class QCheckBox;
 class QComboBox;
 class QLabel;
 class QLineEdit;
@@ -44,6 +45,7 @@ private:
     QStackedWidget* right_;
     QLabel* lobbyTitle_;
     QLabel* lobbyInfo_;
+    QCheckBox* deathTraps_;  // the lobby's: the host changes it between matches (lobby_settings), the rest see it
     QTableWidget* members_;
     QComboBox* character_;
     QPushButton* ready_;

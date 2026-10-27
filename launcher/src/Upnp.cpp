@@ -190,13 +190,14 @@ void UpnpMapper::askExternalAddress() {
         if (code == 200) externalIp_ = element(body, QStringLiteral("NewExternalIPAddress"));
         const QHostAddress external(externalIp_);
         if (!external.isNull() && behindAnotherNat(external)) {
-            finish(tr("the router is behind another network (its address %1 is not public), so ports cannot be "
-                      "opened; matches connect by hole punching or through the server").arg(externalIp_));
+            // the status never shows the address (Settings is on screen, and on streams): only what it means
+            finish(tr("the router is behind another network (its outside address is not public), so ports cannot "
+                      "be opened; matches connect by hole punching or through the server"));
             return;
         }
         if (probeOnly_) {
-            finish(tr("router found (UPnP), public address %1; nothing changed")
-                       .arg(externalIp_.isEmpty() ? tr("unknown") : externalIp_));
+            finish(externalIp_.isEmpty() ? tr("router found (UPnP), its public address unknown; nothing changed")
+                                         : tr("router found (UPnP) with a public address; nothing changed"));
             return;
         }
         addMapping(kLeaseSeconds);
@@ -216,9 +217,7 @@ void UpnpMapper::addMapping(int leaseSeconds) {
     soap(QStringLiteral("AddPortMapping"), args, [this, port, leaseSeconds](int code, const QString& body) {
         if (code == 200) {
             renewTimer_.start();
-            finish(tr("UDP port %1 open on the router (UPnP)%2")
-                       .arg(port)
-                       .arg(externalIp_.isEmpty() ? QString() : tr(", public address %1").arg(externalIp_)));
+            finish(tr("UDP port %1 open on the router (UPnP)").arg(port));
             return;
         }
         const int error = element(body, QStringLiteral("errorCode")).toInt();

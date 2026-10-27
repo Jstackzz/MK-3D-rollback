@@ -71,7 +71,7 @@ void PickArena(uint32_t seed, const std::string& stage) {
             if (kernel::R32(kArenaList + 4 * i) == id) index = i;
     }
     kernel::W32(kArenaCycle, index);
-    LOGI("link: arena %u (place %u of %u on the list)", kernel::R32(kArenaList + 4 * index), index, n);
+    LOGR("link: arena %u (place %u of %u on the list)", kernel::R32(kArenaList + 4 * index), index, n);
 }
 
 void Prepare(const mk3d::link::game::Start& start) {

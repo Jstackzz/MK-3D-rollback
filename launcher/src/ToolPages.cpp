@@ -397,6 +397,10 @@ SettingsPage::SettingsPage(ServerClient* server, QWidget* parent) : Page(parent)
     strict->setChecked(cfg::strict());
     auto* upnp = new QCheckBox(tr("Open the game port on the router (UPnP)"));
     upnp->setChecked(cfg::upnp());
+    auto* hideIp = new QCheckBox(tr("Hide my IP address from opponents"));
+    hideIp->setChecked(cfg::hideIp());
+    hideIp->setToolTip(tr("Your matches go through the server, so nobody you play can see your address. They get "
+                          "more ping the farther you and your opponent are from the server (in Virginia, USA)."));
     routerState_ = ui::label(tr("Router: not asked"), "Muted");
     routerState_->setWordWrap(true);
     of->addRow(tr("Region"), region);
@@ -405,9 +409,11 @@ SettingsPage::SettingsPage(ServerClient* server, QWidget* parent) : Page(parent)
     of->addRow(tr("Game UDP port"), port);
     of->addRow(QString(), strict);
     of->addRow(QString(), upnp);
+    of->addRow(QString(), hideIp);
     of->addRow(tr("Router"), routerState_);
-    auto* delayNote = ui::label(tr("Ranked uses at least 1 frame. Players who cannot reach each other directly "
-                                   "play through the server, with a little more delay."), "Muted");
+    auto* delayNote = ui::label(tr("Ranked uses at least 1 frame. Players who cannot reach each other directly, or "
+                                   "who hide their IP address, play through the server: more ping the farther both "
+                                   "are from it."), "Muted");
     delayNote->setWordWrap(true);
     of->addRow(QString(), delayNote);
     grid->addWidget(onlineBox, 1, 0);
@@ -510,6 +516,7 @@ SettingsPage::SettingsPage(ServerClient* server, QWidget* parent) : Page(parent)
         if (on && upnp_) upnp_->map(static_cast<quint16>(cfg::gamePort()));
     });
     connect(strict, &QCheckBox::toggled, this, [](bool on) { cfg::set(QStringLiteral("online/strict"), on); });
+    connect(hideIp, &QCheckBox::toggled, this, [](bool on) { cfg::set(QStringLiteral("online/hide_ip"), on); });
     connect(mode, &QComboBox::currentIndexChanged, this, [mode] { cfg::set(QStringLiteral("display/mode"), mode->currentData()); });
     connect(res, &QComboBox::currentTextChanged, this, [](const QString& t) {
         if (const QString size = gameResolution(t); !size.isEmpty()) cfg::set(QStringLiteral("display/resolution"), size);

@@ -136,6 +136,31 @@ async def test_play_and_watch_roles(server, connect, udp_peers):
     assert exc.value.code == "busy"
 
 
+async def test_host_turns_death_traps_off_between_matches(server, connect, udp_peers):
+    host = await connect("Kabal")
+    guest = await connect("Mavado")
+    code = (await host.request(create_msg()))["lobby"]["id"]
+    await guest.request({"type": "lobby_join", "lobby": code, "character": "Kenshi"})
+    for conn in (host, guest):
+        await conn.request({"type": "lobby_ready", "ready": True})
+    with pytest.raises(ServerError) as exc:
+        await guest.request({"type": "lobby_settings", "death_traps": False})
+    assert exc.value.code == "not_host"
+    lobby = (await host.request({"type": "lobby_settings", "death_traps": False}))["lobby"]
+    # both see it, and ready again for a match with it
+    assert lobby["death_traps"] is False and not any(m["ready"] for m in lobby["members"])
+    seen = await guest.expect("lobby", pred=lambda m: m["lobby"]["death_traps"] is False)
+    assert seen["lobby"]["id"] == code
+    for conn in (host, guest):
+        await conn.request({"type": "lobby_ready", "ready": True})
+    await host.request({"type": "lobby_start"})
+    go = await run_to_go(server, [(host, await udp_peers()), (guest, await udp_peers())])
+    assert [g["death_traps"] for g in go] == [False, False]
+    with pytest.raises(ServerError) as exc:  # not while the match runs
+        await host.request({"type": "lobby_settings", "death_traps": True})
+    assert exc.value.code == "busy"
+
+
 async def test_death_traps_never_in_ranked(server, connect, udp_peers):
     a = await connect("Reptile")
     b = await connect("Ermac")

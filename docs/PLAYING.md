@@ -98,6 +98,8 @@ whether to trust it: compare it with your host's.
 - Lobby, to play someone you know: one of you presses Create lobby and gives the
   other the 5-letter code; the other presses Join code and types it. Both choose
   a fighter (or "Pick in the game") and press Ready, then the host presses START.
+  If your connection drops, sign back in within a minute (the launcher does it
+  by itself) and you are put back in your lobby.
 - Watching a lobby: select it in the list and press Watch selected (or join it,
   then press Watch). Each match its host starts plays in your own game, a moment
   behind the players, select screen and ending included; a match already under
@@ -107,14 +109,24 @@ whether to trust it: compare it with your host's.
   Pool's acid, the Lower Mines' spikes and the others) kill on the spot. The
   Death traps box under Matchmaking on the Kasual page says whether you want
   them, and you only meet players who chose the same: untick it and every
-  Kasual opponent has death traps off too. Ranked matches never have them. A lobby's host chooses for its matches when creating
-  it. Online matches also play with the game's default round time and blood,
-  whatever your own game's options say, so both players play the same fight.
+  Kasual opponent has death traps off too. Ranked matches never have them. A
+  lobby's host chooses for its matches when creating it, and can switch it in
+  the lobby (the Death traps box under its name) between matches; both players
+  then press Ready again. Online matches also play with the game's default
+  round time and blood, whatever your own game's options say, so both players
+  play the same fight.
+- Every online match (Kasual, Ranked, lobbies) has every fighter, alternate
+  costume and arena open, whatever your own profile has unlocked: hold START
+  as you confirm your fighter on the select screen for their alternate
+  costume, and your opponent's game shows it too. Armageddon's kreated fighters
+  stay out of online matches (your opponent's game has no copy of yours). Your
+  profile's own unlocks stay as they are.
 - Single player, then PLAY, starts the whole game with its own menus, as on the
   console: arcade, its practice mode and the rest. What you unlock and set is
   saved in the game's folder (games\<game>\hdd).
 - Single player, then PRACTICE, goes straight to practice's character select
-  with every fighter unlocked: pick yours, then the dummy, with one controller.
+  with every fighter, costume and arena unlocked: pick yours, then the dummy,
+  with one controller.
   What your profile has unlocked stays as it is. You can search for a match
   while you practice, as below.
 - Play while you wait: search for a match (Kasual or Ranked) and play single
@@ -127,7 +139,7 @@ whether to trust it: compare it with your host's.
 - Practice while you wait (the box under Matchmaking on the Ranked and Kasual
   pages, on by default): once you search, the game opens its practice mode by
   itself, at the character select screen, where you pick your fighter and then
-  the dummy with your controller (every fighter is unlocked there, as with
+  the dummy with your controller (everything is unlocked there, as with
   PRACTICE). A match found comes up over it as above, and
   after the match you are back in practice. Untick the box to wait at the game's
   menu instead.
@@ -140,6 +152,37 @@ your router when the router allows it (UPnP; Settings shows it on the Router
 line and can turn it off), and when two PCs cannot reach each other directly the
 match runs through the server, with a little more delay. Nothing to set up on
 your router.
+
+Your IP address is never shown in the launcher, its pages or its logs, nor in
+the games' logs, and a game only listens to its own match's opponent (or the
+server), so nobody else can send it anything. A match normally connects your PC
+straight to your opponent's, for the lowest ping; like any direct connection,
+their PC can see the address it talks to (with network tools). To keep it from
+everyone you play, tick **Settings → Hide my IP address from opponents**: your
+matches then go through the server, and nobody you play learns your address.
+That costs ping the farther you and your opponent are from the server (in
+Virginia, USA): little on the US east coast, a lot for two players far from it
+(two players on the west coast: about 20 ms straight, about 140 ms through the
+server).
+
+When a match is found, the MATCH FOUND window shows your opponent's connection:
+the Wi-Fi symbol in orange (wireless drops and delays packets now and then) or
+green bars for a wired (Ethernet) connection, and their ping to the server, or
+the ping between the two of you when it is known (from a match you played in the
+last ten minutes). Ranked shows it too, without who it is. A lobby's Connection
+column shows every member's the same way.
+
+A search that finds nobody raises your Max ping by itself: after 30 s by 25 ms,
+and again every 15 s, up to 250 ms (the Kasual and Ranked pages say "Max ping
+raised to ... ms"), so two players a little too far apart for their settings
+still meet. Strict ranked matchmaking keeps your Max ping as it is.
+
+Searching and nobody shows up? Kasual and Ranked are separate searches, and so
+are Kasual with death traps on and with them off; the Region you search in
+waits 20 s for your own region first; and your **Max ping** (Settings, 150 ms
+unless you change it) keeps out anyone whose connection to you would be
+slower. Two players far apart (Europe and South America, say) only meet with a
+higher Max ping or none.
 
 
 Controls
@@ -162,6 +205,9 @@ prompts is in front: the d-pad or the left stick moves the gold highlight, A
 prompt), LB and RB switch pages and START finds a match on the Ranked and Kasual
 pages. A prompt that comes up over the game waits for the buttons you were
 holding in the game to be let go, so a combo cannot accept or decline anything.
+While a match is played or watched, the launcher ignores the controller
+altogether, even if its window is the one in front: what you press is the
+game's alone.
 Typing (sign in, lobby names, chat) still takes the keyboard. The keyboard plays as player 1
 while the game window is in front: arrows or WASD move, J I K L are X Y A B,
 Space is the right trigger, O the left trigger, U and P are white and black,

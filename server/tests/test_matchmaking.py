@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from server.client import ServerError
-from server.matchmaking import MatchmakingConfig, PingCache, QueueEntry, elo_window, find_pairs
+from server.matchmaking import MatchmakingConfig, PingCache, QueueEntry, elo_window, find_pairs, max_ping_now
 
 from .conftest import queue_msg
 
@@ -97,6 +97,34 @@ def test_measured_ping_cache_blocks_bad_pairs():
     assert ids(find_pairs([a, b, c], 101, CFG, cache)) == [(1, 3)]  # 1 skips 2 and takes 3
 
 
+
+def test_relayed_matches_are_estimated_from_each_players_way_to_the_server():
+    # through the relay a match's round trip is each player's to the server: a pair over a limit is not offered
+    a, b = entry(1, max_ping=150), entry(2)
+    a.server_rtt, b.server_rtt = 90, 80
+    assert find_pairs([a, b], 1, CFG, PingCache(), relayed=True) == []
+    assert ids(find_pairs([a, b], 1, CFG, PingCache())) == [(1, 2)]  # direct: only a measurement can say
+    b.server_rtt = 40
+    assert ids(find_pairs([a, b], 1, CFG, PingCache(), relayed=True)) == [(1, 2)]
+    b.server_rtt = None  # not measured yet: offered, the match measures it
+    assert ids(find_pairs([a, b], 1, CFG, PingCache(), relayed=True)) == [(1, 2)]
+    b.server_rtt, b.relay = 80, True  # one of them hides their address: that match goes through the server too
+    assert find_pairs([a, b], 1, CFG, PingCache()) == []
+
+
+def test_a_long_search_raises_its_max_ping():
+    a = entry(1, max_ping=60)
+    assert [max_ping_now(a, t, CFG) for t in (0, 29.9, 30, 44.9, 45, 60, 600)] == [60, 60, 85, 85, 110, 135, 250]
+    assert max_ping_now(entry(2, max_ping=60, strict=True), 600, CFG) == 60  # strict keeps it
+    assert max_ping_now(entry(3, max_ping=0), 600, CFG) == 0  # any stays any
+    assert max_ping_now(entry(4, max_ping=300), 600, CFG) == 300  # never below the player's own
+    # a pair measured at 100 ms meets once the 60 ms search has waited long enough for 110
+    cache = PingCache(ttl=600)
+    b = entry(5)
+    cache.put(1, 5, 100, now=0)
+    assert find_pairs([a, b], 44, CFG, cache) == []
+    assert ids(find_pairs([a, b], 45, CFG, cache)) == [(1, 5)]
+
 # --- over the wire --------------------------------------------------------------------------------
 
 
@@ -166,3 +194,15 @@ async def test_accept_window_timeout(server, connect, udp_peers):
     ca, cb = await a.expect("match_cancelled", timeout=3), await b.expect("match_cancelled", timeout=3)
     assert ca["reason"] == "accept_timeout"
     assert ca["requeued"] is True and cb["requeued"] is False
+
+
+
+async def test_match_found_tells_each_player_the_others_connection(server, connect):
+    a, b = await connect("Shujinko"), await connect("Onaga")
+    queued = await a.request({**queue_msg(max_ping=80), "link": "wifi", "server_rtt": 30})
+    assert queued["ping_widen"] == {"after": 30.0, "every": 15.0, "step": 25, "cap": 250}
+    await b.request({**queue_msg(), "link": "ethernet", "server_rtt": 45, "relay": True})
+    fa, fb = await a.expect("match_found"), await b.expect("match_found")
+    # B hides its address, so the match goes through the server: its ping is both ways to it
+    assert fa["connection"] == {"link": "ethernet", "ping": 45, "estimate": 75, "measured": False}
+    assert fb["connection"] == {"link": "wifi", "ping": 30, "estimate": 75, "measured": False}

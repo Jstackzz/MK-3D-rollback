@@ -115,7 +115,8 @@ bool SameMatch(uint32_t start, uint32_t now) {
 enum ReadyWord {
     kWordMode, kWordP1, kWordP2, kWordFrames, kWordGameFrames, kWordArena, kWordTeams,
     kWordOptions = kWordTeams + 10,  // the options a launcher match sets (linkgame.cpp): round time, blood, death traps
-    kWordCount = kWordOptions + 3
+    kWordCostumes = kWordOptions + 3,  // each player's costume flags (record + 0x14): both games must have each's own
+    kWordCount = kWordCostumes + 2
 };
 constexpr uint32_t kOptions[3] = {0x5FC9AC, 0x5FC9B4, 0x5FC9B8};
 
@@ -183,6 +184,8 @@ void ReadyWords(std::vector<uint32_t>& out) {
         out[kWordTeams + 5 + i] = kernel::R32(kChessTeams + 0x1C + 4 * i);
     }
     for (uint32_t i = 0; i < 3; i++) out[kWordOptions + i] = kernel::R32(kOptions[i]);
+    out[kWordCostumes] = kernel::R32(kP1Record + 0x14);
+    out[kWordCostumes + 1] = kernel::R32(kP2Record + 0x14);
 }
 
 std::string Describe() {
@@ -217,6 +220,13 @@ void Agree(X86Context&, int side, const std::vector<uint32_t>& mine, const std::
     if (mode != kModeChess && mode != kModePuzzle && theirs[kWordArena] != mine[kWordArena])
         LOGE("netplay: the arenas differ (theirs %u, ours %u): the fight's arena loaded already, the games will part",
              theirs[kWordArena], mine[kWordArena]);
+    else if (mode != kModeChess && mode != kModePuzzle)
+        LOGR("netplay: arena %u", mine[kWordArena]);
+    if (theirs[kWordCostumes] != mine[kWordCostumes] || theirs[kWordCostumes + 1] != mine[kWordCostumes + 1])
+        LOGE("netplay: the costumes differ (theirs %X and %X, ours %X and %X): the fighters loaded already",
+             theirs[kWordCostumes], theirs[kWordCostumes + 1], mine[kWordCostumes], mine[kWordCostumes + 1]);
+    else
+        LOGR("netplay: costume flags %X and %X", mine[kWordCostumes], mine[kWordCostumes + 1]);
     if (mode == kModeChess || mode == kModePuzzle) {
         uint32_t arena = side == 0 ? mine[kWordArena] : theirs[kWordArena];
         if (arena != kernel::R32(kArena)) LOGI("netplay: arena %u (ours was %u)", arena, kernel::R32(kArena));

@@ -1,6 +1,7 @@
 #include "Style.h"
 
 #include <QFont>
+#include <QGuiApplication>
 #include <QPainter>
 #include <QPainterPath>
 #include <QRadialGradient>
@@ -162,6 +163,46 @@ QPushButton#NavButton:focus { color: #F2C14E; }
 QCheckBox:focus { color: #F2C14E; }
 QListWidget#CharacterGrid:focus::item:selected { border: 1px solid #F2C14E; }
 )QSS");
+}
+
+QPixmap linkIcon(const QString& link, int size) {
+    const bool wifi = link == QLatin1String("wifi");
+    if (!wifi && link != QLatin1String("ethernet")) return {};
+    const qreal dpr = qGuiApp ? qGuiApp->devicePixelRatio() : 1.0;
+    QPixmap pm(QSize(size, size) * dpr);
+    pm.setDevicePixelRatio(dpr);
+    pm.fill(Qt::transparent);
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing);
+    const qreal s = size;
+    if (wifi) {
+        const QColor c(0xF0, 0xB3, 0x5A);
+        const QPointF o(s / 2, s * 0.84);  // the fan's point
+        p.setPen(Qt::NoPen);
+        p.setBrush(c);
+        p.drawEllipse(o, s * 0.085, s * 0.085);
+        p.setPen(QPen(c, s * 0.1, Qt::SolidLine, Qt::RoundCap));
+        p.setBrush(Qt::NoBrush);
+        for (qreal r : {s * 0.3, s * 0.52, s * 0.74})
+            p.drawArc(QRectF(o.x() - r, o.y() - r, 2 * r, 2 * r), 45 * 16, 90 * 16);
+    } else {
+        const QColor c(0x7C, 0xC6, 0x7A);
+        const qreal w = s * 0.16, gap = s * 0.08, left = (s - 4 * w - 3 * gap) / 2, bottom = s * 0.92;
+        p.setPen(Qt::NoPen);
+        p.setBrush(c);
+        for (int i = 0; i < 4; i++) {
+            const qreal h = s * (0.3 + 0.2 * i);
+            p.drawRoundedRect(QRectF(left + i * (w + gap), bottom - h, w, h), w * 0.25, w * 0.25);
+        }
+    }
+    return pm;
+}
+
+QString linkName(const QString& link) {
+    if (link == QLatin1String("wifi")) return QObject::tr("Wi-Fi");
+    if (link == QLatin1String("ethernet")) return QObject::tr("Wired (Ethernet)");
+    if (link == QLatin1String("other")) return QObject::tr("Other connection");
+    return QObject::tr("Connection type unknown");
 }
 
 QPixmap emblem(int size) {

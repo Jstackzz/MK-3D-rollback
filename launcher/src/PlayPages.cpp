@@ -251,6 +251,13 @@ QueuePage::QueuePage(bool ranked, ServerClient* server, MatchController* control
     connect(&clock_, &QTimer::timeout, this, [this] {
         const int s = controller_->searchSeconds();
         timer_->setText(QStringLiteral("%1:%2").arg(s / 60).arg(s % 60, 2, 10, QLatin1Char('0')));
+        // the server raises a long search's max ping by itself: say so beside the phase
+        if (controller_->phase() == MatchController::Phase::Searching && controller_->lastRequest().ranked == ranked_) {
+            const int raised = controller_->raisedMaxPing();
+            status_->setText(raised ? tr("%1\nMax ping raised to %2 ms to find you a match")
+                                          .arg(controller_->phaseText()).arg(raised)
+                                    : controller_->phaseText());
+        }
     });
     updateButton();
 }

@@ -17,6 +17,10 @@ constexpr uint32_t kSetGameMode = 0x12FDE0;  // (mode)
 constexpr uint32_t kPlayerState[2] = {0x2EA550, 0x2EA554};
 constexpr uint32_t kSetPlayerState = 0x12FDF0;
 constexpr uint32_t kCharacter[2] = {0x271F00, 0x271F04};  // character index, 0x18 none; names below
+// each player's pointer to their costume (0 the usual one): the pick (sub_001112A0) sets it from the button held while
+// confirming (logical action 0xB, sub_00075B50) when sub_00116380 has the alternate open, and a mirror match turns the
+// costume of the player picking to the other one
+constexpr uint32_t kCostume[2] = {0x273DD4, 0x273E0C};
 constexpr uint32_t kCharacterNames = 0x243BDC;              // + index * 0x110: pointer to the name ("SCORPION")
 constexpr uint32_t kCharacterStride = 0x110;
 constexpr uint32_t kHealth[2] = {0x42C774, 0x42C770};       // float, 1.0 full (sub_0006F7F0 refills it every round)

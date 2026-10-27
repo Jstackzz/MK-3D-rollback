@@ -2,6 +2,7 @@
 
 #include <QCryptographicHash>
 #include <QJsonDocument>
+#include <QNetworkInterface>
 #include <QSslCertificate>
 #include <QSslConfiguration>
 
@@ -34,7 +35,7 @@ ServerClient::ServerClient(QObject* parent) : QObject(parent), sock_(new QSslSoc
     connect(sock_, &QSslSocket::sslErrors, this, &ServerClient::onSslErrors);
 
     pingTimer_.setInterval(30000);
-    connect(&pingTimer_, &QTimer::timeout, this, [this] { send({{QStringLiteral("type"), QStringLiteral("ping")}}); });
+    connect(&pingTimer_, &QTimer::timeout, this, &ServerClient::sendPing);
     reconnectTimer_.setSingleShot(true);
     connect(&reconnectTimer_, &QTimer::timeout, this, [this] {
         if (!userDisconnect_ && state_ == State::Offline) connectTo(address_, fingerprint_);
@@ -109,6 +110,27 @@ quint16 ServerClient::serverUdpPort() const {
     return static_cast<quint16>(welcome_.value(QStringLiteral("udp_port")).toInt(7778));
 }
 QHostAddress ServerClient::localAddress() const { return plainV4(sock_->localAddress()); }
+
+void ServerClient::sendPing() {
+    pingId_ = send({{QStringLiteral("type"), QStringLiteral("ping")}});
+    pingClock_.start();
+}
+
+// the interface that holds the address this PC talks to the server from
+QString ServerClient::linkType() const {
+    const QHostAddress local = localAddress();
+    if (local.isNull() || local.isLoopback()) return QString();
+    for (const QNetworkInterface& nif : QNetworkInterface::allInterfaces())
+        for (const QNetworkAddressEntry& e : nif.addressEntries())
+            if (plainV4(e.ip()) == local) {
+                switch (nif.type()) {
+                    case QNetworkInterface::Ethernet: return QStringLiteral("ethernet");
+                    case QNetworkInterface::Wifi: return QStringLiteral("wifi");
+                    default: return QStringLiteral("other");
+                }
+            }
+    return QString();
+}
 
 void ServerClient::onConnected() {
     if (plain_) sendHello();  // TLS waits for encrypted()
@@ -203,6 +225,12 @@ void ServerClient::handle(const QJsonObject& msg) {
         welcome_ = msg;
         setState(State::Online);
         pingTimer_.start();
+        // a first round trip now, not in 30 s, and another once the login's own work on the server (a password's
+        // hash) cannot delay the answer any more
+        sendPing();
+        QTimer::singleShot(2000, this, [this] {
+            if (isOnline()) sendPing();
+        });
         applog::write(QStringLiteral("server: welcome from %1 %2, %3 online")
                           .arg(msg.value(QStringLiteral("server")).toString(), msg.value(QStringLiteral("version")).toString())
                           .arg(msg.value(QStringLiteral("online")).toInt()));
@@ -214,6 +242,9 @@ void ServerClient::handle(const QJsonObject& msg) {
         setState(State::LoggedIn);
         applog::write(QStringLiteral("server: logged in as %1").arg(accountName()));
         emit loggedIn(msg);
+    } else if (type == QLatin1String("pong") && pingId_ >= 0 && msg.value(QStringLiteral("id")).toInt(-2) == pingId_) {
+        rttMs_ = static_cast<int>(pingClock_.elapsed());
+        pingId_ = -1;
     } else if (type == QLatin1String("logged_out")) {
         account_ = {};
         setState(State::Online);

@@ -92,12 +92,14 @@ void UdpRendezvous::startHello(const QHostAddress& server, quint16 serverPort, c
 }
 
 void UdpRendezvous::sendHello() {
-    sendJson({{QStringLiteral("type"), QStringLiteral("hello")},
-              {QStringLiteral("token"), token_},
-              {QStringLiteral("match"), helloMatch_},
-              {QStringLiteral("lan"), lan_},
-              {QStringLiteral("t"), clock_.elapsed()}},
-             server_, serverPort_);
+    QJsonObject hello{{QStringLiteral("type"), QStringLiteral("hello")},
+                      {QStringLiteral("token"), token_},
+                      {QStringLiteral("match"), helloMatch_},
+                      {QStringLiteral("lan"), lan_},
+                      {QStringLiteral("t"), clock_.elapsed()}};
+    // the last round trip to the server: a search's estimate of a match's ping through the server's relay
+    if (serverRtt_ >= 0) hello.insert(QStringLiteral("rtt"), serverRtt_);
+    sendJson(hello, server_, serverPort_);
 }
 
 void UdpRendezvous::onHelloTick() {
@@ -185,7 +187,8 @@ void UdpRendezvous::finishPunch(bool ok) {
         rtt = static_cast<int>(sorted.at(sorted.size() / 2));
     }
     const QString remote = ok ? QStringLiteral("%1:%2").arg(working_.addr.toString()).arg(working_.port) : QString();
-    applog::write(QStringLiteral("udp: punch %1, rtt %2 ms via %3 %4").arg(ok ? "ok" : "failed").arg(rtt).arg(working_.via, remote));
+    // no address in the log: a player's log may be passed around, and the other player's address is theirs
+    applog::write(QStringLiteral("udp: punch %1, rtt %2 ms via %3").arg(ok ? "ok" : "failed").arg(rtt).arg(working_.via));
     emit punchDone(ok, rtt, remote, ok ? working_.via : QString());
 }
 
@@ -203,7 +206,7 @@ void UdpRendezvous::onReadyRead() {
             helloTimer_.stop();
             serverRtt_ = static_cast<int>(qMax<qint64>(0, clock_.elapsed() - o.value(QStringLiteral("t")).toInteger()));
             const QString pub = o.value(QStringLiteral("public")).toString();
-            applog::write(QStringLiteral("udp: hello_ack public %1, server rtt %2 ms").arg(pub).arg(serverRtt_));
+            applog::write(QStringLiteral("udp: hello_ack, server rtt %1 ms").arg(serverRtt_));
             emit helloAcked(pub, serverRtt_);
             continue;
         }
@@ -216,7 +219,7 @@ void UdpRendezvous::onReadyRead() {
             // the peer's router sends it from another public port than the server saw: punch that one too, or
             // only one side would ever hear back
             candidates_.append(Candidate{QStringLiteral("public"), from, fromPort});
-            applog::write(QStringLiteral("udp: punch from %1:%2, added as a candidate").arg(from.toString()).arg(fromPort));
+            applog::write(QStringLiteral("udp: punch from another port of the peer's, added as a candidate"));
         }
         if (type == QLatin1String("punch") || type == QLatin1String("ping")) {
             QJsonObject reply = o;

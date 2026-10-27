@@ -4,7 +4,8 @@
 // focus to the nearest control that way (or moves within a list or table first), A presses it, B backs out of a
 // dialog (never the match-found or rematch prompt: a match should not go by a slip), LB / RB switch pages and START
 // finds a match on a queue page. A window that comes up over a game ignores the buttons held from the game until they
-// are let go.
+// are let go. While a match is played (`paused`) the buttons are the game's alone, wherever the focus is: a launcher
+// left in front by a game that could not take the focus must not act on a fight's presses.
 
 #include <QElapsedTimer>
 #include <QList>
@@ -25,6 +26,7 @@ public:
     // what LB / RB (-1 / +1) and START do in the main window
     std::function<void(int)> onPage;
     std::function<void()> onStart;
+    std::function<bool()> paused;
     // a dialog that B leaves alone (its own buttons decide)
     static void keepFromBack(QWidget* dialog);
 

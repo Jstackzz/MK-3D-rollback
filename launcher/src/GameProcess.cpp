@@ -6,6 +6,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QProcessEnvironment>
+#include <QRegularExpression>
 
 #include <windows.h>
 
@@ -229,7 +230,10 @@ void GameProcess::writeCommand(const QString& line) {
         return;
     }
     lastWrite_.start();
-    applog::write(QStringLiteral("game %1/%2: cmd %3").arg(gameId_).arg(instance_).arg(line));
+    // the log leaves the address out (the opponent's or the server's): logs get shared
+    static const QRegularExpression remote(QStringLiteral("\\bremote=\\S+"));
+    applog::write(QStringLiteral("game %1/%2: cmd %3").arg(gameId_).arg(instance_)
+                      .arg(QString(line).replace(remote, QStringLiteral("remote=(hidden)"))));
 }
 
 void GameProcess::quit() {

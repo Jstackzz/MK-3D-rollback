@@ -41,10 +41,23 @@ public:
     ~MatchController() override;
 
     Phase phase() const { return phase_; }
+    // a match on its way, played or watched: the game has the player's controller
+    bool inMatch() const {
+        return phase_ == Phase::Connecting || phase_ == Phase::Starting || phase_ == Phase::Playing ||
+               phase_ == Phase::Reporting || phase_ == Phase::Finishing || phase_ == Phase::Watching;
+    }
     QString phaseText() const { return phaseText_; }
     QueueRequest lastRequest() const { return request_; }
     QJsonObject currentFound() const { return found_; }
     int searchSeconds() const;
+    // the max ping the server raised this search's to, waiting for a match (0: not raised): the rule it gave with
+    // `queued`, from the time searched
+    int raisedMaxPing() const;
+    // this PC's round trip to the server, ms (the rendezvous' UDP one, else the connection's; -1 unknown)
+    int serverRttMs() const;
+    // match_found's `connection` in words (the log), and its ping part alone (beside the link's icon)
+    static QString connectionText(const QJsonObject& found);
+    static QString pingText(const QJsonObject& found);
     QString gameStatus() const;
     GameProcess* game() const { return game_; }
 
@@ -151,6 +164,7 @@ private:
     bool wantNext_ = false;  // ready for the series' next match, not sent yet (the game still plays the last one's end)
     QString nextChoice_ = QStringLiteral("rematch");
     QElapsedTimer searchClock_;
+    QJsonObject pingWiden_;  // the server's rule for raising the max ping ({} when it is not raised)
     QTimer parkTimer_, keepaliveTimer_, startTimeout_, finishTimeout_, watchTimeout_;
     QString localStartA_, localStartB_, localResultA_, localResultB_;
     FeedLink* feed_ = nullptr;       // this player's lobby match's feed

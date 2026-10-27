@@ -180,14 +180,24 @@ to everyone; `welcome.motd` carries the message of the day. `level` is
 
 ```json
 C: {"type":"queue_join","game":"mkd","mode":"kombat","ranked":false,"region":"eu",
-    "max_ping":150,"strict":false,"character":"Scorpion","delay":2,"server_rtt":24}
+    "max_ping":150,"strict":false,"character":"Scorpion","delay":2,"server_rtt":24,"relay":false,
+    "link":"ethernet"}
 S: {"type":"queued","game":"mkd","mode":"kombat","ranked":false,"region":"eu",
-    "max_ping":150,"strict":false,"since":1761300000.5,"in_queue":3,"elo":1500}
+    "max_ping":150,"strict":false,"since":1761300000.5,"in_queue":3,"elo":1500,
+    "ping_widen":{"after":30.0,"every":15.0,"step":25,"cap":250}}
 C: {"type":"queue_leave"}
 S: {"type":"queue_left","reason":"left"}
 ```
 
-- `max_ping` is the highest acceptable round trip in ms; `0` means any.
+- `max_ping` is the highest acceptable round trip in ms; `0` means any. A
+  search that finds nobody raises it (0.1.8, unless `strict`): after `after`
+  seconds by `step` ms, again every `every` seconds, up to `cap` ms (never
+  below the player's own). `queued.ping_widen` gives the rule (absent for
+  `0` or `strict`) so the launcher can show the raised limit; a match keeps
+  the limit it was made with, its rematches too.
+- `link` (optional, 0.1.8): the network this PC reaches the server through,
+  `ethernet`, `wifi` or `other` (anything else is dropped); shown to the
+  opponent with `match_found.connection`.
 - `delay` is the player's preferred input delay in frames (0-4).
 - `death_traps` (optional, default `true`) is whether the player wants the
   arenas' death traps (Deception, Armageddon). A casual search meets only the
@@ -197,7 +207,16 @@ S: {"type":"queue_left","reason":"left"}
   only). A ranked match never has them, and in ranked the choice keeps no one
   apart.
 - `server_rtt` (optional) is the client's last measured UDP round trip to the
-  server in ms (section 2.2); it only orders otherwise equal ranked candidates.
+  server in ms (section 2.2); the UDP hellos sent while queued update it. It
+  orders otherwise equal ranked candidates, and for a match that would go
+  through the relay (below) the sum of both players' figures is its expected
+  ping: a pair above either player's `max_ping` is not offered a match.
+- `relay` (optional, default `false`, 0.1.8): the player hides their IP
+  address (the launcher's Settings, "Hide my IP address from opponents"). Any
+  match with such a player goes through the server's relay (2.4) from the
+  start, so neither player is ever sent the other's address; it costs ping for
+  players far from the server. A ranked set or a casual series keeps the
+  choice its first match was made with.
 - `character` is a roster id from the launcher data (e.g. `SubZero`); it may
   be empty or `-` for modes where the team is picked in the game (`chess`).
 - One queue entry per account; joining again replaces the entry. A player in
@@ -208,7 +227,8 @@ S: {"type":"queue_left","reason":"left"}
   player. Compatible = same game and mode, both casual, different accounts,
   same region (or, if neither is `strict`, different regions once both have
   waited 20 s), and no cached ping for this pair above either player's
-  `max_ping` (ping cache below).
+  `max_ping` (ping cache below; for a relayed pair with no measurement, the
+  sum of their `server_rtt`).
 - **Ranked pairing (Elo window).** The same rules plus an Elo window: a pair
   is allowed when `|elo_a - elo_b| <= min(window_a, window_b)`, with
   `window = 100 + 50 * floor(waited / 10 s)`, capped at 600. `strict` pins the
@@ -238,10 +258,15 @@ S: {"type":"queue_left","reason":"left"}
    ```json
    S: {"type":"match_found","match":"5f2c9a01d4e3","game":"mkd","mode":"kombat","ranked":false,
        "side":1,"accept_timeout":15,"accept_required":true,"lobby":null,"death_traps":true,
-       "opponent":{"name":"Fujin","elo":null,"region":"eu","character":"Raiden"}}
+       "opponent":{"name":"Fujin","elo":null,"region":"eu","character":"Raiden"},
+       "connection":{"link":"wifi","ping":42,"estimate":null,"measured":false}}
    ```
    In ranked, `opponent` is `null` until both have accepted (no dodging by
-   name). Lobby matches have `accept_required:false` and `accept_timeout:0`
+   name). `connection` (0.1.8, ranked too) is the other player's: `link` from
+   their search (`null` unknown), `ping` their round trip to the server
+   (`server_rtt`), `estimate` the round trip between the two when the server
+   knows it (`measured:true`: from their match within the ping cache's 10
+   minutes; else, for a match through the relay, both ways to the server). Lobby matches have `accept_required:false` and `accept_timeout:0`
    (the players already readied up) and continue at step 3.
 2. **Accept window: 15 s.**
    ```json
@@ -257,13 +282,17 @@ S: {"type":"queue_left","reason":"left"}
    both have accepted and both endpoints are known it sends:
    ```json
    S: {"type":"match_peer","match":"5f2c9a01d4e3","side":1,"key":"<32 hex>","punch_timeout":10,
-       "same_nat":false,
+       "same_nat":true,
        "peer":{"public":"203.0.113.7:7001","lan":"192.168.1.20:7001"},
        "opponent":{"name":"Fujin","elo":1488,"region":"eu","character":"Raiden"}}
    ```
-   No IP address is revealed before both players have accepted. If an
-   endpoint is still missing 10 s after acceptance the match is cancelled
-   (`no_udp`).
+   No IP address is revealed before both players have accepted, and `lan`
+   only to a player behind the same public address (`same_nat`; empty
+   otherwise). A match with a player who hides their address (`relay` in
+   `queue_join` or `lobby_ready`), or every match on a server run with
+   `--relay-only`, skips this step: both get the relay's `match_peer` (step 5)
+   at once and never learn each other's address. If an endpoint is still
+   missing 10 s after acceptance the match is cancelled (`no_udp`).
 4. **Punch and measure** (section 2.3), then:
    ```json
    C: {"type":"ping_report","match":"5f2c9a01d4e3","ok":true,"rtt_ms":38,
@@ -423,8 +452,10 @@ C: {"type":"lobby_role","role":"spectator"}                    (or "player")
 C: {"type":"lobby_leave"}
 C: {"type":"lobby_chat","text":"gg"}
 C: {"type":"lobby_character","character":"Kenshi"}
-C: {"type":"lobby_ready","ready":true,"delay":2}               (delay optional, 0-4)
+C: {"type":"lobby_ready","ready":true,"delay":2,"relay":false,"link":"wifi","server_rtt":31}
+                                           (delay optional, 0-4; relay, link, server_rtt 0.1.8)
 C: {"type":"lobby_start"}                                       (host only)
+C: {"type":"lobby_settings","death_traps":false}               (host only, 0.1.8)
 S: {"type":"lobby","lobby":{"id":"K7WQ2","name":"Friday sets","host":"Raijin","game":"mkd",
     "mode":"kombat","region":"eu","rounds":3,"locked":false,"state":"open","match":null,
     "death_traps":true,"max_spectators":8,
@@ -436,6 +467,14 @@ S: {"type":"lobby_chat","lobby":"K7WQ2","from":"Fujin","text":"gg","ts":17613000
 S: {"type":"lobby_left","lobby":"K7WQ2"}
 ```
 
+- `lobby_create`, `lobby_join` and `lobby_ready` may carry `link` and
+  `server_rtt` (as in `queue_join`); the lobby state's members show them as
+  `link` and `ping` (`null` unknown).
+- A member whose connection drops (or is replaced by a new login of the same
+  account) keeps their place for 60 s: when that account logs in again within
+  it, the server puts it back in the lobby (a player's place if one is free,
+  else a spectator's) and pushes the `lobby` state as after a join. Leaving
+  with `lobby_leave` or `logout` gives the place up at once.
 - The full `lobby` state is pushed to every member after any change; `chat`
   holds the last 30 messages. Chat text: 1-200 characters, at most one
   message per 0.5 s per player (`slow_down`).
@@ -446,7 +485,9 @@ S: {"type":"lobby_left","lobby":"K7WQ2"}
   side 1 (when the host plays); the lobby `state` becomes `in_match` with
   `match` set, and the reply is that `lobby` state. Changing character clears
   your `ready` flag. `death_traps` (the host's, default `true`) is every
-  lobby match's.
+  lobby match's; `lobby_settings` changes it between matches (host only,
+  `not_host`; not while a match is set up or runs, `busy`), which clears
+  every member's `ready`.
 - Spectators: `lobby_join` with `spectate:true` joins to watch (also while a
   match runs, and when both places to play are taken: a plain join then gets
   `lobby_full`). `lobby_role` moves a member between the two: to `player`
@@ -546,7 +587,7 @@ later, default 7001), so the NAT mapping the server observes is the one the
 game will use:
 
 ```json
-L->S: {"type":"hello","token":"<udp_token>","match":"5f2c9a01d4e3","lan":"192.168.1.20:7001","t":123456}
+L->S: {"type":"hello","token":"<udp_token>","match":"5f2c9a01d4e3","lan":"192.168.1.20:7001","t":123456,"rtt":24}
 S->L: {"type":"hello_ack","public":"203.0.113.7:7001","t":123456}
 ```
 
@@ -554,7 +595,8 @@ S->L: {"type":"hello_ack","public":"203.0.113.7:7001","t":123456}
   (empty while queued). `lan` is the launcher's LAN address (the local address
   of its TCP connection) with the game port. `t` is echoed so the client can
   measure its round trip to the server; the client sends it in later
-  `queue_join` messages as `server_rtt` (used only as a tie-breaker).
+  `queue_join` messages as `server_rtt`, and as `rtt` (optional, 0.1.8) in
+  its next hellos, which update a waiting search's `server_rtt` (1.7).
 - The server records the packet's source address as the client's **public
   endpoint** and the `lan` field as its **LAN endpoint**.
 - Clients send a hello when they join a queue, every 15 s while queued (keeps
@@ -569,7 +611,8 @@ S->L: {"type":"hello_ack","public":"203.0.113.7:7001","t":123456}
   peer's port instead.
 - `match_peer` (1.8 step 3) carries the other side's `public` and `lan`
   endpoints. `same_nat:true` means both public IPs are equal; then the LAN
-  endpoint is the one expected to work (many routers do not hairpin).
+  endpoint is the one expected to work (many routers do not hairpin). Only
+  then is `lan` sent at all.
 
 ### 2.3 Peer punch and ping
 
@@ -602,8 +645,9 @@ seconds:
 
 ### 2.4 Relay
 
-When the direct punch fails (or the server runs with `--relay-only`), the
-server's UDP port carries the match. The server joins the two endpoints their
+When the direct punch fails, when a player hides their address (`relay`,
+1.7), or when the server runs with `--relay-only`, the server's UDP port
+carries the match. The server joins the two endpoints their
 hellos came from; from then on every datagram from one of them that is not a
 `hello` goes to the other one byte for byte: the launchers' `punch` / `ping`
 JSON while measuring, then the games' packets. Each launcher punches the
@@ -740,8 +784,11 @@ side. A side with a roster id is picked by the autopilot on both PCs, so the
 two ways mix. A player who has not picked after 75 s (40 s in Armageddon,
 whose select screen leaves after 45 s without a press) gets the cursor's
 fighter; a side waiting for the other player's pick moves its cursor every
-8 s to keep the screen up. A rematch picks again. Alternate costumes stay
-locked while players pick.
+8 s to keep the screen up. A rematch picks again. Every fighter, alternate
+costume and arena is open in an online match (the games' built-in unlock masks
+as well as the profile ones, so no profile's saved unlocks change), and the
+costume a player picks reaches the other game with the pick; both games compare
+the arena and the costumes when the fight starts (the READY barrier).
 
 ### 3.4 `status.txt` (game -> launcher)
 

@@ -143,6 +143,10 @@ and processors compute the same results, which rollback needs.
   (port open, no UPnP, or a router behind carrier-grade NAT).
 - The server log names every match it relays ("relayed through this server")
   and how many packets went each way. `--no-relay` turns the relay off;
-  `--relay-only` relays every match (for testing it).
+  `--relay-only` relays every match, so no player ever learns another's IP
+  address, at the cost of ping for players far from the server (two players
+  on the US west coast: about 20 ms straight, about 140 ms through a server in
+  Virginia). Without it only the matches of players who tick "Hide my IP
+  address from opponents" in the launcher's Settings are relayed.
 - A player whose launcher cannot reach the server at all has the address or
   fingerprint wrong (Settings), or the server's ports are not open.

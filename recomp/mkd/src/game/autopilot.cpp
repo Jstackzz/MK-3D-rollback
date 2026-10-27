@@ -3,11 +3,13 @@
 //
 //   MKD_AUTOPILOT=versus|chess|puzzle|arcade|practice   or konquest, or a main menu action's number (0x10): those
 //                                            have no select screen, so the autopilot is done once the menu took it
-//   MKD_P1, MKD_P2=<character name or id>   who each side picks (default: what the cursor starts on); all
-//                                            characters are unlocked when either is given, or with MKD_UNLOCK_ALL=1
+//   MKD_P1, MKD_P2=<character name or id>   who each side picks (default: what the cursor starts on); every
+//                                            character, costume and arena is unlocked when either is given, or with
+//                                            MKD_UNLOCK_ALL=1 (a launcher match always)
 //   MKD_AUTOPILOT_HOLD=1                     stop at character select (for the debug monitor)
-//   MK3D_TRAINING=1                          to practice's select screen, every character unlocked; the player picks
-//                                            there (the launcher's practice: its own button, or while a search waits)
+//   MK3D_TRAINING=1                          to practice's select screen, every character, costume and arena
+//                                            unlocked; the player picks there (the launcher's practice: its own
+//                                            button, or while a search waits)
 //
 //   1. START every 0.7 s until the main menu task starts (skips movies, the title and the profile screen)
 //   2. after the menu settles (the hold point the launcher waits at), START and A in turn until the menu confirms an
@@ -20,8 +22,9 @@
 // (6 x 2 in puzzle kombat, 0x471B24 == 2; chess kombat's board game select sets 1); slot to character: 0x3F9210 +
 // slot * 0x28 (puzzle 0x3F95D0); a player record's
 // state +8 is 2 once its pick is confirmed; a character is selectable when its bit is set in the 64-bit masks at
-// 0x601E60 (0x601E68 alternates, 0x601E90 puzzle) or the built-in defaults at 0x3F8FF0. The masks are rebuilt from
-// the defaults and the profiles' own bits (sub_001726E0); only the profiles' bits are saved.
+// 0x601E60 (0x601E68 alternates, 0x601E90 puzzle) or the built-in defaults at 0x3F8FF0, an arena (sub_000406F0, which
+// the versus arena cycle sub_00040640 skips locked ones by) in 0x601E70 or 0x3E4AF0. The masks are rebuilt from the
+// defaults and the profiles' own bits (sub_001726E0); only the profiles' bits are saved.
 #include "game/autopilot.h"
 
 #include <cctype>
@@ -47,8 +50,10 @@ enum class Phase { Off, ToMenu, Settle, Hold, Choose, Select, Done };
 constexpr uint32_t kCursor[2] = {0x471B1C, 0x471B18};
 constexpr uint32_t kRecord[2] = {kP1Record, kP2Record};
 constexpr uint32_t kGrid = 0x3F9210, kChessGrid = 0x3F95D0, kGridKind = 0x471B24;
-constexpr uint32_t kUnlockMasks[] = {0x601E60, 0x601E68, 0x601E90};
-constexpr uint32_t kBuiltInCharacters = 0x3F8FF0;  // 64 bits
+// 64-bit unlock masks: characters, alternate costumes, arenas (sub_000406F0), the side modes' characters and arenas;
+// the built-in ones in the same order
+constexpr uint32_t kUnlockMasks[] = {0x601E60, 0x601E68, 0x601E70, 0x601E90, 0x601E98};
+constexpr uint32_t kBuiltIn[] = {0x3F8FF0, 0x471B28, 0x3E4AF0, 0x3F8FF8, 0x3E4AF8};
 constexpr uint32_t kNames = 0x3F89E0;  // character names, 16 bytes per character, name pointer first
 constexpr uint32_t kMenuAction = 0x46CDB8;  // the main menu task's action (0x18 none)
 constexpr uint32_t kSelectTask = 0x179A60;  // character select (arcade, versus, practice)
@@ -167,26 +172,33 @@ bool Pulse(double t, double cycle, double press) { return t - int(t / cycle) * c
 
 int SlotOf(int character);
 
-// players picking on the select screen get the characters only (an alternate costume one of them chose would have to
-// come over too; the costume flags do, ExchangePicks, but only what the game offers unlocked anyway)
 bool PlayersPick() { return g_req.by_player[0] || g_req.by_player[1]; }
 
+// Every character, alternate costume and arena, for as long as the game runs (online matches and practice): the
+// masks the checks read and the built-in ones the checks OR in and every rebuild of the masks starts from
+// (sub_001726E0), so a profile's saved unlocks (its own bits) stay its own. A costume a player picks on the select
+// screen goes to the other game with the pick (ExchangePicks).
 void Unlock() {
+    static bool told = false;  // what was open before, once: which characters, costumes and arenas this opens
+    if (!told) {
+        told = true;
+        LOGR("autopilot: built-in characters %08X%08X, costumes %08X%08X, arenas %08X%08X open before the unlock",
+             kernel::R32(kBuiltIn[0] + 4), kernel::R32(kBuiltIn[0]), kernel::R32(kBuiltIn[1] + 4),
+             kernel::R32(kBuiltIn[1]), kernel::R32(kBuiltIn[2] + 4), kernel::R32(kBuiltIn[2]));
+    }
     for (uint32_t m : kUnlockMasks) {
-        if (m == 0x601E68 && PlayersPick()) continue;  // alternates
+        kernel::W32(m, 0xFFFFFFFF);
+        kernel::W32(m + 4, 0xFFFFFFFF);
+    }
+    for (uint32_t m : kBuiltIn) {
         kernel::W32(m, 0xFFFFFFFF);
         kernel::W32(m + 4, 0xFFFFFFFF);
     }
 }
 
-// practice offers every character for as long as the game runs: the built-in ones, which every check ORs in and every
-// rebuild of the mask starts from, so a profile's saved unlocks stay its own
 void UnlockForPractice() {
-    for (uint32_t m : {kBuiltInCharacters, kUnlockMasks[0]}) {
-        kernel::W32(m, 0xFFFFFFFF);
-        kernel::W32(m + 4, 0xFFFFFFFF);
-    }
-    LOGR("autopilot: practice offers every character");
+    Unlock();
+    LOGR("autopilot: practice offers every character, costume and arena");
 }
 
 // An online match whose players pick on the select screen: this PC's player picks for their side with their own
@@ -219,7 +231,7 @@ void ExchangePicks(double t) {
         const uint32_t words[2] = {kernel::R32(kRecord[me] + kRecordCharacter), kernel::R32(kRecord[me] + kRecordCostume)};
         mk3d::net::SetLocalPick(words, 2);
         g_local_pick_sent = true;
-        LOGI("autopilot: this player picked character %u, costume flags %X", words[0], words[1]);
+        LOGR("autopilot: this player picked character %u, costume flags %X", words[0], words[1]);
     }
     if (me >= 0 && g_req.by_player[me] && !g_local_forced && !g_local_pick_sent && t > kPlayerPickTime) {
         g_local_forced = true;
@@ -235,7 +247,7 @@ void ExchangePicks(double t) {
                 g_req.characters[other] = int(words[0]);
                 g_their_costume[other] = n > 1 ? words[1] : 0;
                 g_costume_due[other] = true;
-                LOGI("autopilot: P%d picked character %u, costume flags %X", other + 1, words[0],
+                LOGR("autopilot: P%d picked character %u, costume flags %X", other + 1, words[0],
                      g_their_costume[other]);
             }
         }

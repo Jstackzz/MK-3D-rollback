@@ -24,7 +24,7 @@ async def test_lobby_create_join_ready_start(server, connect, udp_peers):
     code = lobby["id"]
     assert len(code) == 5 and lobby["locked"] and lobby["state"] == "open"
     assert lobby["members"] == [{"name": "Goro", "character": "Scorpion", "ready": False, "host": True,
-                                 "spectator": False}]
+                                 "spectator": False, "link": None, "ping": None}]
 
     listed = await guest.request({"type": "lobby_list", "game": "mkd"})
     assert [(lb["id"], lb["players"], lb["locked"]) for lb in listed["lobbies"]] == [(code, 1, True)]
@@ -115,3 +115,36 @@ async def test_host_leaving_hands_over_and_empty_lobby_closes(server, connect):
     await guest.close()
     await asyncio.sleep(0.2)
     assert code not in server.lobbies
+
+
+async def test_a_dropped_connection_gets_its_lobby_place_back(server, connect):
+    host = await connect("Goro")
+    guest = await connect("ShaoKahn")
+    code = (await host.request(create_msg()))["lobby"]["id"]
+    await guest.request({"type": "lobby_join", "lobby": code, "character": "Kenshi"})
+    await host.expect("lobby", pred=lambda m: len(m["lobby"]["members"]) == 2)
+    token = guest.account["token"]
+    await guest.close()  # the connection drops: the place is kept a while
+    await host.expect("lobby", pred=lambda m: len(m["lobby"]["members"]) == 1)
+
+    back = await connect()
+    await back.request({"type": "auth", "token": token})
+    pushed = await back.expect("lobby")
+    assert [(m["name"], m["character"], m["spectator"]) for m in pushed["lobby"]["members"]] == [
+        ("Goro", "Scorpion", False), ("ShaoKahn", "Kenshi", False)]
+    await host.expect("lobby", pred=lambda m: len(m["lobby"]["members"]) == 2)
+
+    # signing out gives the place up, and so does a grace that ran out
+    await back.request({"type": "logout"})
+    await host.expect("lobby", pred=lambda m: len(m["lobby"]["members"]) == 1)
+    again = await connect("ShaoKahn", register=False)
+    await asyncio.sleep(0.2)
+    assert [m.session.name for m in server.lobbies[code].members] == ["Goro"]
+    await again.request({"type": "lobby_join", "lobby": code})
+    server.cfg.lobby_rejoin_grace = 0.0
+    await again.close()
+    await host.expect("lobby", pred=lambda m: len(m["lobby"]["members"]) == 1)
+    await asyncio.sleep(0.05)
+    await connect("ShaoKahn", register=False)
+    await asyncio.sleep(0.2)
+    assert [m.session.name for m in server.lobbies[code].members] == ["Goro"]

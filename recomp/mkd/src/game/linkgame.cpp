@@ -22,10 +22,11 @@ constexpr uint32_t kStateSwitch = 0xE0190;  // sub_000E0190(priority, task)
 autopilot::Request g_request;
 uint32_t g_puzzle_base = 0;  // Puzzle Kombat matches finished before this one
 
-// The arena of a versus or puzzle match comes from sub_00040640, which takes the next one of a list (0x3E4D30, -1 at
-// the end) that is still locked or not, from a cycle index (0x620F44) that moves on every match: two players who
-// played a different number of matches since they started their games would load different arenas. Both set the
-// index from the match's seed instead (or to the stage the launcher names, an arena id on the list).
+// The arena of a versus or puzzle match comes from sub_00040640, which takes the next open one (sub_000406F0) of a list
+// (0x3E4D30, -1 at the end) from a cycle index (0x620F44) that moves on every match: two players who played a
+// different number of matches since they started their games would load different arenas. Both set the index from
+// the match's seed instead (or to the stage the launcher names, an arena id on the list); every arena is open in a
+// launcher match (the autopilot's Unlock), so that is the arena.
 constexpr uint32_t kArenaList = 0x3E4D30, kArenaCycle = 0x620F44;
 
 // A fight's round end (sub_00083960) ends the match once the round's winner has as many round wins as 0x5FC9A4 (the
@@ -79,6 +80,7 @@ void PickArena(uint32_t seed, const std::string& stage) {
             if (kernel::R32(kArenaList + 4 * i) == id) index = i;
     }
     kernel::W32(kArenaCycle, index);
+    LOGR("link: arena %u (place %u of %u on the list)", kernel::R32(kArenaList + 4 * index), index, n);
 }
 
 }  // namespace

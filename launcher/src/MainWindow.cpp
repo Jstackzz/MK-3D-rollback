@@ -108,6 +108,7 @@ MainWindow::MainWindow(const LaunchOptions& opts, QWidget* parent)
     pad_->onStart = [this] {
         if (auto* queue = qobject_cast<QueuePage*>(stack_->currentWidget())) queue->pressFind();
     };
+    pad_->paused = [this] { return controller_->inMatch(); };
     soloFrontTimer_.setInterval(400);
     connect(&soloFrontTimer_, &QTimer::timeout, this, [this] {
         GameProcess* solo = controller_->solo();
@@ -476,7 +477,8 @@ void MainWindow::onAccountButton() {
         QMenu menu(this);
         menu.addAction(tr("Signed in as %1").arg(server_->accountName()))->setEnabled(false);
         menu.addSeparator();
-        QAction* out = menu.addAction(tr("Sign out"));
+        QAction* out = menu.addAction(controller_->inMatch() ? tr("Sign out (after the match)") : tr("Sign out"));
+        out->setEnabled(!controller_->inMatch());
         if (menu.exec(account_->mapToGlobal(QPoint(0, account_->height()))) == out) {
             server_->logout();
             cfg::set(QStringLiteral("account/token"), QString());
@@ -833,7 +835,7 @@ void MainWindow::cliLobbyMessage(const QJsonObject& msg) {
         cliLobbyReadyFor_ = cliLobbyDone_;
         applog::write(QStringLiteral("cli: ready in lobby %1").arg(lobby.value(QStringLiteral("id")).toString()));
         server_->send({{QStringLiteral("type"), QStringLiteral("lobby_ready")}, {QStringLiteral("ready"), true},
-                       {QStringLiteral("delay"), cfg::inputDelay()}});
+                       {QStringLiteral("delay"), cfg::inputDelay()}, {QStringLiteral("relay"), cfg::hideIp()}});
     }
     if (opts_.lobby == QLatin1String("host") && all_ready && cliLobbyStarts_ == cliLobbyDone_) {
         cliLobbyStarts_++;
