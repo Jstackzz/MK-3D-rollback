@@ -79,6 +79,10 @@ whether to trust it: compare it with your host's.
   starts by itself once both games are ready. Leaving a set after one of its
   matches has counted (LEAVE SET, searching again, quitting, or not being back
   within 90 seconds) loses it: one match won and gone gains nothing.
+- Closing your game during a match (Alt+F4, or it crashes) ends the match for
+  both of you at once. In Kasual the series ends there, with no rematch; in
+  Ranked it loses you the set, whatever the score. If the connection between
+  the two games breaks instead, the match does not count and the series ends.
 - Lobby, to play someone you know: one of you presses Create lobby and gives the
   other the 5-letter code; the other presses Join code and types it. Both choose
   a fighter (or "Pick in the game") and press Ready, then the host presses START.

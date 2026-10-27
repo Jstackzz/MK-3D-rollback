@@ -217,6 +217,10 @@ QueuePage::QueuePage(bool ranked, ServerClient* server, MatchController* control
                        : tr("You lost to %1 %2 (confirmed by both players)").arg(opp, r.value(QStringLiteral("score")).toString());
         else if (status == QLatin1String("disputed"))
             text = tr("The two reports differ; the match does not count.");
+        else if (status == QLatin1String("abandoned"))
+            text = r.value(QStringLiteral("left_side")).toInt() == r.value(QStringLiteral("side")).toInt()
+                       ? tr("You left the match against %1: your game closed during it.").arg(opp)
+                       : tr("%1 left the match: their game closed or dropped out.").arg(opp);
         else
             text = tr("Match against %1 ended: %2 (does not count)").arg(opp, status.replace(QLatin1Char('_'), QLatin1Char(' ')));
         const QJsonObject eloObj = r.value(QStringLiteral("elo")).toObject().value(server_->accountName()).toObject();
@@ -450,6 +454,8 @@ QString QueuePage::seriesOverText(const QJsonObject& s) const {
         if (outcome == QLatin1String("left"))
             text = iLeft ? tr("You left the series against %1 (%2).").arg(opp, score)
                          : tr("%1 left the series (%2).").arg(opp, score);
+        else if (outcome == QLatin1String("disconnected"))
+            text = tr("The connection to %1 was lost: the series is over (%2).").arg(opp, score);
         else
             text = tr("No rematch with %1 (%2).").arg(opp, score);
     } else if (outcome == QLatin1String("won")) {

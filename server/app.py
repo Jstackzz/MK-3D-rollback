@@ -39,7 +39,10 @@ NEEDS_LOGIN = {
 }
 FEED_MAGIC = b"MKDR"
 FEED_TYPES = (5, 6, 7, 8, 9)  # the spectator feed's packet types (recomp/common/src/mk3d/netplay.cpp)
-RESULT_OUTCOMES = ("desync", "disconnected", "error")
+# a match without a result: the games parted (desync), lost each other (disconnected), the game failed (error), or
+# the reporting player's game closed while the match ran (left: they ended it)
+RESULT_OUTCOMES = ("desync", "disconnected", "error", "left")
+BROKEN_OUTCOMES = ("disconnected", "error", "left")  # the two games are no longer together: no next match
 
 
 @dataclass
@@ -59,6 +62,7 @@ class ServerConfig:
     punch_timeout: float = 10.0
     ping_report_timeout: float = 15.0
     result_timeout: float = 120.0
+    abandon_wait: float = 20.0  # after a player's game lost the other, how long the other's report may take
     max_match_seconds: float = 3600.0
     idle_timeout: float = 120.0
     tick_seconds: float = 0.5
@@ -550,6 +554,9 @@ class Server:
 
     def _tick(self, now: float) -> None:
         for m in list(self.matches.values()):
+            if m.state == "playing" and self._abandoned(m):
+                self._finalize(m, now)
+                continue
             if now < m.deadline:
                 continue
             if m.state == "found":
@@ -1228,7 +1235,7 @@ class Server:
         outcome = msg.get("outcome")
         if outcome is not None:
             if outcome not in RESULT_OUTCOMES:
-                raise P.ProtocolError("bad_request", "outcome must be desync, disconnected or error.")
+                raise P.ProtocolError("bad_request", "outcome must be desync, disconnected, error or left.")
             frame = msg.get("frame")
             report: dict[str, Any] = {"outcome": outcome,
                                       "frame": frame if isinstance(frame, int) and not isinstance(frame, bool) else None}
@@ -1248,10 +1255,29 @@ class Server:
         if s.match is m:
             s.match = None  # free to queue again while the other report is outstanding
         self._reply(s, msg, {"type": "result_ack", "match": m.id})
-        if all(pl.result is not None for pl in m.players):
-            self._finalize(m, now)
+        if all(pl.result is not None for pl in m.players) or report.get("outcome") == "left" or self._abandoned(m):
+            self._finalize(m, now)  # a player who closed their game ended the match for both, at once
+        elif report.get("outcome") in BROKEN_OUTCOMES:
+            m.deadline = min(m.deadline, now + self.cfg.abandon_wait)
         else:
             m.deadline = min(m.deadline, now + self.cfg.result_timeout)
+
+    def _abandoned(self, m: Match) -> bool:
+        """One game lost the other while that player is gone from the server too: no report will come from them."""
+        lost = any(p.result is not None and p.result.get("outcome") in BROKEN_OUTCOMES for p in m.players)
+        missing = [p for p in m.players if p.result is None]
+        return lost and len(missing) == 1 and self.by_account.get(missing[0].account_id) is None
+
+    def _fault(self, m: Match) -> MatchPlayer | None:
+        """Who ended a match that has no result: the one player whose game closed while it ran (left), or the one who
+        sent no report and is gone from the server while the other's game lost them. None when it was no one's doing
+        (the games parted or lost each other on the way, both left at once)."""
+        left = [p for p in m.players if p.result is not None and p.result.get("outcome") == "left"]
+        if len(left) == 1:
+            return left[0]
+        if not left and self._abandoned(m):
+            return next(p for p in m.players if p.result is None)
+        return None
 
     def _finalize(self, m: Match, now: float) -> None:
         assert self.db is not None
@@ -1262,6 +1288,7 @@ class Server:
         r1, r2 = p1.result, p2.result
         winner = p1_rounds = p2_rounds = None
         fields: dict[str, Any] = {"ended": now}
+        fault = None
         if r1 is None or r2 is None:
             status = "unconfirmed"
         elif "outcome" in r1 or "outcome" in r2:
@@ -1271,6 +1298,12 @@ class Server:
             winner, p1_rounds, p2_rounds = r1["winner"], r1["p1_rounds"], r1["p2_rounds"]
         else:
             status = "disputed"
+        if status in ("unconfirmed", "no_contest"):
+            fault = self._fault(m)
+            if fault is not None:
+                status = "abandoned"  # one player ended it: their series is over, a ranked set lost
+        # the two games are no longer together (one closed, they lost each other): no next match in a series
+        broken = status == "abandoned" or any(r is None or r.get("outcome") in BROKEN_OUTCOMES for r in (r1, r2))
         if status == "agreed":
             w, lose = (p1, p2) if winner == 1 else (p2, p1)
             if m.ranked:  # the match counts; Elo moves when the set ends (_end_series)
@@ -1283,12 +1316,15 @@ class Server:
         elif status == "disputed":
             log.warning("DISPUTE match=%s %s reported %s, %s reported %s; no rating change",
                         m.id, p1.name, r1, p2.name, r2)
+        elif fault is not None:
+            log.info("ABANDONED match=%s by %s (%s=%s %s=%s)", m.id, fault.name, p1.name, r1, p2.name, r2)
         else:
             log.info("%s match=%s %s=%s %s=%s; no rating change", status.upper(), m.id, p1.name, r1, p2.name, r2)
         fields["status"] = status
         self.db.update_match(m.id, **fields)
         out: dict[str, Any] = {"type": "match_result", "match": m.id, "status": status, "winner": winner,
-                               "p1_rounds": p1_rounds, "p2_rounds": p2_rounds, "ranked": m.ranked}
+                               "p1_rounds": p1_rounds, "p2_rounds": p2_rounds, "ranked": m.ranked,
+                               "left": fault.name if fault else None, "left_side": fault.side if fault else None}
         for p in m.players:
             sess = self.by_account.get(p.account_id)
             if sess is not None:
@@ -1302,7 +1338,7 @@ class Server:
             fighters = None
             if status == "agreed" and r1.get("fighters") == r2.get("fighters"):
                 fighters = r1.get("fighters")
-            self._series_after_match(m, status, winner, now, fighters)
+            self._series_after_match(m, status, winner, now, fighters, fault=fault, broken=broken)
         self._mark_online()
 
     # --- series: casual rematches, ranked sets ---------------------------------------------------
@@ -1344,13 +1380,24 @@ class Server:
         return series
 
     def _series_after_match(self, m: Match, status: str, winner: int | None, now: float,
-                            fighters: tuple[str, str] | None = None) -> None:
+                            fighters: tuple[str, str] | None = None, *, fault: MatchPlayer | None = None,
+                            broken: bool = False) -> None:
         series = m.series if m.series is not None else self._new_series(m, now)
         if series.state == "over":  # a player left it while the other's report was outstanding
             return
         series.match = None
         series.played += 1
         series.last_picks = fighters
+        if fault is not None:
+            # a player whose game closed mid-match (or who vanished) left the series: in ranked, whatever the score,
+            # that loses the set, so quitting a match never saves a player from its loss
+            sp = series.player_for(fault.account_id)
+            if sp is not None:
+                self._end_series(series, "forfeit" if series.ranked else "left", left=sp, now=now)
+                return
+        if broken:  # the two games lost each other: no next match, nothing counts
+            self._end_series(series, "void" if series.ranked else "disconnected", now=now)
+            return
         if status == "agreed" and winner in (1, 2):
             sp = series.player_for(m.players[winner - 1].account_id)
             if sp is not None:
@@ -1449,9 +1496,10 @@ class Server:
 
     def _end_series(self, series: Series, outcome: str, *, winner: SeriesPlayer | None = None,
                     left: SeriesPlayer | None = None, now: float | None = None) -> None:
-        """won (a set's winner reached its wins), forfeit (ranked: `left` left the set and loses it), left (casual),
-        timeout (casual: no rematch in time; ranked: neither game came back), void (matches kept not counting, or a
-        set was left before any of its matches counted)."""
+        """won (a set's winner reached its wins), forfeit (ranked: `left` left the set and loses it, or closed their
+        game during a match of it), left (casual, the same), timeout (casual: no rematch in time; ranked: neither
+        game came back), void (matches kept not counting, a set was left before any of its matches counted, or the
+        two games lost each other), disconnected (casual: the two games lost each other)."""
         if series.state == "over":
             return
         assert self.db is not None

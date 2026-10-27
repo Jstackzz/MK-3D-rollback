@@ -214,3 +214,53 @@ async def test_casual_rematch_offer_runs_out(server, connect, udp_peers):
     assert over["outcome"] == "timeout" and over["winner"] is None
     # free to search again
     assert (await c1.request(queue_msg()))["type"] == "queued"
+
+
+async def test_closing_the_game_mid_match_ends_a_casual_series(server, connect, udp_peers):
+    sides, gos = await first_match(server, connect, udp_peers, ["BoRai", "Kotal"], ranked=False)
+    (c1, _), (c2, _) = sides[1], sides[2]
+    p1 = gos[1]["p1_name"]
+    match = gos[1]["match"]
+    # P1's game closes during the match: the match ends for both at once, no rematch is offered
+    await c1.request({"type": "result", "match": match, "outcome": "left"})
+    for c in (c1, c2):
+        res = await c.expect("match_result", match=match)
+        assert res["status"] == "abandoned" and res["left"] == p1 and res["left_side"] == 1
+        over = await c.expect("series", state="over")
+        assert over["outcome"] == "left" and over["left"] == p1
+    # the other game's late report changes nothing
+    ack = await c2.request({"type": "result", "match": match, "outcome": "disconnected"})
+    assert ack["type"] == "result_ack"
+
+
+async def test_closing_the_game_mid_match_loses_a_ranked_set_even_at_nil(server, connect, udp_peers):
+    sides, gos = await first_match(server, connect, udp_peers, ["Kai", "Sareena"], ranked=True)
+    (c1, _), (c2, _) = sides[1], sides[2]
+    p1, p2 = gos[1]["p1_name"], gos[1]["p2_name"]
+    await c2.request({"type": "result", "match": gos[1]["match"], "outcome": "left"})
+    over = await c1.expect("series", state="over")
+    assert over["outcome"] == "forfeit" and over["left"] == p2 and over["winner"] == p1
+    assert over["elo"][p1]["delta"] == 16 and over["elo"][p2]["delta"] == -16
+
+
+async def test_a_player_who_vanishes_mid_match_loses_the_set(server, connect, udp_peers):
+    sides, gos = await first_match(server, connect, udp_peers, ["Frost", "Sektor"], ranked=True)
+    (c1, _), (c2, _) = sides[1], sides[2]
+    p1, p2 = gos[1]["p1_name"], gos[1]["p2_name"]
+    s1, _ = await play(c1, c2, gos[1]["match"], 2)  # P2 leads 1-0
+    gos = await next_match(server, sides, s1["series"])
+    await c2.close()  # P2's launcher goes away during the next match
+    await c1.request({"type": "result", "match": gos[1]["match"], "outcome": "disconnected"})
+    over = await c1.expect("series", state="over", timeout=3)
+    assert over["outcome"] == "forfeit" and over["left"] == p2 and over["winner"] == p1
+
+
+async def test_games_that_lose_each_other_end_the_series(server, connect, udp_peers):
+    sides, gos = await first_match(server, connect, udp_peers, ["Jax", "Sonya"], ranked=False)
+    (c1, _), (c2, _) = sides[1], sides[2]
+    for c in (c1, c2):
+        await c.request({"type": "result", "match": gos[1]["match"], "outcome": "disconnected"})
+    res = await c1.expect("match_result", match=gos[1]["match"])
+    assert res["status"] == "no_contest" and res["left"] is None
+    over = await c1.expect("series", state="over")
+    assert over["outcome"] == "disconnected" and over["left"] is None

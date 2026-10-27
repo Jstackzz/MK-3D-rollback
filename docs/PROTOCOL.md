@@ -288,9 +288,10 @@ Both launchers report what their game wrote to `status.txt`:
 C: {"type":"result","match":"5f2c9a01d4e3","winner":1,"p1_rounds":2,"p2_rounds":1,"p1_char":"12","p2_char":"7"}
 C: {"type":"result","match":"5f2c9a01d4e3","outcome":"desync","frame":1234}
 C: {"type":"result","match":"5f2c9a01d4e3","outcome":"disconnected"}
+C: {"type":"result","match":"5f2c9a01d4e3","outcome":"left"}
 S: {"type":"result_ack","match":"5f2c9a01d4e3"}
 S: {"type":"match_result","match":"5f2c9a01d4e3","status":"agreed","winner":1,
-    "p1_rounds":2,"p2_rounds":1,"ranked":true}
+    "p1_rounds":2,"p2_rounds":1,"ranked":true,"left":null,"left_side":null}
 ```
 
 - **Agree** (same `winner`, `p1_rounds`, `p2_rounds`): status `agreed`; the
@@ -305,8 +306,18 @@ S: {"type":"match_result","match":"5f2c9a01d4e3","status":"agreed","winner":1,
   database and the server logs a `DISPUTE` line.
 - **Desync or disconnect** reports: status `no_contest`; nothing changes;
   logged.
-- **Only one report** within 120 s of the first: status `unconfirmed`;
-  nothing changes; logged. (v1 has no disconnect penalty.)
+- **Only one report** within 120 s of the first (20 s when it says the games
+  lost each other: `disconnected` or `error`): status `unconfirmed`; nothing
+  changes; logged.
+- **Left**: a launcher reports `left` when its own game closed while the
+  match ran (Alt+F4, a crash, its window closed). The match ends for both at
+  once: status `abandoned`, `left` / `left_side` naming that player. A
+  player who sent no report and is gone from the server while the other's
+  game lost them (`disconnected`) left it too. A series ends with it (1.9.1):
+  a Kasual series without a rematch, a ranked set lost by the one who left,
+  whatever its score. Two games that lost each other with neither at fault
+  (`no_contest` with `disconnected` or `error`, `unconfirmed`) end their
+  series too, with no result. A desync does not end a series.
 - Lobby matches count as casual. After any final status the lobby returns to
   `open` and both players' `ready` flags are cleared.
 

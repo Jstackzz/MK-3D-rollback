@@ -164,6 +164,9 @@ Stats g_stats;
 std::mutex g_pending_lock;
 std::optional<Settings> g_pending;
 bool g_pending_close = false;
+// the launcher ended the match (Disable while it runs: the other player left it, the server says): what waits for the
+// other game gives up at once instead of after its timeout
+std::atomic<bool> g_abort{false};
 
 void SetStatus(Status st) { g_status = int(st); }
 
@@ -307,8 +310,16 @@ void Unsettle() {
     g_settled = false;
 }
 
+bool InSync();
+void FeedEnd(uint32_t frame, uint8_t how);
+
 void CloseNow() {
+    if (InSync()) {  // the launcher ended the match while it ran (the other player left it): spectators stop there too
+        LOGR("netplay: the match in sync was ended at frame %u", g_frame);
+        FeedEnd(g_frame, 1);
+    }
     StopRollback();
+    g_abort = false;
     FeedFlushAndClose();
     if (g_sock != INVALID_SOCKET) closesocket(g_sock);
     g_sock = INVALID_SOCKET;
@@ -999,7 +1010,7 @@ void WatchMeet(X86Context& ctx) {
     auto t0 = Clock::now();
     while (!g_watch[0].meet_in || !g_watch[1].meet_in) {
         Receive();
-        if (Clock::now() - t0 > std::chrono::seconds(120)) {
+        if (g_abort || Clock::now() - t0 > std::chrono::seconds(120)) {
             LOGE("netplay: the players never reached the match");
             g_phase = Phase::Local;
             SetStatus(Status::Disconnected);
@@ -1044,7 +1055,7 @@ void MeetBeforeSetup(X86Context& ctx) {
             last = Clock::now();
         }
         Receive();
-        if (Clock::now() - t0 > std::chrono::seconds(60)) {
+        if (g_abort || Clock::now() - t0 > std::chrono::seconds(60)) {
             LOGE("netplay: the other game never reached the match, playing on alone");
             g_phase = Phase::Local;
             SetStatus(Status::Disconnected);
@@ -1128,8 +1139,8 @@ bool Throttle(uint32_t next) {
             LOGW("netplay: frame %u waits for the other game's inputs from frame %u", next, g_confirmed);
             warned = true;
         }
-        if (now - t0 > std::chrono::seconds(15)) {
-            Leave("the other game stopped sending", Status::Disconnected);
+        if (g_abort || now - t0 > std::chrono::seconds(15)) {
+            Leave(g_abort ? "the match was ended" : "the other game stopped sending", Status::Disconnected);
             return false;
         }
         std::this_thread::sleep_for(std::chrono::microseconds(500));
@@ -1186,8 +1197,8 @@ bool WaitForRealInput(uint32_t next) {
             SendInputs();
             last_send = now;
         }
-        if (now - t0 > std::chrono::seconds(15)) {
-            Leave("the other game stopped sending", Status::Disconnected);
+        if (g_abort || now - t0 > std::chrono::seconds(15)) {
+            Leave(g_abort ? "the match was ended" : "the other game stopped sending", Status::Disconnected);
             return false;
         }
         std::this_thread::sleep_for(std::chrono::microseconds(500));
@@ -1402,8 +1413,8 @@ void LockstepPads() {
             LOGW("netplay: waiting for the other game's input of frame %u", g_frame);
             warned = true;
         }
-        if (now - t0 > std::chrono::seconds(15)) {
-            Leave("the other game stopped sending", Status::Disconnected);
+        if (g_abort || now - t0 > std::chrono::seconds(15)) {
+            Leave(g_abort ? "the match was ended" : "the other game stopped sending", Status::Disconnected);
             return;
         }
         std::this_thread::sleep_for(std::chrono::microseconds(500));
@@ -1464,8 +1475,8 @@ bool WaitForFeed(uint32_t f) {
                  g_watch[0].contiguous, g_watch[1].contiguous);
             warned = true;
         }
-        if (now - t0 > std::chrono::seconds(30)) {
-            Leave("the players' inputs stopped coming", Status::Disconnected);
+        if (g_abort || now - t0 > std::chrono::seconds(30)) {
+            Leave(g_abort ? "the match was ended" : "the players' inputs stopped coming", Status::Disconnected);
             return false;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -1606,6 +1617,7 @@ bool Enabled() { return g_status.load() != int(Status::Off); }
 
 void Configure(const Settings& st) {
     ClearPicks();
+    g_abort = false;
     std::lock_guard<std::mutex> lock(g_pending_lock);
     g_pending_close = false;
     g_pending = st;
@@ -1638,6 +1650,7 @@ bool WatchPick(int side, uint32_t* words, int& n) {
 }
 
 void Disable() {
+    g_abort = true;  // a frame waiting for the other game stops waiting
     std::lock_guard<std::mutex> lock(g_pending_lock);
     g_pending.reset();
     g_pending_close = true;

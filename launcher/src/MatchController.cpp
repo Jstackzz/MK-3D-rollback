@@ -722,7 +722,10 @@ void MatchController::onGameStatus(const QString& line) {
     } else if (st == QLatin1String("disconnected") && inOnline && forThisMatch) {
         reportResult({{QStringLiteral("outcome"), QStringLiteral("disconnected")}});
     } else if (st == QLatin1String("error") && inOnline) {
-        reportResult({{QStringLiteral("outcome"), QStringLiteral("error")}});
+        // "error exited": GameProcess's word for a game that closed by itself (Alt+F4, a crash), which ends the match
+        // for both: the player left it (onGameExited)
+        reportResult({{QStringLiteral("outcome"),
+                       line.startsWith(QLatin1String("error exited")) ? QStringLiteral("left") : QStringLiteral("error")}});
     }
 }
 
@@ -738,7 +741,9 @@ void MatchController::onGameExited() {
         break;
     case Phase::Starting:
     case Phase::Playing:
-        reportResult({{QStringLiteral("outcome"), QStringLiteral("error")}});
+        // the player closed their game (or it crashed) during the match: they left it, which ends the series (and
+        // loses a ranked set) instead of offering a rematch
+        reportResult({{QStringLiteral("outcome"), QStringLiteral("left")}});
         break;
     case Phase::Finishing:
         finishTimeout_.stop();

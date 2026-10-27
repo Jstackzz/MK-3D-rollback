@@ -40,6 +40,8 @@ param(
     [switch]$Watch,              # lobby: C watches it (a spectator)
     [int]$WatchDelay = 0,        # seconds after B before C starts (a spectator who comes in late)
     [string]$DeathTraps = '',    # on / off: the death traps the host's lobby (or A's search) asks for
+    [int]$QuitA = 0,             # seconds into A's first match before A's game is closed, as Alt+F4 would (the
+                                 # match ends for both at once: a Kasual series without a rematch, a ranked set lost)
     [int]$Port = 7777            # the server's TCP port (UDP Port + 1), the games' Port + 10 and + 11; the work folder
                                  # is build\online-e2e (build\online-e2e-<Port> for another port), so runs side by side
                                  # need their own
@@ -132,6 +134,8 @@ $t0 = Get-Date
 $seen = @{}
 $results = 0
 $watched = 0
+$inMatchA = $null
+$quit = $false
 while (((Get-Date) - $t0).TotalSeconds -lt $Seconds) {
     foreach ($s in Get-ChildItem -Path "$work\a\sessions", "$work\b\sessions", "$work\c\sessions" -Directory -ErrorAction SilentlyContinue) {
         $f = Join-Path $s.FullName 'status.txt'
@@ -143,7 +147,14 @@ while (((Get-Date) - $t0).TotalSeconds -lt $Seconds) {
             "{0,6:N1}s {1}: {2}" -f ((Get-Date) - $t0).TotalSeconds, $key, $line
             if ($line -like 'result*' -and $key -like 'c/*') { $watched++ }
             elseif ($line -like 'result*') { $results++ }
+            if ($line -like 'in_match*' -and $key -like 'a/*' -and -not $inMatchA) { $inMatchA = Get-Date }
         }
+    }
+    if ($QuitA -gt 0 -and $inMatchA -and -not $quit -and ((Get-Date) - $inMatchA).TotalSeconds -ge $QuitA) {
+        $quit = $true
+        $gameA = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.ParentProcessId -eq $la.Id })
+        foreach ($g in $gameA) { Stop-Process -Id $g.ProcessId -Force -ErrorAction SilentlyContinue }
+        "{0,6:N1}s A's game closed (pid {1}), as Alt+F4 would" -f ((Get-Date) - $t0).TotalSeconds, (($gameA | ForEach-Object { $_.ProcessId }) -join ' ')
     }
     # the server's RESULT lines count the matches done (a game's result status can last less than a poll); a ranked
     # set is done when the server closes it
@@ -151,6 +162,7 @@ while (((Get-Date) - $t0).TotalSeconds -lt $Seconds) {
     $done = @($serverLog | Select-String -Pattern 'RESULT match=').Count
     $finished = if ($Queue -eq 'ranked') { @($serverLog | Select-String -Pattern 'SET \S+ over').Count -ge 1 }
                 else { $results -ge 2 * $Matches -or $done -ge $Matches }
+    if ($QuitA -gt 0) { $finished = @($serverLog | Select-String -Pattern 'ABANDONED match=').Count -ge 1 }
     if ($Watch) { $finished = $finished -and $watched -ge $Matches }  # the spectator runs behind the players
     if ($finished) { Start-Sleep -Seconds 12; break }
     Start-Sleep -Milliseconds 250

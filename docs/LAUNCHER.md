@@ -352,8 +352,9 @@ while the server runs (WAL mode).
   server's relay (PROTOCOL.md 2.4, 2.5). No NAT-PMP / PCP; IPv4 only. A
   relayed match costs the detour through the server in delay.
 - Results are self-reported: agreement counts, disagreement voids the match,
-  a single report counts for nothing. There is no disconnect or rage-quit
-  penalty, and two colluding accounts can trade wins.
+  a single report counts for nothing, and two colluding accounts can trade
+  wins. Closing the game during a match loses a ranked set (PROTOCOL.md 1.9);
+  a network failure between the two games voids the match.
 - Elo per game and mode (K = 32), no per-character ratings, seasons, rank
   tiers or match history page; the launcher shows the top 100.
 - Lobbies hold two players and up to eight spectators; no replays, blocks or
