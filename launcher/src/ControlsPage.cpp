@@ -88,6 +88,12 @@ QString keyText(const QList<int>& keys, int slot) {
     return slot < keys.size() ? controls::keyLabel(keys[slot]) : QStringLiteral("—");
 }
 
+// the buttons in the order a player thinks of them: moving, attacks 1 to 4, block, stance change, throw, the rest
+using namespace controls;
+constexpr Control kOrder[] = {Up,           Down,        Left,  Right, X,     Y,    A,         B,
+                              RightTrigger, LeftTrigger, Black, White, Start, Back, LeftThumb, RightThumb};
+static_assert(std::size(kOrder) == Count);
+
 }  // namespace
 
 ControlsPage::ControlsPage(QWidget* parent) : Page(parent) {
@@ -119,19 +125,20 @@ ControlsPage::ControlsPage(QWidget* parent) : Page(parent) {
     auto* keyGrid = new QGridLayout;
     keyGrid->setHorizontalSpacing(10);
     keyGrid->setVerticalSpacing(4);
-    keyGrid->addWidget(ui::label(tr("Xbox button"), "Muted"), 0, 0);
+    keyGrid->addWidget(ui::label(tr("In the game (Xbox button)"), "Muted"), 0, 0);
     keyGrid->addWidget(ui::label(tr("Key"), "Muted"), 0, 1);
     keyGrid->addWidget(ui::label(tr("Second key"), "Muted"), 0, 2);
-    for (int c = 0; c < Count; ++c) {
-        keyGrid->addWidget(new QLabel(controlLabel(c)), c + 1, 0);
+    for (int row = 0; row < Count; ++row) {
+        const int c = kOrder[row];
+        names_[c] = new QLabel;
+        keyGrid->addWidget(names_[c], row + 1, 0);
         for (int slot = 0; slot < kKeysPerButton; ++slot) {
             auto* b = new QPushButton;
             b->setMinimumWidth(130);
             b->setCursor(Qt::PointingHandCursor);
-            b->setToolTip(tr("Click, then press the key for %1").arg(controlLabel(c)));
             connect(b, &QPushButton::clicked, this, [this, c, slot] { pickKey(c, slot); });
             keyButtons_[c][slot] = b;
-            keyGrid->addWidget(b, c + 1, slot + 1);
+            keyGrid->addWidget(b, row + 1, slot + 1);
         }
     }
     keyGrid->setColumnStretch(0, 1);
@@ -162,12 +169,12 @@ ControlsPage::ControlsPage(QWidget* parent) : Page(parent) {
     padGrid->addWidget(ui::label(tr("Presses"), "Muted"), 0, 1);
     const QList<Source>& all = sources();
     for (int i = 0; i < all.size(); ++i) {
-        auto* name = new QLabel(all[i].label);
-        name->setToolTip(all[i].hint);
+        auto* button = new QLabel(all[i].label);
+        button->setToolTip(all[i].hint);
         auto* box = new QComboBox;
         box->setMinimumWidth(170);
         box->addItem(tr("Nothing"), -1);
-        for (int c = 0; c < Count; ++c) box->addItem(controlLabel(c), c);
+        for (int c : kOrder) box->addItem(name(c), c);
         box->setToolTip(all[i].hint);
         connect(box, &QComboBox::currentIndexChanged, this, [this, i, box] {
             map_.presses[i] = box->currentData().toInt();
@@ -175,7 +182,7 @@ ControlsPage::ControlsPage(QWidget* parent) : Page(parent) {
             showMap();
         });
         pressBoxes_ << box;
-        padGrid->addWidget(name, i + 1, 0);
+        padGrid->addWidget(button, i + 1, 0);
         padGrid->addWidget(box, i + 1, 1);
     }
     padGrid->setColumnStretch(0, 1);
@@ -191,9 +198,11 @@ ControlsPage::ControlsPage(QWidget* parent) : Page(parent) {
     pv->addStretch();
     columns->addWidget(padBox, 1);
 
-    auto* game = ui::label(tr("Which button punches, kicks or blocks is set in each game's own controller options. "
-                              "Deadly Alliance and Deception keep yours online; Armageddon plays online matches with "
-                              "its default layout, so change what your buttons press here instead."), "Muted");
+    auto* game = ui::label(tr("What a button does is the game's default layout, as on the Xbox: X, Y, A and B are "
+                              "attacks 1 to 4, the right trigger blocks, the left trigger changes stance, Black throws. "
+                              "Each game's own controller options can move them: Deadly Alliance and Deception keep "
+                              "yours online; Armageddon plays online matches with its default layout, so change what "
+                              "your buttons press here instead."), "Muted");
     game->setWordWrap(true);
     root->addWidget(game);
     status_ = ui::label(QString(), "Muted");
@@ -223,7 +232,26 @@ ControlsPage::ControlsPage(QWidget* parent) : Page(parent) {
     });
 
     map_ = load();
+    relabel();
     showMap();
+}
+
+void ControlsPage::setGame(const QString& gameId) {
+    Page::setGame(gameId);
+    relabel();
+    showMap();
+}
+
+void ControlsPage::relabel() {
+    using namespace controls;
+    for (int c = 0; c < Count; ++c) {
+        names_[c]->setText(name(c));
+        for (QPushButton* b : keyButtons_[c]) b->setToolTip(tr("Click, then press the key for %1").arg(name(c)));
+    }
+    for (QComboBox* box : std::as_const(pressBoxes_)) {
+        const QSignalBlocker block(box);
+        for (int c = 0; c < Count; ++c) box->setItemText(box->findData(c), name(c));
+    }
 }
 
 void ControlsPage::showEvent(QShowEvent* event) {
@@ -247,8 +275,8 @@ void ControlsPage::showMap() {
             b->setEnabled(map_.keyboard && slot <= map_.keys[c].size());
         }
     QStringList unpressed;
-    for (int c = 0; c < Count; ++c)
-        if (!map_.presses.contains(c)) unpressed << controlLabel(c);
+    for (int c : kOrder)
+        if (!map_.presses.contains(c)) unpressed << name(c);
     for (int i = 0; i < pressBoxes_.size(); ++i) {
         const QSignalBlocker block(pressBoxes_[i]);
         pressBoxes_[i]->setCurrentIndex(qMax(0, pressBoxes_[i]->findData(map_.presses.value(i, -1))));
@@ -261,7 +289,7 @@ void ControlsPage::showMap() {
 void ControlsPage::pickKey(int control, int slot) {
     using namespace controls;
     const QList<int>& before = map_.keys[control];
-    KeyDialog dlg(controlLabel(control), slot < before.size() ? keyLabel(before[slot]) : QString(), this);
+    KeyDialog dlg(name(control), slot < before.size() ? keyLabel(before[slot]) : QString(), this);
     winutil::useDarkTitleBar(&dlg);
     const int result = dlg.exec();
     QList<int>& keys = map_.keys[control];
@@ -269,14 +297,14 @@ void ControlsPage::pickKey(int control, int slot) {
         if (slot < keys.size()) keys.removeAt(slot);
         store();
         showMap();
-        say(tr("%1 has one key less.").arg(controlLabel(control)));
+        say(tr("%1 has one key less.").arg(name(control)));
         return;
     }
     if (result != QDialog::Accepted) return;
     const int vk = dlg.key();
     QString tookFrom;
     for (int c = 0; c < Count; ++c)
-        if (c != control && map_.keys[c].removeAll(vk) > 0) tookFrom = controlLabel(c);
+        if (c != control && map_.keys[c].removeAll(vk) > 0) tookFrom = name(c);
     const int at = qMin(slot, int(keys.size()));
     if (at < keys.size()) keys[at] = vk;
     else keys.append(vk);
@@ -287,8 +315,8 @@ void ControlsPage::pickKey(int control, int slot) {
         }
     store();
     showMap();
-    if (tookFrom.isEmpty()) say(tr("%1 presses %2.").arg(keyLabel(vk), controlLabel(control)));
-    else say(tr("%1 presses %2 now, no longer %3.").arg(keyLabel(vk), controlLabel(control), tookFrom));
+    if (tookFrom.isEmpty()) say(tr("%1 presses %2.").arg(keyLabel(vk), name(control)));
+    else say(tr("%1 presses %2 now, no longer %3.").arg(keyLabel(vk), name(control), tookFrom));
 }
 
 void ControlsPage::store() {

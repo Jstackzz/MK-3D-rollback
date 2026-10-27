@@ -171,8 +171,11 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    server: a player's game writes to a TCP port of the launcher's on
    127.0.0.1, a spectator's reads from one). *Play* takes a free place again.
 6. **Single player**: *PLAY* starts the game plainly (no `MK3D_NET`), so it
-   runs its own menus as on the console, its practice mode included; *Close
-   the game* closes its window as the player would. One game runs at a time,
+   runs its own menus as on the console, its practice mode included;
+   *PRACTICE* starts it with `MK3D_TRAINING=1` (below), straight to practice's
+   character select with every fighter unlocked (each game's autopilot sets
+   the built-in roster, which every unlock check ORs in and nothing saves);
+   *Close the game* closes its window as the player would. One game runs at a time,
    but a queue search can run alongside it (standby): no match game boots
    while it is open (one that was waiting is frozen), the match-found prompt
    comes up over it, and accepting freezes it (`winutil::freezeProcess`: its
@@ -206,7 +209,11 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    (two at most; click one and press the new key, Esc cancels, *No key*
    clears it; a key given to another button leaves the one that had it) and
    what each button of a PC controller presses, named by where it sits (the
-   bottom face button is Xbox A, PlayStation cross, Switch B). Saved at each
+   bottom face button is Xbox A, PlayStation cross, Switch B). The Xbox
+   buttons are named by what they do in the selected game's default layout,
+   then the button (`controls::controlText`: "Attack 1 (X)", "Block (Right
+   trigger)", Deadly Alliance's "Throw / special (Black button)"), listed
+   moves, attacks 1 to 4, block, stance change, throw, the rest. Saved at each
    change to `controls.toml` beside the settings file; the launcher hands its
    path to every game it starts (`XBE_CONTROLS`), and a running game reads it
    again within a second (runtime patch 0016). Without the file the games keep
@@ -244,6 +251,34 @@ shows gold (`Style.cpp`). `MK3D_PAD_ANY_WINDOW=1` takes any active launcher
 window as in front, for tests on Qt's offscreen platform with an SDL virtual
 gamepad.
 
+**Updates** (from 0.1.7, `src/Updater.cpp`). The server names the latest
+release (PROTOCOL.md 1.3: `welcome.update`, an `update` push, the
+`client_outdated` reply): a player package offers it in a window (UPDATE NOW,
+LATER, the notes and a link to the release page; after LATER a footer button
+brings it back), every time when the server turns this launcher away. UPDATE
+NOW downloads the zip into `update\` beside the launcher, checks its size and
+SHA-256 against the server's (whose certificate is pinned; the download host is
+not trusted), unpacks it with Windows' `tar` (PowerShell's `Expand-Archive` if
+that fails) and checks its `VERSION.txt`. It goes in once nothing uses the
+games: no match, search or watched match, no single-player game open (the game
+waiting at its hold point is closed). Each file the release has is renamed to
+`<name>.mk3d-old` (a running program's file can be renamed, not replaced) and
+the new one moved in; a failure moves every file back and says which file
+stopped it. Then the new launcher starts with `--updated <old version>
+--config <the same settings>` and this one closes; the new one waits for the
+settings' instance lock, says what it is now, and deletes the files listed in
+`update\old-files.txt` once they are free (at every start, retried for 20 s
+after an update). Only the release's files change: settings, saves, sessions,
+the disc images and the games' built code stay, and each game rebuilds its
+code on its next start (its own window, then Start). A source build, or a
+folder the launcher cannot write to, only links to the release page.
+
+Making a release that installs itself: `tools\package.ps1 -Build`, publish
+the zip on GitHub as `MK3D-Online-<version>-windows.zip` under the tag
+`v<version>`, then `tools\deploy-server.ps1 ... -Release <the zip> -Notes "..."`
+(add `-ReleaseOnly` to leave the server running as it is): it checks that the
+link serves that zip and writes the server's `update.json`.
+
 ### Without the game
 
 Until the game side of PROTOCOL.md section 3 lands in `recomp/`, point a
@@ -272,6 +307,8 @@ Command-line options for development and automation:
 | `--page ranked\|casual\|lobby\|single\|leaderboard\|build\|controls\|settings` | start page (`practice`, its old name, opens `single`) |
 | `--local-test` | start the two-instance loopback test |
 | `--extract <image>` | open *Build game* and extract that image |
+| `--auto-update` | install an update the server offers at once, without asking (tests) |
+| `--updated <version>` | given by an update to the launcher it starts: wait for the old one to close, then delete what it set aside |
 
 A complete local round trip: start a server on 127.0.0.1, run the launcher
 with `--user tester1 --register --queue casual --auto-accept 3` and the stand-in
@@ -370,7 +407,8 @@ while the server runs (WAL mode).
 - *Build game* extracts the disc and starts the game once; it does not check
   the disc's XBE identity and does not run the recompiler/compiler pipeline
   (the executable must come from the `recomp/` build).
-- The launcher is Windows only, not code-signed, has no auto-update, and does
+- The launcher is Windows only and not code-signed (Windows warns about it at
+  first start), updates itself only from 0.1.7 on (Updates, above), and does
   not clean up old `sessions\` folders. Binding the game port on all
   interfaces makes Windows Firewall ask once whether the launcher may accept
   connections; allow it for private (and, if you play over the internet,

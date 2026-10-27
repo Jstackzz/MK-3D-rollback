@@ -85,8 +85,8 @@ private:
     QString chosen_;  // "rematch" or "select" pressed, not seen by the server yet (sent once the game is ready)
 };
 
-// the whole game with its own menus (arcade, its practice mode, the side modes), and in a source build the two-game
-// local test
+// the whole game with its own menus (arcade, its practice mode, the side modes), straight to practice with every
+// fighter unlocked, and in a source build the two-game local test
 class SinglePlayerPage : public Page {
     Q_OBJECT
 public:
@@ -99,6 +99,7 @@ private:
     MatchController* controller_;
     QLabel* title_;
     QPushButton* play_;
+    QPushButton* practice_;
     QPushButton* close_;
     QComboBox* testMode_;
     QComboBox* testP1_;

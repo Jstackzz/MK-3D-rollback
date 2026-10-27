@@ -1,6 +1,7 @@
 """Queue pairing rules (pure functions, unit-tested without sockets).
 
-Casual: first come, first served within region and ping limits.
+Casual: first come, first served within region and ping limits, among the searches that chose
+the same death traps.
 Ranked: additionally an Elo window that widens with waiting time; the longest-waiting player
 gets the closest-rated compatible partner.
 """
@@ -28,15 +29,22 @@ class QueueEntry:
     elo: int = 1500
     public_ip: str | None = None
     server_rtt: int | None = None  # client's UDP round trip to the server, ms
-    death_traps: bool = True  # the arenas' death traps; a casual match has them only when both want them, ranked never
+    death_traps: bool = True  # the arenas' death traps the player wants (ranked never has them)
 
     @property
-    def key(self) -> tuple[str, str, bool]:
-        return (self.game, self.mode, self.ranked)
+    def traps(self) -> bool:
+        """The death traps a match from this search has: the player's choice in casual, never in ranked."""
+        return self.death_traps and not self.ranked
+
+    @property
+    def key(self) -> tuple[str, str, bool, bool]:
+        # a casual search meets only the searches that chose the same death traps
+        return (self.game, self.mode, self.ranked, self.traps)
 
     @property
     def queue_name(self) -> str:
-        return f"{self.game}/{self.mode}/{'ranked' if self.ranked else 'casual'}"
+        name = f"{self.game}/{self.mode}/{'ranked' if self.ranked else 'casual'}"
+        return name if self.ranked or self.death_traps else name + "/no-traps"
 
 
 @dataclass(slots=True)

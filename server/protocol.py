@@ -79,6 +79,37 @@ def version_at_least(version: str, minimum: str) -> bool:
     return a + (0,) * (width - len(a)) >= b + (0,) * (width - len(b))
 
 
+# where a launcher too old for the server is sent when no update file names a release
+RELEASES_PAGE = "https://github.com/Jstackzz/MK-3D-rollback/releases/latest"
+
+
+def download_link(url: Any) -> bool:
+    """A link launchers may download from: https, or plain http to this PC (development)."""
+    return isinstance(url, str) and len(url) <= 500 and (
+        url.startswith("https://") or re.match(r"http://(127\.0\.0\.1|localhost)(:\d+)?/", url) is not None)
+
+
+def parse_update(data: Any) -> dict[str, Any]:
+    """The release launchers are offered (the server's update file); ValueError says what is wrong with it."""
+    if not isinstance(data, dict):
+        raise ValueError("not a JSON object")
+    version, url, sha256, size = data.get("version"), data.get("url"), data.get("sha256"), data.get("size")
+    notes, page = data.get("notes", ""), data.get("page", RELEASES_PAGE)
+    if not isinstance(version, str) or not re.fullmatch(r"\d+(\.\d+)*", version):
+        raise ValueError("version must look like 0.1.8")
+    if not download_link(url):
+        raise ValueError("url must be an https:// link to the release's zip")
+    if not isinstance(sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", sha256):
+        raise ValueError("sha256 must be the zip's SHA-256, 64 lowercase hex digits")
+    if isinstance(size, bool) or not isinstance(size, int) or not 0 < size <= 1 << 30:
+        raise ValueError("size must be the zip's size in bytes")
+    if not isinstance(notes, str) or len(notes) > 2000:
+        raise ValueError("notes must be text, 2000 characters at most")
+    if not download_link(page):
+        raise ValueError("page must be an https:// link")
+    return {"version": version, "url": url, "sha256": sha256, "size": size, "notes": notes, "page": page}
+
+
 def format_endpoint(addr: tuple[str, int] | None) -> str:
     if not addr:
         return ""

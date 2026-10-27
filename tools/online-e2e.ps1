@@ -39,7 +39,8 @@ param(
     [switch]$MixedPicks,         # with -PickInGame: only A picks in the game, B's launcher picks CharB
     [switch]$Watch,              # lobby: C watches it (a spectator)
     [int]$WatchDelay = 0,        # seconds after B before C starts (a spectator who comes in late)
-    [string]$DeathTraps = '',    # on / off: the death traps the host's lobby (or A's search) asks for
+    [string]$DeathTraps = '',    # on / off: the death traps the host's lobby (or both searches: a casual search
+                                 # meets only the same choice) asks for
     [int]$QuitA = 0,             # seconds into A's first match before A's game is closed, as Alt+F4 would (the
                                  # match ends for both at once: a Kasual series without a rematch, a ranked set lost)
     [int]$Port = 7777            # the server's TCP port (UDP Port + 1), the games' Port + 10 and + 11; the work folder
@@ -121,6 +122,7 @@ $la = Start-Process -FilePath $launcher -ArgumentList (@('--config', "`"$work\a\
 Start-Sleep -Seconds ([Math]::Max(1, $DelayB))
 Set-Item "env:${x}_INPUT" $InputB
 $how = if ($Queue -eq 'lobby') { @('--lobby', 'join', '--lobby-name', "e2e$stamp", '--lobby-matches', "$Matches") } else { $queueArgs }
+if ($DeathTraps -and $Queue -ne 'lobby') { $how += @('--death-traps', $DeathTraps) }
 $lb = Start-Process -FilePath $launcher -ArgumentList (@('--config', "`"$work\b\mk3d-launcher.ini`"", '--user', "e2eB$stamp", '--register') + $how + @('--game', $Game, '--mode', $Mode, '--character', $CharB, '--auto-accept', '3')) -PassThru
 $lc = $null
 if ($Watch) {

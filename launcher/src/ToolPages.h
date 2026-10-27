@@ -29,6 +29,10 @@ public:
     ~BuildPage() override;
     void setGame(const QString& gameId) override;
     void extractImage(const QString& path);  // fill in the image and start, as if Extract was clicked
+    bool busy() const { return step_ != Step::Idle; }  // extracting a disc or building a game
+
+signals:
+    void busyChanged(bool busy);
 
 private:
     enum class Step { Idle, Reading, Extracting, Compiling };

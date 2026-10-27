@@ -41,6 +41,7 @@ qt_add_executable(MK3DLauncher WIN32
     src/ControlsPage.cpp src/ControlsPage.h
     src/Xiso.cpp src/Xiso.h
     src/Upnp.cpp src/Upnp.h
+    src/Updater.cpp src/Updater.h
     src/MainWindow.cpp src/MainWindow.h
 )
 

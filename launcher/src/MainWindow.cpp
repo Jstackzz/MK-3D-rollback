@@ -30,6 +30,7 @@
 #include "ServerClient.h"
 #include "Style.h"
 #include "ToolPages.h"
+#include "Updater.h"
 #include "Widgets.h"
 #include "WinUtil.h"
 
@@ -130,6 +131,39 @@ MainWindow::MainWindow(const LaunchOptions& opts, QWidget* parent)
             QTimer::singleShot(0, this, &MainWindow::askForAccount);  // out of the socket's signal first
         }
     });
+    // in-app updates (Updater): offered from the server's messages, installed once nothing uses the games
+    updater_ = new Updater(this);
+    connect(updater_, &Updater::progress, this, [this](const QString& text, int percent) {
+        if (updateDialog_) updateDialog_->setProgress(text, percent);
+    });
+    connect(updater_, &Updater::failed, this, [this](const QString& text) {
+        installPending_ = false;
+        if (updateDialog_) updateDialog_->setFailed(text);
+        else showNotice(text, true);
+    });
+    connect(updater_, &Updater::readyToInstall, this, &MainWindow::installUpdateWhenFree);
+    connect(updater_, &Updater::installed, this, [this](const QString& version, bool started) {
+        if (!started)
+            QMessageBox::information(this, tr("MK3D Online %1").arg(version),
+                                     tr("MK3D Online is now %1: start it again.").arg(version));
+        close();
+    });
+    auto whenFree = [this] {
+        QTimer::singleShot(0, this, [this] {  // out of the signal
+            if (installPending_) {
+                installUpdateWhenFree();
+            } else if (offerPending_ && gamesBusy().isEmpty() && !updater_->busy()) {
+                offerPending_ = false;
+                showUpdateDialog(offerRequired_);
+            }
+        });
+    };
+    connect(controller_, &MatchController::phaseChanged, this, whenFree);
+    connect(controller_, &MatchController::gameStatusChanged, this, whenFree);
+    connect(build_, &BuildPage::busyChanged, this, whenFree);
+    Updater::cleanUp();  // what an update set aside, once free; the old launcher may still be closing:
+    if (!opts_.updatedFrom.isEmpty())
+        for (int s : {2, 5, 10, 20}) QTimer::singleShot(s * 1000, this, [] { Updater::cleanUp(); });
     connect(server_, &ServerClient::message, this, &MainWindow::onServerMessage);
     connect(server_, &ServerClient::connectionError, this, [this](const QString& text) {
         lastError_ = text;
@@ -233,6 +267,13 @@ MainWindow::MainWindow(const LaunchOptions& opts, QWidget* parent)
     // Smart App Control blocks every game this launcher starts: say so before the player builds or plays one
     applog::write(QStringLiteral("Smart App Control: %1").arg(winutil::smartAppControl()));
     if (winutil::smartAppControl() == 1) QTimer::singleShot(400, this, &MainWindow::warnSmartAppControl);
+    if (!opts_.updatedFrom.isEmpty()) {
+        applog::write(QStringLiteral("update: now %1, from %2").arg(QStringLiteral(MK3D_LAUNCHER_VERSION), opts_.updatedFrom));
+        showNotice(tr("MK3D Online is now %1 (it was %2). Each game prepares its code again on its next start: a "
+                      "minute or two, then press Start.")
+                       .arg(QStringLiteral(MK3D_LAUNCHER_VERSION), opts_.updatedFrom),
+                   false);
+    }
 }
 
 void MainWindow::warnSmartAppControl() {
@@ -345,12 +386,18 @@ QWidget* MainWindow::buildFooter() {
     phaseText_ = new QLabel;
     gameText_ = new QLabel(tr("Game: not running"));
     auto* version = new QLabel(QStringLiteral("v" MK3D_LAUNCHER_VERSION));
+    updateButton_ = new QPushButton;
+    updateButton_->setObjectName(QStringLiteral("Primary"));
+    updateButton_->setProperty("compact", true);
+    updateButton_->hide();
+    connect(updateButton_, &QPushButton::clicked, this, [this] { showUpdateDialog(false); });
     h->addWidget(connDot_);
     h->addWidget(connText_);
     h->addWidget(onlineText_);
     h->addStretch();
     h->addWidget(phaseText_);
     h->addWidget(gameText_);
+    h->addWidget(updateButton_);
     h->addWidget(version);
     return footer;
 }
@@ -472,6 +519,12 @@ void MainWindow::openAccountDialog(bool firstTime) {
 void MainWindow::onServerMessage(const QJsonObject& msg) {
     const QString type = msg.value(QStringLiteral("type")).toString();
     if (!opts_.lobby.isEmpty()) cliLobbyMessage(msg);
+    if (type == QLatin1String("welcome") && msg.contains(QStringLiteral("update")))
+        offerUpdate(msg.value(QStringLiteral("update")), false);
+    else if (type == QLatin1String("update"))
+        offerUpdate(msg, false);
+    else if (type == QLatin1String("error") && msg.value(QStringLiteral("code")).toString() == QLatin1String("client_outdated"))
+        offerUpdate(msg.value(QStringLiteral("update")), true);
     if (type == QLatin1String("online")) {
         online_ = msg;
         updateFooter();
@@ -588,6 +641,82 @@ void MainWindow::focusGame() {
     const bool front = winutil::bringProcessToFront(g->pid());
     applog::write(QStringLiteral("popup: the game %1").arg(front ? QStringLiteral("in front again")
                                                                  : QStringLiteral("not brought to the front")));
+}
+
+// once a run (LATER leaves the footer's button to come back to it), every time when this launcher is too old for the
+// server; --auto-update installs it without asking (tests)
+void MainWindow::offerUpdate(const QJsonValue& value, bool required) {
+    const QJsonObject release = Updater::usable(value);
+    if (release.isEmpty()) return;
+    const QString version = release.value(QStringLiteral("version")).toString();
+    applog::write(QStringLiteral("update: %1 offered%2").arg(version, required ? QStringLiteral(", needed to play online") : QString()));
+    update_ = release;
+    updateButton_->setText(tr("UPDATE TO %1").arg(version));
+    updateButton_->show();
+    if (updater_->busy()) return;
+    if (opts_.autoUpdate && Updater::blocker().isEmpty()) {
+        startUpdate();
+        return;
+    }
+    if (updateDialog_ || (updateDismissed_ == version && !required)) return;
+    if (!gamesBusy().isEmpty()) {  // not over a match or a game: once it is over
+        offerPending_ = true;
+        offerRequired_ = offerRequired_ || required;
+        return;
+    }
+    showUpdateDialog(required);
+}
+
+QString MainWindow::gamesBusy() const {
+    if (controller_->soloRunning()) return tr("you close your single-player game (Single player, Close the game)");
+    if (controller_->phase() != MatchController::Phase::Idle) return tr("this is over: %1").arg(controller_->phaseText());
+    if (build_->busy()) return tr("Build game is done");
+    return {};
+}
+
+void MainWindow::showUpdateDialog(bool required) {
+    if (updateDialog_) {
+        popUp(updateDialog_);
+        return;
+    }
+    auto* dlg = new UpdateDialog(update_, required, Updater::blocker(), this);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    updateDialog_ = dlg;
+    connect(dlg, &UpdateDialog::updateNow, this, &MainWindow::startUpdate);
+    connect(dlg, &UpdateDialog::cancelRequested, this, [this] {
+        installPending_ = false;
+        updater_->cancel();
+    });
+    connect(dlg, &QDialog::rejected, this, [this] {
+        updateDismissed_ = update_.value(QStringLiteral("version")).toString();
+        installPending_ = false;
+        updater_->cancel();  // closed while it downloaded: nothing installed
+    });
+    popUp(dlg);
+    QApplication::alert(this);
+}
+
+void MainWindow::startUpdate() {
+    if (updater_->busy() || update_.isEmpty()) return;
+    updater_->start(update_);
+}
+
+// The downloaded release goes in once nothing uses the games' files: no match, search or watched match under way and
+// no single-player game open (the game waiting at its hold point for a match closes first). Then the new launcher
+// starts and this one closes (Updater::installed).
+void MainWindow::installUpdateWhenFree() {
+    if (!updater_->busy()) {
+        installPending_ = false;
+        return;
+    }
+    if (const QString busy = gamesBusy(); !busy.isEmpty()) {
+        installPending_ = true;
+        if (updateDialog_) updateDialog_->setWaiting(tr("Downloaded. It goes in once %1.").arg(busy));
+        return;
+    }
+    installPending_ = false;
+    controller_->shutdown();
+    updater_->install();
 }
 
 void MainWindow::showNotice(const QString& text, bool warn) {

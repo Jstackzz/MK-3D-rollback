@@ -178,6 +178,7 @@ void BuildPage::setBusy(bool busy) {
     browse_->setEnabled(!busy);
     image_->setEnabled(!busy);
     cancel_->setEnabled(busy);
+    emit busyChanged(busy);
 }
 
 void BuildPage::runWorker(std::function<void()> work, std::function<void()> done) {

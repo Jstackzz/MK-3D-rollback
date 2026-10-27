@@ -35,7 +35,7 @@ bool strict();
 bool pickInGame();
 // a Ranked or Kasual search starts the game's practice to play while it waits (MatchController::maybeStartPractice)
 bool practiceWhileWaiting();
-bool deathTraps();  // the arenas' death traps in Ranked and Kasual matches (off when either player turns them off)
+bool deathTraps();  // the arenas' death traps in Kasual matches (a search meets only the same choice; Ranked never)
 int inputDelay();
 int gamePort();
 QString displayMode();

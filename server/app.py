@@ -14,6 +14,7 @@ import hmac
 import itertools
 import json
 import logging
+import os
 import random
 import secrets
 import ssl
@@ -57,6 +58,10 @@ class ServerConfig:
     motd: str = ""
     admins: tuple[str, ...] = ()
     min_client: str = "0.1.0"
+    # the release launchers are offered to update to (JSON, protocol.parse_update), read again when it changes; a
+    # launcher older than it gets it in welcome, or pushed once it is announced
+    update_file: str | None = None
+    update_check_interval: float = 10.0
     accept_timeout: float = 15.0
     udp_timeout: float = 10.0
     punch_timeout: float = 10.0
@@ -416,6 +421,10 @@ class Server:
         self._online_dirty = True
         self._online_last = 0.0
         self._online_payload_last: dict[str, Any] | None = None
+        self._update: dict[str, Any] | None = None  # the update file's release (_latest_release)
+        self._update_stamp: tuple[int, int] | None = None
+        self._update_checked = 0.0
+        self._update_pushed: str | None = None  # the release connected launchers were last offered
         self._dummy_hash: str | None = None
         self._handlers: dict[str, Callable[[Session, dict[str, Any]], Any]] = {
             "hello": self.on_hello,
@@ -474,6 +483,7 @@ class Server:
         )
         self._udp = transport  # type: ignore[assignment]
         self.udp_port = transport.get_extra_info("sockname")[1]
+        self._update_pushed = (self._latest_release() or {}).get("version")  # nobody connected yet to offer it to
         self._ticker_task = asyncio.create_task(self._ticker(), name="mk3d-ticker")
         scheme = "tcp" if self.cfg.plain else "tls"
         log.info("MK3D server %s listening on %s://%s:%d, UDP rendezvous on %d, database %s",
@@ -576,6 +586,7 @@ class Server:
                 feed.lobby.feed = None
         self._run_matchmaking(now)
         self._push_online(now)
+        self._push_update(now)
 
     def _prune(self, now: float) -> None:
         window = self.cfg.login_fail_window
@@ -676,19 +687,78 @@ class Server:
             s.close()
             return
         version = str(msg.get("version", "0"))
+        update = self._update_for(version)
         if not P.version_at_least(version, self.cfg.min_client):
-            s.send({**self._error("client_outdated", f"Update the launcher to {self.cfg.min_client} or newer.",
-                                  msg), "min_client": self.cfg.min_client})
+            # launchers before 0.1.7 show only the message: it says where the release is
+            page = update["page"] if update else P.RELEASES_PAGE
+            reply = {**self._error("client_outdated", f"Update the launcher to {self.cfg.min_client} or newer: {page}",
+                                   msg), "min_client": self.cfg.min_client}
+            if update and P.version_at_least(update["version"], self.cfg.min_client):
+                reply["update"] = update  # a launcher with the updater installs it from here
+            s.send(reply)
             s.close()
             return
         s.hello = True
         s.client_version = version
-        self._reply(s, msg, {
+        welcome = {
             "type": "welcome", "proto": P.PROTO, "server": P.SERVER_NAME, "version": P.SERVER_VERSION,
             "udp_port": self.udp_port, "motd": self.cfg.motd, "online": len(self.by_account),
             "min_client": self.cfg.min_client, "games": {g: list(m) for g, m in P.GAMES.items()},
             "regions": list(P.REGIONS),
-        })
+        }
+        if update:
+            welcome["update"] = update
+        self._reply(s, msg, welcome)
+
+    # --- the latest release -----------------------------------------------------------------------
+
+    def _latest_release(self) -> dict[str, Any] | None:
+        """The update file's release, read again once the file changes; None without one (or a bad one)."""
+        path = self.cfg.update_file
+        if not path:
+            return None
+        try:
+            st = os.stat(path)
+            stamp: tuple[int, int] | None = (st.st_mtime_ns, st.st_size)
+        except OSError:
+            stamp = None
+        if stamp != self._update_stamp:
+            self._update_stamp = stamp
+            self._update = None
+            if stamp is not None:
+                try:
+                    with open(path, encoding="utf-8") as f:
+                        self._update = P.parse_update(json.load(f))
+                    log.info("update file: launchers older than %s are offered it", self._update["version"])
+                except (OSError, ValueError) as exc:  # a JSON syntax error is a ValueError too
+                    log.warning("update file %s ignored: %s", path, exc)
+        return self._update
+
+    def _update_for(self, version: str) -> dict[str, Any] | None:
+        """The latest release when a launcher of this version is older."""
+        latest = self._latest_release()
+        if latest is None or P.version_at_least(version, latest["version"]):
+            return None
+        return latest
+
+    def _push_update(self, now: float) -> None:
+        """A release announced while launchers are connected: offered to the older ones at once."""
+        if now - self._update_checked < self.cfg.update_check_interval:
+            return
+        self._update_checked = now
+        latest = self._latest_release()
+        version = latest["version"] if latest else None
+        if version == self._update_pushed:
+            return
+        self._update_pushed = version
+        if latest is None:
+            return
+        offered = 0
+        for s in list(self.sessions):
+            if s.hello and not P.version_at_least(s.client_version, latest["version"]):
+                s.send({"type": "update", **latest})
+                offered += 1
+        log.info("release %s announced to %d connected launcher(s)", version, offered)
 
     def _check_rate(self, ip: str) -> None:
         q = self.login_failures.get(ip)
@@ -970,8 +1040,9 @@ class Server:
                         entry=e)
             for i, (e, sess) in enumerate(pair)
         ]
-        # the arenas' death traps: never in ranked, in casual only when both players want them
-        traps = not a.ranked and a.death_traps and b.death_traps
+        # the arenas' death traps: never in ranked; in casual the choice both searches made (they meet only when it
+        # is the same, QueueEntry.key)
+        traps = a.traps and b.traps
         m = Match(id=secrets.token_hex(6), game=a.game, mode=a.mode, ranked=a.ranked, players=players, created=now,
                   from_queue=True, rounds=self.cfg.default_rounds, state="found",
                   deadline=now + self.cfg.accept_timeout, death_traps=traps)

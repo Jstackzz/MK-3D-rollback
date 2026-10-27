@@ -3,6 +3,7 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDateTime>
+#include <QDesktopServices>
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -10,6 +11,7 @@
 #include <QProgressBar>
 #include <QPushButton>
 #include <QRegularExpression>
+#include <QUrl>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -269,6 +271,122 @@ void RematchDialog::update(const QString& title, const QString& score, const QSt
     rematch_->setEnabled(canChoose);
     select_->setEnabled(canChoose);
     select_->setVisible(canSelect);
+}
+
+// --- UpdateDialog ----------------------------------------------------------------------------------
+
+UpdateDialog::UpdateDialog(const QJsonObject& release, bool required, const QString& blocker, QWidget* parent)
+    : QDialog(parent) {
+    const QString version = release.value(QStringLiteral("version")).toString();
+    const QString page = release.value(QStringLiteral("page")).toString();
+    setWindowTitle(tr("MK3D Online %1").arg(version));
+    setModal(false);
+    setMinimumWidth(500);
+    auto* v = new QVBoxLayout(this);
+    v->setContentsMargins(28, 22, 28, 22);
+    v->setSpacing(10);
+    auto* emblem = new QLabel;
+    emblem->setPixmap(style::emblem(64));
+    emblem->setAlignment(Qt::AlignCenter);
+    v->addWidget(emblem);
+    auto* title = ui::label(required ? tr("UPDATE NEEDED") : tr("UPDATE AVAILABLE"), "CardTitle");
+    title->setAlignment(Qt::AlignCenter);
+    v->addWidget(title);
+    auto* big = ui::label(tr("MK3D Online %1").arg(version), "Big");
+    big->setAlignment(Qt::AlignCenter);
+    v->addWidget(big);
+    auto* info = ui::label(required ? tr("You have %1. The server needs this version to play online.")
+                                          .arg(QStringLiteral(MK3D_LAUNCHER_VERSION))
+                                    : tr("You have %1.").arg(QStringLiteral(MK3D_LAUNCHER_VERSION)),
+                           "Muted");
+    info->setAlignment(Qt::AlignCenter);
+    info->setWordWrap(true);
+    v->addWidget(info);
+    const QString notes = release.value(QStringLiteral("notes")).toString().trimmed();
+    if (!notes.isEmpty()) {
+        auto* text = new QLabel(notes.left(700));
+        text->setTextFormat(Qt::PlainText);
+        text->setWordWrap(true);
+        v->addWidget(text);
+    }
+    if (page.startsWith(QLatin1String("https://"))) {
+        auto* link = new QLabel(QStringLiteral("<a href=\"%1\" style=\"color:#F2C14E\">%2</a>")
+                                    .arg(page.toHtmlEscaped(), tr("What's new in %1").arg(version)));
+        link->setTextFormat(Qt::RichText);
+        link->setOpenExternalLinks(true);
+        link->setAlignment(Qt::AlignCenter);
+        v->addWidget(link);
+    }
+    status_ = ui::label(blocker.isEmpty() ? tr("The launcher downloads it, checks it, puts it in place and starts "
+                                               "again. Your settings, saves and built games stay.")
+                                          : blocker,
+                        "Muted");
+    status_->setWordWrap(true);
+    v->addWidget(status_);
+    bar_ = new QProgressBar;
+    bar_->setTextVisible(false);
+    bar_->setFixedHeight(8);
+    bar_->hide();
+    v->addWidget(bar_);
+    auto* buttons = new QHBoxLayout;
+    now_ = new QPushButton(blocker.isEmpty() ? tr("UPDATE NOW") : tr("OPEN THE DOWNLOAD PAGE"));
+    now_->setObjectName(QStringLiteral("Primary"));
+    now_->setProperty("compact", true);
+    now_->setMinimumHeight(40);
+    now_->setDefault(true);
+    later_ = new QPushButton(tr("LATER"));
+    later_->setMinimumHeight(40);
+    buttons->addWidget(now_, 1);
+    buttons->addWidget(later_, 1);
+    v->addLayout(buttons);
+    connect(now_, &QPushButton::clicked, this, [this, blocker, page] {
+        if (!blocker.isEmpty()) {
+            if (!page.isEmpty()) QDesktopServices::openUrl(QUrl(page));
+            return;
+        }
+        running_ = true;
+        now_->setEnabled(false);
+        later_->setText(tr("CANCEL"));
+        bar_->show();
+        emit updateNow();
+    });
+    connect(later_, &QPushButton::clicked, this, [this] {
+        if (running_) {
+            emit cancelRequested();
+            running_ = false;
+            now_->setEnabled(true);
+            now_->setText(tr("UPDATE NOW"));
+            later_->setText(tr("LATER"));
+            bar_->hide();
+            status_->setText(tr("Cancelled: nothing was changed."));
+            return;
+        }
+        reject();
+    });
+    now_->setFocus();  // A on a controller, as Enter on the keyboard, updates
+    winutil::useDarkTitleBar(this);
+}
+
+void UpdateDialog::setProgress(const QString& text, int percent) {
+    status_->setText(text);
+    bar_->show();
+    bar_->setRange(0, percent < 0 ? 0 : 100);  // 0..0: busy without a measure
+    if (percent >= 0) bar_->setValue(percent);
+}
+
+void UpdateDialog::setWaiting(const QString& text) {
+    status_->setText(text);
+    bar_->setRange(0, 100);
+    bar_->setValue(100);
+}
+
+void UpdateDialog::setFailed(const QString& text) {
+    running_ = false;
+    status_->setText(text);
+    bar_->hide();
+    now_->setEnabled(true);
+    now_->setText(tr("TRY AGAIN"));
+    later_->setText(tr("LATER"));
 }
 
 // --- CreateLobbyDialog -----------------------------------------------------------------------------

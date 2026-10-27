@@ -36,6 +36,18 @@ Install
    it. Online matches need it.
 
 
+Updates
+-------
+
+From 0.1.7 on, the launcher updates itself. When a new version is out, a window
+says so, with what is new: press UPDATE NOW (or LATER: the footer's UPDATE
+button brings it back). The launcher downloads it, checks it is exactly the
+release that was published, puts it in place and starts again. It waits until
+your match is over and you close any game you are playing. Your settings,
+saves, built games and disc images stay; each game prepares its code again on
+its next start (a minute or two, then press Start).
+
+
 Build a game (once for each game)
 ---------------------------------
 
@@ -94,13 +106,17 @@ whether to trust it: compare it with your host's.
 - Death traps: the arenas' death traps (Deception and Armageddon: the Dead
   Pool's acid, the Lower Mines' spikes and the others) kill on the spot. The
   Death traps box under Matchmaking on the Kasual page says whether you want
-  them; a Kasual match has them only when both players leave it ticked. Ranked
-  matches never have them. A lobby's host chooses for its matches when creating
+  them, and you only meet players who chose the same: untick it and every
+  Kasual opponent has death traps off too. Ranked matches never have them. A lobby's host chooses for its matches when creating
   it. Online matches also play with the game's default round time and blood,
   whatever your own game's options say, so both players play the same fight.
 - Single player, then PLAY, starts the whole game with its own menus, as on the
   console: arcade, its practice mode and the rest. What you unlock and set is
   saved in the game's folder (games\<game>\hdd).
+- Single player, then PRACTICE, goes straight to practice's character select
+  with every fighter unlocked: pick yours, then the dummy, with one controller.
+  What your profile has unlocked stays as it is. You can search for a match
+  while you practice, as below.
 - Play while you wait: search for a match (Kasual or Ranked) and play single
   player meanwhile, in either order. When a match is found, its ACCEPT window
   comes up over your game. Accept it and your single-player game is set aside,
@@ -111,7 +127,8 @@ whether to trust it: compare it with your host's.
 - Practice while you wait (the box under Matchmaking on the Ranked and Kasual
   pages, on by default): once you search, the game opens its practice mode by
   itself, at the character select screen, where you pick your fighter and then
-  the dummy with your controller. A match found comes up over it as above, and
+  the dummy with your controller (every fighter is unlocked there, as with
+  PRACTICE). A match found comes up over it as above, and
   after the match you are back in practice. Untick the box to wait at the game's
   menu instead.
 
@@ -152,10 +169,14 @@ Enter is START and Backspace is BACK.
 
 To change them, open Controls in the launcher: click a key to give a button
 another one (two keys each at most), and choose what each button of your
-controller presses. A game that is running picks up the change at once, and it
-works the same in online matches: it only changes what your own keys and
-buttons press. Which button punches or kicks is each game's own controller
-setting; online, Armageddon plays with its default one.
+controller presses. The page names each button by what it does in the game
+chosen at the top, then the Xbox button: Attack 1 (X), Attack 2 (Y), Attack 3
+(A), Attack 4 (B), Block (right trigger), Stance change (left trigger), Throw
+(black button; Throw / special in Deadly Alliance), Jump and Crouch (d-pad up
+and down), Pause (START). A game that is running picks up the change at once,
+and it works the same in online matches: it only changes what your own keys
+and buttons press. That is each game's default layout; its own controller
+options can move them, and online Armageddon plays with its default one.
 
 
 Settings

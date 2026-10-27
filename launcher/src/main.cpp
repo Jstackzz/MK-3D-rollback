@@ -78,20 +78,27 @@ int main(int argc, char* argv[]) {
         QStringLiteral("practice"),
         QStringLiteral("Practice while a Ranked or Kasual search waits: on or off (saved like the queue pages' box)."),
         QStringLiteral("on|off"));
+    const QCommandLineOption updatedOpt(
+        QStringLiteral("updated"),
+        QStringLiteral("Started by an update of this version: waits for it to close, then deletes what it set aside."),
+        QStringLiteral("version"));
+    const QCommandLineOption autoUpdateOpt(QStringLiteral("auto-update"),
+                                           QStringLiteral("Development: install an update offered at once, without asking."));
     for (const auto* o : {&configOpt, &serverOpt, &fpOpt, &userOpt, &pwEnvOpt, &regOpt, &queueOpt, &gameOpt, &modeOpt,
                           &charOpt, &pageOpt, &acceptOpt, &localTestOpt, &extractOpt, &lobbyOpt, &lobbyNameOpt,
                           &lobbyMatchesOpt, &upnpProbeOpt, &rematchesOpt, &rematchChoiceOpt, &leaveSeriesOpt, &soloOpt,
-                          &practiceOpt, &deathTrapsOpt})
+                          &practiceOpt, &deathTrapsOpt, &updatedOpt, &autoUpdateOpt})
         cli.addOption(*o);
     cli.process(app);
 
     paths::init(cli.value(configOpt));
     applog::write(QStringLiteral("launcher %1 starting, settings %2").arg(QStringLiteral(MK3D_LAUNCHER_VERSION), paths::configFile()));
 
-    // not "<ini>.lock": QSettings locks that file itself while it syncs
+    // not "<ini>.lock": QSettings locks that file itself while it syncs. Started by an update, the old launcher is
+    // still closing: wait for it.
     QLockFile lock(paths::configFile() + QStringLiteral(".instance"));
     lock.setStaleLockTime(0);
-    if (!lock.tryLock(200)) {
+    if (!lock.tryLock(cli.isSet(updatedOpt) ? 30000 : 200)) {
         QMessageBox::information(nullptr, QStringLiteral("MK3D Online"),
                                  QStringLiteral("MK3D Online is already running with these settings."));
         return 0;
@@ -135,6 +142,8 @@ int main(int argc, char* argv[]) {
     opts.practice = cli.value(practiceOpt);
     opts.deathTraps = cli.value(deathTrapsOpt);
     opts.upnpProbe = cli.isSet(upnpProbeOpt);
+    opts.updatedFrom = cli.value(updatedOpt);
+    opts.autoUpdate = cli.isSet(autoUpdateOpt);
 
     MainWindow window(opts);
     window.show();

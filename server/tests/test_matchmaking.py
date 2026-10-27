@@ -14,10 +14,10 @@ CFG = MatchmakingConfig()
 
 def entry(account_id: int, since: float = 0.0, *, game: str = "mkd", mode: str = "kombat", ranked: bool = False,
           region: str = "eu", elo: int = 1500, max_ping: int = 0, strict: bool = False,
-          ip: str | None = None) -> QueueEntry:
+          ip: str | None = None, death_traps: bool = True) -> QueueEntry:
     return QueueEntry(account_id=account_id, name=f"p{account_id}", game=game, mode=mode, ranked=ranked,
                       region=region, max_ping=max_ping, strict=strict, character="Scorpion", delay=2, since=since,
-                      elo=elo, public_ip=ip or f"10.0.0.{account_id}")
+                      elo=elo, public_ip=ip or f"10.0.0.{account_id}", death_traps=death_traps)
 
 
 def ids(pairs):
@@ -34,6 +34,18 @@ def test_casual_first_come_first_served():
 def test_queues_do_not_mix():
     entries = [entry(1), entry(2, mode="chess"), entry(3, ranked=True), entry(4, game="mka")]
     assert find_pairs(entries, 100, CFG, PingCache()) == []
+
+
+def test_casual_death_traps_choices_do_not_mix():
+    entries = [entry(1, since=0, death_traps=False), entry(2, since=1), entry(3, since=2, death_traps=False),
+               entry(4, since=3)]
+    assert ids(find_pairs(entries, 5, CFG, PingCache())) == [(1, 3), (2, 4)]
+    assert find_pairs(entries[:2], 1000, CFG, PingCache()) == []  # waiting longer changes nothing
+    assert [e.queue_name for e in entries[:2]] == ["mkd/kombat/casual/no-traps", "mkd/kombat/casual"]
+    # ranked never has them, whatever the search asked for
+    ranked = [entry(5, ranked=True), entry(6, ranked=True, death_traps=False)]
+    assert ids(find_pairs(ranked, 1, CFG, PingCache())) == [(5, 6)]
+    assert [e.traps for e in ranked] == [False, False]
 
 
 def test_region_widens_unless_strict():

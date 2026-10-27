@@ -1,5 +1,6 @@
 #pragma once
-// Account sign-in/registration, the match-found accept prompt, the Kasual rematch prompt, and lobby creation.
+// Account sign-in/registration, the match-found accept prompt, the Kasual rematch prompt, lobby creation, and the
+// update offer.
 
 #include <QDialog>
 #include <QJsonObject>
@@ -77,6 +78,29 @@ private:
     QLabel* info_;
     QPushButton* rematch_;
     QPushButton* select_;
+};
+
+// A newer release the server names (Updater): what it is and what is new, UPDATE NOW or LATER; while it downloads and
+// installs, how far it is (CANCEL until the files go in). `required`: this launcher is too old for the server;
+// `blocker`: why it cannot update itself (UPDATE NOW opens the release's page instead).
+class UpdateDialog : public QDialog {
+    Q_OBJECT
+public:
+    UpdateDialog(const QJsonObject& release, bool required, const QString& blocker, QWidget* parent = nullptr);
+    void setProgress(const QString& text, int percent);  // percent -1: no measure
+    void setWaiting(const QString& text);                // downloaded; installs once the match or the game is over
+    void setFailed(const QString& text);                 // nothing changed: TRY AGAIN or LATER
+
+signals:
+    void updateNow();
+    void cancelRequested();
+
+private:
+    QLabel* status_;
+    QProgressBar* bar_;
+    QPushButton* now_;
+    QPushButton* later_;
+    bool running_ = false;
 };
 
 class CreateLobbyDialog : public QDialog {

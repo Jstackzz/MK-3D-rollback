@@ -6,8 +6,8 @@
 //   MKD_P1, MKD_P2=<character name or id>   who each side picks (default: what the cursor starts on); all
 //                                            characters are unlocked when either is given, or with MKD_UNLOCK_ALL=1
 //   MKD_AUTOPILOT_HOLD=1                     stop at character select (for the debug monitor)
-//   MK3D_TRAINING=1                          to practice's select screen; the player picks there (the launcher's
-//                                            practice while it searches for a match)
+//   MK3D_TRAINING=1                          to practice's select screen, every character unlocked; the player picks
+//                                            there (the launcher's practice: its own button, or while a search waits)
 //
 //   1. START every 0.7 s until the main menu task starts (skips movies, the title and the profile screen)
 //   2. after the menu settles (the hold point the launcher waits at), START and A in turn until the menu confirms an
@@ -20,7 +20,8 @@
 // (6 x 2 in puzzle kombat, 0x471B24 == 2; chess kombat's board game select sets 1); slot to character: 0x3F9210 +
 // slot * 0x28 (puzzle 0x3F95D0); a player record's
 // state +8 is 2 once its pick is confirmed; a character is selectable when its bit is set in the 64-bit masks at
-// 0x601E60 (0x601E68 alternates, 0x601E90 puzzle) or the built-in defaults at 0x3F8FF0.
+// 0x601E60 (0x601E68 alternates, 0x601E90 puzzle) or the built-in defaults at 0x3F8FF0. The masks are rebuilt from
+// the defaults and the profiles' own bits (sub_001726E0); only the profiles' bits are saved.
 #include "game/autopilot.h"
 
 #include <cctype>
@@ -47,6 +48,7 @@ constexpr uint32_t kCursor[2] = {0x471B1C, 0x471B18};
 constexpr uint32_t kRecord[2] = {kP1Record, kP2Record};
 constexpr uint32_t kGrid = 0x3F9210, kChessGrid = 0x3F95D0, kGridKind = 0x471B24;
 constexpr uint32_t kUnlockMasks[] = {0x601E60, 0x601E68, 0x601E90};
+constexpr uint32_t kBuiltInCharacters = 0x3F8FF0;  // 64 bits
 constexpr uint32_t kNames = 0x3F89E0;  // character names, 16 bytes per character, name pointer first
 constexpr uint32_t kMenuAction = 0x46CDB8;  // the main menu task's action (0x18 none)
 constexpr uint32_t kSelectTask = 0x179A60;  // character select (arcade, versus, practice)
@@ -175,6 +177,16 @@ void Unlock() {
         kernel::W32(m, 0xFFFFFFFF);
         kernel::W32(m + 4, 0xFFFFFFFF);
     }
+}
+
+// practice offers every character for as long as the game runs: the built-in ones, which every check ORs in and every
+// rebuild of the mask starts from, so a profile's saved unlocks stay its own
+void UnlockForPractice() {
+    for (uint32_t m : {kBuiltInCharacters, kUnlockMasks[0]}) {
+        kernel::W32(m, 0xFFFFFFFF);
+        kernel::W32(m + 4, 0xFFFFFFFF);
+    }
+    LOGR("autopilot: practice offers every character");
 }
 
 // An online match whose players pick on the select screen: this PC's player picks for their side with their own
@@ -407,6 +419,7 @@ void Apply(int port, input::Pad& pad) {
                 for (int i = 0; i < 2; i++) g_req.characters[i] = CharacterId(g_req.names[i]);
                 ResetPlayerPicks();
                 if (g_req.unlock_all) Unlock();
+                if (g_training) UnlockForPractice();
                 g_base_actions = MenuActions();
                 Enter(Phase::Choose);
             }

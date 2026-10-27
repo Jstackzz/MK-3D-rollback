@@ -849,7 +849,7 @@ bool MatchController::startSolo(const QString& gameId, QString* error, bool prac
     });
     log(tr("Game %1 started for %2 (session %3)")
             .arg(gameId, practice ? tr("practice") : tr("single player"), g->sessionDir()));
-    if (phase_ == Phase::Idle) setPhase(Phase::Solo, tr("Playing single player"));
+    if (phase_ == Phase::Idle) setPhase(Phase::Solo, practice ? tr("Practicing") : tr("Playing single player"));
     else if (practice) log(tr("Practice while you wait: pick your fighter, then the dummy; a match found comes up over it"));
     else log(tr("Playing single player while the search runs: a match found comes up over it"));
     emit gameStatusChanged(gameStatus());

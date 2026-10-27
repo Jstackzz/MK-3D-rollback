@@ -8,8 +8,8 @@
 //                                            name, the launcher's roster id (SubZero, BoRaiCho) or the index; all
 //                                            characters are unlocked when either is given, or with MKDA_UNLOCK_ALL=1
 //   MKDA_AUTOPILOT_HOLD=1                    stop at character select (for the debug monitor)
-//   MK3D_TRAINING=1                          to practice's select screen; the player picks there (the launcher's
-//                                            practice while it searches for a match)
+//   MK3D_TRAINING=1                          to practice's select screen, every character unlocked; the player picks
+//                                            there (the launcher's practice: its own button, or while a search waits)
 //
 //   1. START every 0.7 s until the main menu's state task starts (skips the movies and the title)
 //   2. after the menu settles (the hold point the launcher waits at), UP/DOWN on port 0 until the main menu's
@@ -181,6 +181,12 @@ bool PlayersPick() { return g_req.by_player[0] || g_req.by_player[1]; }
 void Unlock() {
     kernel::W32(kUnlockDefaults[0], 0xFFFFFFFF);
     if (!PlayersPick()) kernel::W32(kUnlockDefaults[1], 0xFFFFFFFF);
+}
+
+// practice offers every character for as long as the game runs (the alternate costumes stay the profiles')
+void UnlockForPractice() {
+    kernel::W32(kUnlockDefaults[0], 0xFFFFFFFF);
+    LOGR("autopilot: practice offers every character");
 }
 
 // An online match whose players pick on the select screen: this PC's player picks for their side with their own
@@ -442,6 +448,7 @@ void Apply(int port, input::Pad& pad) {
                 }
                 ResetPlayerPicks();
                 if (g_req.unlock_all) Unlock();
+                if (g_training) UnlockForPractice();
                 g_item = ItemFor(g_req.mode);
                 if (g_req.mode == int(kModeVersus) && OpenPads() < 2) {
                     // VERSUS is not offered with one controller: confirm ARCADE and have it redirected

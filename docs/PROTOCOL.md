@@ -94,8 +94,28 @@ S: {"type":"welcome","proto":1,"server":"mk3d-server","version":"0.1.0","udp_por
 
 - `proto` must equal the server's `PROTO`, else `error{code:"proto_mismatch"}`.
 - `version` is compared component-wise with `min_client` (server option
-  `--min-client`); older clients get `error{code:"client_outdated"}`. Both
-  errors close the connection.
+  `--min-client`); older clients get `error{code:"client_outdated"}`, whose
+  `message` ends with where to download the release (launchers before 0.1.7
+  show only the message). Both errors close the connection.
+- **Updates** (0.1.7). The server's update file (`--update-file`, by default
+  `update.json` beside the database; read again when it changes, a bad one is
+  logged and ignored) names the latest release:
+
+  ```json
+  {"version":"0.1.8",
+   "url":"https://github.com/Jstackzz/MK-3D-rollback/releases/download/v0.1.8/MK3D-Online-0.1.8-windows.zip",
+   "sha256":"<the zip's, 64 lowercase hex>","size":96000000,"notes":"What is new, a few lines.",
+   "page":"https://github.com/Jstackzz/MK-3D-rollback/releases/tag/v0.1.8"}
+  ```
+
+  A client older than it gets it as `welcome.update`, and in the
+  `client_outdated` error as `update` when the release is new enough to let
+  it in. Once the file names a new release, connected clients older than it
+  get `{"type":"update", ...the same fields}` within
+  `update_check_interval` (10 s). `url` is `https://` (or `http://` to
+  127.0.0.1 / localhost, for tests); the launcher checks the zip's size and
+  SHA-256 against these before it installs anything (docs/LAUNCHER.md,
+  Updates). `tools/deploy-server.ps1 -Release <zip>` writes the file.
 - Regions: `na` North America, `sa` South America, `eu` Europe, `me` Middle
   East, `af` Africa, `as` Asia, `oc` Oceania.
 
@@ -170,9 +190,12 @@ S: {"type":"queue_left","reason":"left"}
 - `max_ping` is the highest acceptable round trip in ms; `0` means any.
 - `delay` is the player's preferred input delay in frames (0-4).
 - `death_traps` (optional, default `true`) is whether the player wants the
-  arenas' death traps (Deception, Armageddon). A casual match has them only
-  when both players want them; a ranked match never does. It never keeps two
-  players apart.
+  arenas' death traps (Deception, Armageddon). A casual search meets only the
+  searches that chose the same, so its match has death traps exactly when the
+  player asked for them (`in_queue` and the `online` counts, where such a
+  queue is `<game>/<mode>/casual/no-traps`, count that choice's searches
+  only). A ranked match never has them, and in ranked the choice keeps no one
+  apart.
 - `server_rtt` (optional) is the client's last measured UDP round trip to the
   server in ms (section 2.2); it only orders otherwise equal ranked candidates.
 - `character` is a roster id from the launcher data (e.g. `SubZero`); it may

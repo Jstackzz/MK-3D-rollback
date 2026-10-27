@@ -25,6 +25,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--motd", default="", help="message of the day sent in welcome")
     ap.add_argument("--admins", default="", help="comma-separated account names allowed to send notices")
     ap.add_argument("--min-client", default="0.1.0", help="oldest launcher version accepted (default 0.1.0)")
+    ap.add_argument("--update-file", default=None,
+                    help="the release launchers are offered to update to (default: update.json next to the database)")
     ap.add_argument("--allow-same-ip", action="store_true",
                     help="let ranked pair two players from the same public IP (LAN events, development)")
     ap.add_argument("--accept-timeout", type=float, default=15.0, help="seconds to accept a found match")
@@ -53,6 +55,7 @@ def config_from_args(args: argparse.Namespace) -> ServerConfig:
         motd=args.motd,
         admins=tuple(a.strip() for a in args.admins.split(",") if a.strip()),
         min_client=args.min_client,
+        update_file=args.update_file or os.path.join(base, "update.json"),
         accept_timeout=args.accept_timeout,
         relay=not args.no_relay,
         upnp=args.upnp,

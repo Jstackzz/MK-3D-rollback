@@ -17,6 +17,9 @@ enum Control { Up, Down, Left, Right, A, B, X, Y, Black, White, LeftTrigger, Rig
                RightThumb, Count };
 QString controlId(int control);     // the file's name: "up", "a", "left_trigger"
 QString controlLabel(int control);  // "D-pad up", "A", "Left trigger"
+// what the button does in the game's default layout, then the button: "Attack 1 (X)", "Block (Right trigger)"; the
+// button alone where it has no one job ("D-pad left", "White button"). A game's own controller options can move them.
+QString controlText(int control, const QString& gameId);
 int controlFromId(const QString& id);
 
 // a PC controller's button, named by where it sits (the bottom face button is Xbox A, PlayStation cross, Switch B)

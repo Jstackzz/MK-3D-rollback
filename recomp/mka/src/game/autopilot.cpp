@@ -8,8 +8,9 @@
 //                                the launcher's roster id (launcher/data/mka.json: "SubZero", "JohnnyCage") or the
 //                                index; all characters are unlocked when either is given, or with MKA_UNLOCK_ALL=1
 //   MKA_AUTOPILOT_HOLD=1         stop at character select
-//   MK3D_TRAINING=1              to practice's select screen; the player picks there (the launcher's practice
-//                                while it searches for a match)
+//   MK3D_TRAINING=1              to practice's select screen, every character unlocked (the created fighter as the
+//                                profile has it); the player picks there (the launcher's practice: its own button, or
+//                                while a search waits)
 //   MKA_TRACK=<n>                Motor Kombat's track as its select numbers them (43 the first, the default)
 //
 //   1. START every 0.7 s until the main menu task starts (skips the movies and the title; its first start opens the
@@ -27,7 +28,7 @@
 // LEFT, RIGHT, UP and DOWN go to (a move goes on past characters that cannot be picked). A player record's state +8
 // is 2 once its pick is confirmed (3 for practice's dummy). A character can be picked when its bit is set in the
 // 64-bit masks 0x7363C8 (0x7363D0 alternates) or the defaults 0x561968 (0x5BD988); the created fighter (0x3E) needs
-// a profile.
+// a profile. The masks are rebuilt from the defaults and the profiles' own bits; only the profiles' bits are saved.
 #include "game/autopilot.h"
 
 #include <cctype>
@@ -195,6 +196,17 @@ void Unlock() {
         kernel::W32(m, 0xFFFFFFFF);
         kernel::W32(m + 4, 0xFFFFFFFF);
     }
+}
+
+// practice offers every character for as long as the game runs: the built-in ones, which every check ORs in and every
+// rebuild of the mask starts from, so a profile's saved unlocks stay its own; the created fighter's bit stays as it was
+void UnlockForPractice() {
+    const uint32_t created = 1u << (kCreatedFighter - 32);
+    for (uint32_t m : {kDefaultMask, kUnlockMasks[0]}) {
+        kernel::W32(m, 0xFFFFFFFF);
+        kernel::W32(m + 4, kernel::R32(m + 4) | ~created);
+    }
+    LOGR("autopilot: practice offers every character");
 }
 
 int CharacterAt(int slot) { return int(kernel::R32(kGrid + uint32_t(slot) * 0x10)); }
@@ -545,6 +557,7 @@ void Apply(int port, input::Pad& pad) {
                 }
                 ResetPlayerPicks();
                 if (g_req.unlock_all) Unlock();
+                if (g_training) UnlockForPractice();
                 g_base_actions = MenuActions();
                 Enter(Phase::Choose);
             }

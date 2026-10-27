@@ -21,7 +21,7 @@ struct ControlInfo {
 const ControlInfo kControls[Count] = {
     {"up", "D-pad up"},           {"down", "D-pad down"},       {"left", "D-pad left"},     {"right", "D-pad right"},
     {"a", "A"},                   {"b", "B"},                   {"x", "X"},                 {"y", "Y"},
-    {"black", "Black"},           {"white", "White"},           {"left_trigger", "Left trigger"},
+    {"black", "Black button"},    {"white", "White button"},    {"left_trigger", "Left trigger"},
     {"right_trigger", "Right trigger"},                         {"start", "Start"},         {"back", "Back"},
     {"left_thumb", "Left stick click"},                         {"right_thumb", "Right stick click"},
 };
@@ -116,6 +116,27 @@ QString controlId(int control) {
 
 QString controlLabel(int control) {
     return control >= 0 && control < Count ? QLatin1String(kControls[control].label) : QString();
+}
+
+// the three games' default layouts: the face buttons attack, the right trigger blocks, the left trigger changes
+// stance, Black throws (Deadly Alliance's throw / special)
+QString controlText(int control, const QString& gameId) {
+    QString action;
+    switch (control) {
+    case Up: action = QStringLiteral("Jump"); break;
+    case Down: action = QStringLiteral("Crouch"); break;
+    case X: action = QStringLiteral("Attack 1"); break;
+    case Y: action = QStringLiteral("Attack 2"); break;
+    case A: action = QStringLiteral("Attack 3"); break;
+    case B: action = QStringLiteral("Attack 4"); break;
+    case RightTrigger: action = QStringLiteral("Block"); break;
+    case LeftTrigger: action = QStringLiteral("Stance change"); break;
+    case Black: action = gameId == QLatin1String("mkda") ? QStringLiteral("Throw / special") : QStringLiteral("Throw"); break;
+    case Start: action = QStringLiteral("Pause"); break;
+    default: break;
+    }
+    const QString button = controlLabel(control);
+    return action.isEmpty() ? button : QStringLiteral("%1 (%2)").arg(action, button);
 }
 
 int controlFromId(const QString& id) {

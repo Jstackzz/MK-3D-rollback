@@ -122,8 +122,9 @@ QueuePage::QueuePage(bool ranked, ServerClient* server, MatchController* control
     mm->addWidget(strict_);
     practice_ = new QCheckBox(tr("Practice while you wait"));
     practice_->setChecked(cfg::practiceWhileWaiting());
-    practice_->setToolTip(tr("While the search runs, the game opens its practice: pick your fighter and the dummy and "
-                             "train. A match found comes up over it, and afterwards you are back in practice."));
+    practice_->setToolTip(tr("While the search runs, the game opens its practice: pick your fighter and the dummy "
+                             "(every fighter is unlocked there) and train. A match found comes up over it, and "
+                             "afterwards you are back in practice."));
     mm->addWidget(practice_);
     // ranked: never (the server holds to it too)
     deathTraps_ = new QCheckBox(ranked ? tr("Death traps: always off in Ranked") : tr("Death traps"));
@@ -131,7 +132,8 @@ QueuePage::QueuePage(bool ranked, ServerClient* server, MatchController* control
     deathTraps_->setEnabled(!ranked);
     deathTraps_->setToolTip(ranked ? tr("Ranked matches never have the arenas' death traps.")
                                    : tr("Arenas whose death traps kill on the spot (the Dead Pool's acid, the Lower "
-                                        "Mines' spikes...). A match has them only when both players leave this on."));
+                                        "Mines' spikes...). You only meet players who chose the same: with this off, "
+                                        "only players who turned death traps off too."));
     mm->addWidget(deathTraps_);
     delayInfo_ = ui::label(QString(), "Muted");
     mm->addWidget(delayInfo_);
@@ -541,10 +543,19 @@ SinglePlayerPage::SinglePlayerPage(MatchController* controller, QWidget* parent)
     auto* row = new QHBoxLayout;
     play_ = new QPushButton(tr("PLAY"));
     play_->setObjectName(QStringLiteral("Primary"));
+    practice_ = new QPushButton(tr("PRACTICE"));
+    practice_->setObjectName(QStringLiteral("Primary"));
     close_ = new QPushButton(tr("Close the game"));
     row->addWidget(play_, 1);
+    row->addWidget(practice_, 1);
     row->addWidget(close_);
     solo->addLayout(row);
+    auto* practiceNote = ui::label(tr("PRACTICE goes straight to practice's select screen with every fighter "
+                                      "unlocked: pick yours, then the dummy, with one controller. What your profile "
+                                      "has unlocked stays as it is."),
+                                   "Muted");
+    practiceNote->setWordWrap(true);
+    solo->addWidget(practiceNote);
     exeInfo_ = ui::label(QString(), "Muted");
     exeInfo_->setWordWrap(true);
     solo->addWidget(exeInfo_);
@@ -587,13 +598,15 @@ SinglePlayerPage::SinglePlayerPage(MatchController* controller, QWidget* parent)
     log_ = new LogView;
     root->addWidget(log_, 1);
 
-    connect(play_, &QPushButton::clicked, this, [this] {
+    auto start = [this](bool practice) {
         QString err;
-        if (!controller_->startSolo(gameId_, &err)) {
+        if (!controller_->startSolo(gameId_, &err, practice)) {
             log_->line(err);
-            QMessageBox::warning(this, tr("Single player"), err);
+            QMessageBox::warning(this, practice ? tr("Practice") : tr("Single player"), err);
         }
-    });
+    };
+    connect(play_, &QPushButton::clicked, this, [start] { start(false); });
+    connect(practice_, &QPushButton::clicked, this, [start] { start(true); });
     connect(close_, &QPushButton::clicked, controller_, &MatchController::stopSolo);
     connect(test, &QPushButton::clicked, this, [this] {
         QString err;
@@ -609,11 +622,12 @@ SinglePlayerPage::SinglePlayerPage(MatchController* controller, QWidget* parent)
         const auto p = controller_->phase();
         if (p == MatchController::Phase::Solo || p == MatchController::Phase::LocalTest ||
             t.startsWith(QLatin1String("Local test")) || t.startsWith(QLatin1String("Single player")) ||
-            t.startsWith(QLatin1String("Standby")))
+            t.startsWith(QLatin1String("Practice")) || t.startsWith(QLatin1String("Standby")))
             log_->line(t);
     });
     connect(controller_, &MatchController::gameStatusChanged, this, [this](const QString& s) {
         status_->setText(tr("Game: %1").arg(s));
+        updateButtons();  // single player opened or closed while a search runs (standby: no phase change)
     });
     connect(controller_, &MatchController::phaseChanged, this, &SinglePlayerPage::updateButtons);
     updateButtons();
@@ -621,11 +635,16 @@ SinglePlayerPage::SinglePlayerPage(MatchController* controller, QWidget* parent)
 
 void SinglePlayerPage::updateButtons() {
     const bool open = controller_->soloRunning();
+    const bool practicing = controller_->soloIsPractice();
     const auto p = controller_->phase();
     const bool idle = p == MatchController::Phase::Idle || p == MatchController::Phase::Searching;  // standby
-    play_->setText(open ? tr("PLAYING") : tr("PLAY"));
+    const QString busy = !open && !idle ? tr("Busy: %1").arg(controller_->phaseText()) : QString();
+    play_->setText(open && !practicing ? tr("PLAYING") : tr("PLAY"));
     play_->setEnabled(!open && idle);
-    play_->setToolTip(!open && !idle ? tr("Busy: %1").arg(controller_->phaseText()) : QString());
+    play_->setToolTip(busy);
+    practice_->setText(practicing ? tr("PRACTICING") : tr("PRACTICE"));
+    practice_->setEnabled(!open && idle);
+    practice_->setToolTip(busy);
     close_->setEnabled(open);
 }
 

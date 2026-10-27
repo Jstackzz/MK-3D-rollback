@@ -21,6 +21,8 @@ class BuildPage;
 class SinglePlayerPage;
 class ServerClient;
 class SettingsPage;
+class UpdateDialog;
+class Updater;
 
 struct LaunchOptions {
     QString server;
@@ -46,6 +48,8 @@ struct LaunchOptions {
     QString practice;            // "on" / "off": practice while a search waits, saved (cfg::practiceWhileWaiting)
     QString deathTraps;          // "on" / "off": the arenas' death traps, saved (cfg::deathTraps)
     bool upnpProbe = false;  // find the router and its public address, open nothing
+    QString updatedFrom;     // --updated: the version this launcher just replaced (Updater)
+    bool autoUpdate = false; // development: an update offered installs at once, without asking
 };
 
 class MainWindow : public QMainWindow {
@@ -79,6 +83,14 @@ private:
     void focusGame();             // the game's window in front again: the player is back in it
     void frontSoloWhenUp();       // single player's (practice's) new game window in front once it has one
     void showNotice(const QString& text, bool warn);
+    // a release newer than this launcher (welcome, an update push, or the reply turning away a launcher too old)
+    void offerUpdate(const QJsonValue& release, bool required);
+    void showUpdateDialog(bool required);
+    void startUpdate();
+    void installUpdateWhenFree();
+    // what keeps the games in use (an update waits for it: no window over a match or a game, no install under one),
+    // as the end of "once ..."; empty when nothing does
+    QString gamesBusy() const;
     void cliLogin();
     void cliQueue();
     void cliLobby();
@@ -112,6 +124,14 @@ private:
     QJsonObject online_;
     QPointer<MatchFoundDialog> matchDialog_;
     QPointer<RematchDialog> rematchDialog_;
+    Updater* updater_ = nullptr;
+    QPointer<UpdateDialog> updateDialog_;
+    QPushButton* updateButton_ = nullptr;  // the footer's, once a release is offered (LATER leaves it)
+    QJsonObject update_;                   // the release offered
+    QString updateDismissed_;              // the version LATER was chosen for this run
+    bool installPending_ = false;          // downloaded, waiting for the match or the game to be over
+    bool offerPending_ = false;            // offered during a match or a game: its window comes once that is over
+    bool offerRequired_ = false;
     QString rematchShownFor_;  // the series and matches played the prompt last came up for (once each)
     bool askedForAccount_ = false;  // the account window opened by itself this run
     int cliLoginId_ = -1;

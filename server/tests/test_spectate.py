@@ -145,20 +145,23 @@ async def test_death_traps_never_in_ranked(server, connect, udp_peers):
     assert [f["death_traps"] for f in found] == [False, False]
 
 
-async def test_death_traps_off_when_either_player_turns_them_off(server, connect, udp_peers):
+async def test_casual_searches_meet_only_the_same_death_traps(server, connect, udp_peers):
     a = await connect("Sektor")
     b = await connect("Cyrax")
     await a.request({**queue_msg(character="Sektor"), "death_traps": False})
-    await b.request(queue_msg(character="Cyrax"))
-    go = await run_to_go(server, [(a, await udp_peers()), (b, await udp_peers())])
-    assert [g["death_traps"] for g in go] == [False, False]
-    assert all(g["feed"] is False for g in go)  # queue matches have no spectators
-    for conn in (a, b):
-        await conn.request({"type": "result", "match": go[0]["match"], "winner": 1, "p1_rounds": 2, "p2_rounds": 1})
+    queued = await b.request(queue_msg(character="Cyrax"))
+    assert queued["in_queue"] == 1  # alone with death traps on
+    await asyncio.sleep(0.3)  # matchmaking ticks: still no match between the two
+    assert not a.take_all("match_found") and not b.take_all("match_found") and len(server.queue) == 2
 
     c = await connect("Smoke")
+    await c.request({**queue_msg(character="Smoke"), "death_traps": False})
+    go = await run_to_go(server, [(a, await udp_peers()), (c, await udp_peers())])
+    assert [g["death_traps"] for g in go] == [False, False]
+    assert all(g["feed"] is False for g in go)  # queue matches have no spectators
+    assert list(server.queue) == [server.db.account_by_name("Cyrax")["id"]]
+
     d = await connect("Noob")
-    await c.request(queue_msg(character="Smoke"))
     await d.request(queue_msg(character="NoobSaibot"))
-    go = await run_to_go(server, [(c, await udp_peers()), (d, await udp_peers())])
+    go = await run_to_go(server, [(b, await udp_peers()), (d, await udp_peers())])
     assert [g["death_traps"] for g in go] == [True, True]
