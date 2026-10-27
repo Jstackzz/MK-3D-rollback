@@ -22,6 +22,11 @@ public:
     LobbyPage(ServerClient* server, MatchController* controller, QWidget* parent = nullptr);
     void setGame(const QString& gameId) override;
     void refresh();
+    bool inLobby() const { return !lobby_.isEmpty(); }
+    // a controller's START on this page presses Ready (a player's, not a spectator's); after a lobby match the focus
+    // goes back to it, so A readies up for the next one
+    void pressReady();
+    void focusReady();
 
 protected:
     void showEvent(QShowEvent* event) override;

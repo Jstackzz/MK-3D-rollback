@@ -435,9 +435,14 @@ SettingsPage::SettingsPage(ServerClient* server, QWidget* parent) : Page(parent)
     else res->setCurrentText(cfg::resolution());
     auto* vsync = new QCheckBox(tr("V-sync"));
     vsync->setChecked(cfg::vsync());
+    auto* stretch = new QCheckBox(tr("Stretch Deadly Alliance to fill the screen"));
+    stretch->setChecked(cfg::stretch4x3());
+    stretch->setToolTip(tr("Deadly Alliance has no widescreen mode. Ticked, it fills a widescreen monitor, a little "
+                           "wider than drawn; unticked, it keeps its original 4:3 shape with black bars at the sides."));
     df->addRow(tr("Window"), mode);
     df->addRow(tr("Resolution"), res);
     df->addRow(QString(), vsync);
+    df->addRow(QString(), stretch);
     auto* displayNote = ui::label(tr("A game takes these when it starts. Desktop is your monitor's own resolution (a "
                                      "window opens at 1280x720 then); type any other size as 1600x1200."), "Muted");
     displayNote->setWordWrap(true);
@@ -522,6 +527,7 @@ SettingsPage::SettingsPage(ServerClient* server, QWidget* parent) : Page(parent)
         if (const QString size = gameResolution(t); !size.isEmpty()) cfg::set(QStringLiteral("display/resolution"), size);
     });
     connect(vsync, &QCheckBox::toggled, this, [](bool on) { cfg::set(QStringLiteral("display/vsync"), on); });
+    connect(stretch, &QCheckBox::toggled, this, [](bool on) { cfg::set(QStringLiteral("display/stretch_4x3"), on); });
     connect(python, &QLineEdit::editingFinished, this, [python] { cfg::set(QStringLiteral("tools/python"), python->text().trimmed()); });
     connect(repo, &QLineEdit::editingFinished, this, [repo] {
         cfg::set(QStringLiteral("tools/repo_root"), QDir::fromNativeSeparators(repo->text().trimmed()));

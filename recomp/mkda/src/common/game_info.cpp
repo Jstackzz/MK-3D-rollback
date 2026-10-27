@@ -23,5 +23,5 @@ const app::GameInfo app::kGame = {
     .ui = nullptr,                              // ImGui drawing each frame
     .pad = mkda::PadHook,                       // scripted test input now, netplay input later
     .rumble = nullptr,                          // changes a rumble before it is set
-    .widescreen = false,                        // no 16:9 layout: shown 4:3 between bars, not stretched
+    .widescreen = false,                        // no 16:9 layout: stretched to a wide screen, or 4:3 between bars
 };

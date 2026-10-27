@@ -107,6 +107,7 @@ MainWindow::MainWindow(const LaunchOptions& opts, QWidget* parent)
     };
     pad_->onStart = [this] {
         if (auto* queue = qobject_cast<QueuePage*>(stack_->currentWidget())) queue->pressFind();
+        else if (auto* lobby = qobject_cast<LobbyPage*>(stack_->currentWidget())) lobby->pressReady();
     };
     pad_->paused = [this] { return controller_->inMatch(); };
     soloFrontTimer_.setInterval(400);
@@ -207,6 +208,17 @@ MainWindow::MainWindow(const LaunchOptions& opts, QWidget* parent)
         // --lobby: the next match's ready waited for the game to finish the last one
         if (p == MatchController::Phase::Idle && !opts_.lobby.isEmpty() && !cliLastLobby_.isEmpty())
             cliLobbyMessage(cliLastLobby_);
+        // a lobby match is over and its game played the ending: the lobby comes back in front, Ready focused, so a
+        // player on a controller readies up for the next one (A, or START anywhere on the page)
+        if (p == MatchController::Phase::Idle && wasInMatch_) {
+            auto* lobby = qobject_cast<LobbyPage*>(pages_[kLobby]);
+            if (lobby && lobby->inLobby()) {
+                selectPage(kLobby);
+                popUp(this);
+                lobby->focusReady();
+            }
+        }
+        wasInMatch_ = controller_->inMatch();
     });
     connect(controller_, &MatchController::seriesChanged, this, [this](const QJsonObject& s) {
         if (opts_.queue.isEmpty() || s.value(QStringLiteral("ranked")).toBool() ||

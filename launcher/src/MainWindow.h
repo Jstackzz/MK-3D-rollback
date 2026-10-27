@@ -67,6 +67,7 @@ private:
     QWidget* buildFooter();
     void selectGame(const QString& id);
     void selectPage(int index);
+    bool wasInMatch_ = false;  // the last phase change was during a match (MatchController::inMatch)
     void connectServer();
     void updateFooter();
     void updateAccountButton();

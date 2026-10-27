@@ -35,9 +35,12 @@ void PickArena(uint32_t seed, const std::string& stage) {
     }
     if (!n) return;
     uint32_t arena = ids[seed % n];
-    if (!stage.empty()) {
+    // MKDA_TEST_ARENA=<id> (tests: both games of a one-PC run inherit it) stands in for a stage the launcher names
+    const char* test = std::getenv("MKDA_TEST_ARENA");
+    const std::string named = !stage.empty() ? stage : test ? std::string(test) : std::string();
+    if (!named.empty()) {
         char* end = nullptr;
-        unsigned long id = std::strtoul(stage.c_str(), &end, 10);
+        unsigned long id = std::strtoul(named.c_str(), &end, 10);
         if (end && !*end && id < 0x19) arena = uint32_t(id);
     }
     LOGR("link: arena %u (seed %u, %u on the list)", arena, seed, n);

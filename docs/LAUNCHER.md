@@ -138,8 +138,12 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    region, max ping, the game UDP port (default 7001), *Hide my IP address
    from opponents* (cfg `online/hide_ip`: `relay` in `queue_join` and
    `lobby_ready`, PROTOCOL.md 1.7) and the display (window
-   mode, resolution, v-sync: borderless at the monitor's own resolution unless
-   changed; a game takes them over its `settings.toml` when it starts). A
+   mode, resolution, v-sync, *Stretch Deadly Alliance to fill the screen*
+   (`display/stretch_4x3`, on unless unticked; the runtime's `stretch_4x3` for a
+   game with no 16:9 layout, else 4:3 between bars): borderless at the
+   monitor's own resolution unless changed; a game takes them over its
+   `settings.toml` when it starts, through `MK3D_DISPLAY`, `MK3D_RESOLUTION`,
+   `MK3D_VSYNC` and `MK3D_STRETCH_4X3`). A
    `defaults.ini` beside the launcher (a player package's server) supplies
    any setting the settings file does not have.
 2. **Sign in** (top right): create an account or sign in; "remember me" keeps
@@ -249,7 +253,10 @@ that way (a list or table moves its own current item first, to its edge), A
 clicks (a combo box opens its list, which then takes up / down / A / B), B is
 Esc in a dialog except MATCH FOUND and the rematch prompt
 (`GamepadNav::keepFromBack`), LB / RB step the pages, START presses FIND MATCH
-on a queue page. Buttons held when a launcher window comes to the front (a
+on a queue page and Ready on the Lobby page (`LobbyPage::pressReady`); after
+every lobby match the main window comes back in front on the Lobby page with
+Ready focused (`MainWindow`, on the phase going back to Idle from a match).
+Buttons held when a launcher window comes to the front (a
 prompt over the game) count only once let go, after 250 ms of quiet. While a
 match is connecting, played, reported or watched (`MatchController::inMatch`)
 the controller does nothing in the launcher at all (`GamepadNav::paused`): a

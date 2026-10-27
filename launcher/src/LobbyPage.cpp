@@ -199,6 +199,14 @@ LobbyPage::LobbyPage(ServerClient* server, MatchController* controller, QWidget*
     });
 }
 
+void LobbyPage::pressReady() {
+    if (inLobby() && ready_->isVisible() && ready_->isEnabled()) ready_->click();
+}
+
+void LobbyPage::focusReady() {
+    if (inLobby() && ready_->isVisible() && ready_->isEnabled()) ready_->setFocus(Qt::OtherFocusReason);
+}
+
 void LobbyPage::setGame(const QString& gameId) {
     Page::setGame(gameId);
     refresh();

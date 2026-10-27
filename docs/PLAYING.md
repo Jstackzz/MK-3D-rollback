@@ -98,6 +98,9 @@ whether to trust it: compare it with your host's.
 - Lobby, to play someone you know: one of you presses Create lobby and gives the
   other the 5-letter code; the other presses Join code and types it. Both choose
   a fighter (or "Pick in the game") and press Ready, then the host presses START.
+  After every lobby match the launcher comes back in front on the Lobby page with
+  Ready highlighted: press A on a controller (or START anywhere on the Lobby
+  page) to ready up for the next one.
   If your connection drops, sign back in within a minute (the launcher does it
   by itself) and you are put back in your lobby.
 - Watching a lobby: select it in the list and press Watch selected (or join it,
@@ -203,7 +206,7 @@ The launcher works with a controller too, while its window or one of its
 prompts is in front: the d-pad or the left stick moves the gold highlight, A
 (Cross) presses, B (Circle) closes a window (never MATCH FOUND or the rematch
 prompt), LB and RB switch pages and START finds a match on the Ranked and Kasual
-pages. A prompt that comes up over the game waits for the buttons you were
+pages, or presses Ready on the Lobby page. A prompt that comes up over the game waits for the buttons you were
 holding in the game to be let go, so a combo cannot accept or decline anything.
 While a match is played or watched, the launcher ignores the controller
 altogether, even if its window is the one in front: what you press is the
@@ -230,8 +233,10 @@ Settings
 
 The Settings page has the server address, region, maximum ping, input delay, the
 game's UDP port, and the display: borderless (fills the screen), fullscreen or
-a window, the resolution (Desktop is your monitor's own) and v-sync. A game
-takes them when it starts.
+a window, the resolution (Desktop is your monitor's own), v-sync, and whether
+Deadly Alliance (which has no widescreen mode) is stretched to fill a widescreen
+monitor, as it is unless you untick it, or keeps its original 4:3 shape with
+black bars at the sides. A game takes them when it starts.
 
 
 When something goes wrong

@@ -1,0 +1,41 @@
+diff --git a/runtime/app/app.h b/runtime/app/app.h
+--- a/runtime/app/app.h
++++ b/runtime/app/app.h
+@@ -23,6 +23,9 @@
+     uint32_t fps_cap = 60;           // 0 unlimited, kFpsCapRefresh the monitor's refresh rate
+     bool vsync = true;
+     uint32_t aniso = 0;              // 0 as the game asks
++    // a title without a 16:9 layout (GameInfo::widescreen false) fills a widescreen output, stretched as it always
++    // was; false: shown 4:3 between bars
++    bool stretch_4x3 = true;
+     std::string join_ip;                   // co-op: a host past the LAN the system link search also asks
+ };
+ 
+diff --git a/runtime/app/settings.cpp b/runtime/app/settings.cpp
+--- a/runtime/app/settings.cpp
++++ b/runtime/app/settings.cpp
+@@ -49,6 +49,7 @@
+     s.fps_cap = t["fps_cap"].value_or(s.fps_cap);
+     s.vsync = t["vsync"].value_or(s.vsync);
+     s.aniso = t["anisotropic_filtering"].value_or(s.aniso);
++    s.stretch_4x3 = t["stretch_4x3"].value_or(s.stretch_4x3);
+     s.join_ip = t["join_ip"].value_or(s.join_ip);
+     for (const Option& o : kGame.options) {
+         if (o.flag) *o.flag = t[o.key].value_or(*o.flag);
+@@ -68,6 +69,7 @@
+                   {"fps_cap", int64_t(s.fps_cap)},
+                   {"vsync", s.vsync},
+                   {"anisotropic_filtering", int64_t(s.aniso)},
++                  {"stretch_4x3", s.stretch_4x3},
+                   {"join_ip", s.join_ip}};
+     for (const Option& o : kGame.options) {
+         if (o.flag) t.insert(o.key, *o.flag);
+@@ -111,7 +113,7 @@
+ }
+ 
+ bool Widescreen() {
+-    if (!kGame.widescreen) return false;
++    if (!kGame.widescreen && !Get().stretch_4x3) return false;
+     // asked per frame and per HUD quad: the desktop mode lookup only runs when the resolution setting changes
+     static std::atomic<uint64_t> key{~0ull};
+     static std::atomic<bool> wide{true};

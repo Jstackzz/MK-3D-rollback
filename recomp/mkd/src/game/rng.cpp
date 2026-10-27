@@ -13,6 +13,7 @@
 #include "game/rng.h"
 
 #include <atomic>
+#include <thread>
 #include <unordered_map>
 
 #include "cpu/x86_ops.h"
@@ -30,6 +31,8 @@ namespace {
 std::atomic<bool> g_on{false};
 uint32_t g_seed = 0, g_frame = 0;
 std::unordered_map<uint32_t, uint32_t> g_counts;  // call site -> draws this frame
+std::unordered_map<uint32_t, uint32_t> g_crt_counts;  // the C runtime rand's call sites -> draws this frame
+std::thread::id g_main;                               // the thread the frames start on
 thread_local int t_depth = 0;                     // wrappers entered on this thread
 thread_local uint32_t t_site = 0;                 // where the outermost one was called from
 
@@ -46,12 +49,23 @@ void BeginFrame(uint32_t seed, uint32_t frame) {
     g_seed = seed;
     g_frame = frame;
     g_counts.clear();
+    g_crt_counts.clear();
+    g_main = std::this_thread::get_id();
     g_on = true;
 }
 
 void End() {
     g_on = false;
     g_counts.clear();
+    g_crt_counts.clear();
+}
+
+bool CrtDraw(uint32_t site, uint32_t& out) {
+    if (!g_on.load(std::memory_order_relaxed) || std::this_thread::get_id() != g_main) return false;
+    uint32_t n = g_crt_counts[site]++;
+    uint64_t key = (uint64_t(g_seed) << 32) ^ (uint64_t(g_frame) << 1) ^ 0x6372746Eull;  // "crtn": its own stream
+    out = uint32_t(Mix(Mix(key) ^ (uint64_t(site) << 20) ^ n) >> 16);
+    return true;
 }
 
 // a draw on the main thread in a fight in sync, false otherwise (the engine's generator then)

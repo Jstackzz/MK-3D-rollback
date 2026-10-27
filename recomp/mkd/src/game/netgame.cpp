@@ -331,8 +331,17 @@ void SideBlocks(std::vector<std::pair<uint32_t, uint32_t>>& out) { SideModeBlock
 
 }  // namespace mk3d::net::game
 
-// the C runtime's rand: counted for the netplay state checks
+// The C runtime's rand. In a fight in sync a draw is keyed by the agreed seed, the frame, the call site and its count
+// in the frame, as the engine's generator is (rng.cpp), so a stage object that starts drawing before the two games
+// meet in one and after it in the other moves nothing else (as Deadly Alliance's arena props did); those draws are not
+// counted for the checks. Outside a fight the runtime's own rand, counted.
 X86_FUNC(sub_0029B8AC) {
+    uint32_t v;
+    if (mkd::rng::CrtDraw(kernel::R32(ctx.esp), v)) {
+        ctx.eax = v & 0x7FFF;  // rand's range
+        ctx.esp += 4;          // ret
+        return;
+    }
     __imp__sub_0029B8AC(ctx, base);
     mk3d::net::CountRand(ctx.eax);
 }
