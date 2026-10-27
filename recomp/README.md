@@ -165,6 +165,15 @@ for p in recomp/patches/xboxxberecomp-*.patch; do git -C external/XboxXBERecomp 
   every millisecond, so more than a second between two reads is time nothing
   ran, all but a millisecond of which is dropped. Read under a lock, it never
   goes backwards.
+- `0021-notify-at-play-start`: a buffer notification at the position play
+  starts from counts as passed when the buffer starts. All three games stream
+  their music through a looping double buffer (Deception: 144144 bytes,
+  32 kHz stereo ADPCM, notifications at 0 and at the half) that plays with
+  only its first half filled and refills the other half on that first
+  notification. Without it the empty half played as two seconds of silence,
+  then the first half again: the music stopped and started over on every
+  screen and when the announcer spoke (arcade recordings: Deception 2.0 s,
+  Armageddon 2.0 s, Deadly Alliance 1.5 s, gone with it).
 
 `tools/py/lib_audit.py <game dir> <xbsdb symbols>` lists the XDK library
 functions the game calls that still run console code against host objects,

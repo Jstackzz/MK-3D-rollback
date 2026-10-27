@@ -1,0 +1,15 @@
+diff --git a/runtime/xdk/dsound.cpp b/runtime/xdk/dsound.cpp
+--- a/runtime/xdk/dsound.cpp
++++ b/runtime/xdk/dsound.cpp
+@@ -1205,7 +1205,10 @@ BUFFER(SetBufferData, 3) {
+ BUFFER(Play, 4) {
+     v.has_gain = false;  // a new sound does not ramp from the last one's levels
+     if (a[3] & 2) v.pos = 0;
+-    if (!v.playing || (a[3] & 2)) v.seen = int64_t(v.pos);
++    // a notification at the position play starts from counts as passed, as the voice's first frame reaches it: a
++    // streaming double buffer that plays with one half filled refills the other half on it (Deception's music
++    // played the empty half as two seconds of silence, then its first half again)
++    if (!v.playing || (a[3] & 2)) v.seen = int64_t(v.pos) - 1;
+     v.playing = true;
+     v.looping = a[3] & 1;
+     v.sync = a[3] & 4;
