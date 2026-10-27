@@ -65,12 +65,15 @@ whether to trust it: compare it with your host's.
   the game when the match starts, with your own controller, while your opponent
   does the same on their PC; the game shows their pick once they made it. Untick
   it to choose your fighter in the launcher instead. Your record (wins, losses,
-  and Elo in Ranked) is on the right of the page.
-- After a Kasual match the launcher shows you against your opponent with the
-  score between you, and two ways to play on within 30 seconds, same sides, no
-  search: REMATCH (when you both press it: the same fighters again, straight
-  into the fight) or SELECT (from either of you: both go back to character
-  select and pick again). LEAVE (or Find match) ends it.
+  and Elo in Ranked) is on the right of the page. When a match is found, its
+  ACCEPT window comes up over the game; once you accept, you are back in the
+  game.
+- After a Kasual match, once the game has played its ending, a window comes up
+  over the game with the score between you and two ways to play on, same
+  sides, no search: REMATCH (when you both press it: the same fighters again,
+  straight into the fight) or SELECT (from either of you: both go back to
+  character select and pick again). You have 60 seconds from the match's end.
+  LEAVE (or Find match) ends it. The Kasual page shows the same choices.
 - Ranked is played in sets against one opponent: the first to win 2 matches
   takes the set, and your Elo changes once, when it ends. The set's next match
   starts by itself once both games are ready. Leaving a set after one of its
@@ -81,8 +84,14 @@ whether to trust it: compare it with your host's.
   a fighter (or "Pick in the game") and press Ready, then the host presses START.
 - Single player, then PLAY, starts the whole game with its own menus, as on the
   console: arcade, its practice mode and the rest. What you unlock and set is
-  saved in the game's folder (games\<game>\hdd). Online matches wait while it is
-  open: close the game (or Close the game in the launcher) to search for one.
+  saved in the game's folder (games\<game>\hdd).
+- Play while you wait: search for a match (Kasual or Ranked) and play single
+  player meanwhile, in either order. When a match is found, its ACCEPT window
+  comes up over your game. Accept it and your single-player game is set aside,
+  frozen exactly where it is, while the online game takes you into the match.
+  When the match is over (with its rematches, or the whole ranked set), you are
+  back in your single-player game where you left it. Decline, or let the match
+  go, and you just play on.
 
 Both players need the same package: VERSION.txt lists fingerprints of its programs
 to compare.

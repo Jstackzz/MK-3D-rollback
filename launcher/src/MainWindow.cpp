@@ -83,6 +83,15 @@ MainWindow::MainWindow(const LaunchOptions& opts, QWidget* parent)
     settings_->setUpnp(upnp_);
 
     connect(settings_, &SettingsPage::reconnectRequested, this, &MainWindow::connectServer);
+    connect(casual_, &QueuePage::seriesCard, this, &MainWindow::onKasualSeries);
+    // standby: the match's game up for an accepted match, then single player again where it stood
+    connect(controller_, &MatchController::gameShown, this, &MainWindow::focusGame);
+    connect(controller_, &MatchController::soloResumed, this, [this] {
+        GameProcess* solo = controller_->solo();
+        const bool front = solo && winutil::bringProcessToFront(solo->pid());
+        applog::write(QStringLiteral("popup: single player %1").arg(front ? QStringLiteral("in front again")
+                                                                         : QStringLiteral("not brought to the front")));
+    });
     connect(server_, &ServerClient::stateChanged, this, [this](ServerClient::State st) {
         updateFooter();
         updateAccountButton();
@@ -135,10 +144,17 @@ MainWindow::MainWindow(const LaunchOptions& opts, QWidget* parent)
             cliLobbyMessage(cliLastLobby_);
     });
     connect(controller_, &MatchController::seriesChanged, this, [this](const QJsonObject& s) {
-        if (opts_.queue.isEmpty() || cliRematches_ >= opts_.rematches || s.value(QStringLiteral("ranked")).toBool() ||
+        if (opts_.queue.isEmpty() || s.value(QStringLiteral("ranked")).toBool() ||
             s.value(QStringLiteral("state")).toString() != QLatin1String("between") ||
             s.value(QStringLiteral("you_ready")).toBool())
             return;
+        if (cliRematches_ >= opts_.rematches) {
+            if (opts_.leaveSeries) {
+                applog::write(QStringLiteral("cli: leaving the series"));
+                QTimer::singleShot(2000, this, [this] { controller_->seriesReady(false); });
+            }
+            return;
+        }
         const QStringList& choices = opts_.rematchChoices;
         const QString choice = choices.isEmpty() ? QStringLiteral("rematch")
                                                  : choices.value(qMin(cliRematches_, int(choices.size()) - 1));
@@ -457,6 +473,10 @@ void MainWindow::onMatchFound(const QJsonObject& found) {
         showNotice(found.contains(QStringLiteral("series")) ? tr("Next match against %1 starting.").arg(opponent)
                                                             : tr("Lobby match starting against %1.").arg(opponent),
                    false);
+        if (rematchDialog_) {  // both chose: back to the game for it
+            rematchDialog_->close();
+            focusGame();
+        }
         return;
     }
     const Game* g = GameData::instance().game(found.value(QStringLiteral("game")).toString());
@@ -469,15 +489,68 @@ void MainWindow::onMatchFound(const QJsonObject& found) {
     matchDialog_ = dlg;
     connect(dlg, &QDialog::finished, this, [this](int result) {
         if (controller_->phase() != MatchController::Phase::Found) return;
-        if (result == QDialog::Accepted) controller_->accept();
-        else if (result == QDialog::Rejected) controller_->decline();
+        if (result == QDialog::Accepted) {
+            controller_->accept();
+            focusGame();  // the match comes to the game: no switching back to it
+        } else if (result == QDialog::Rejected) {
+            controller_->decline();
+        }
     });
     if (opts_.autoAcceptSeconds >= 0)
         QTimer::singleShot(opts_.autoAcceptSeconds * 1000, dlg, [dlg] { dlg->accept(); });
-    dlg->show();
-    dlg->raise();
-    dlg->activateWindow();
+    popUp(dlg);  // over the game the player waits in
     QApplication::alert(this);
+}
+
+void MainWindow::onKasualSeries(const QJsonObject& series, const QString& title, const QString& score,
+                                const QString& info, bool canChoose, bool canSelect) {
+    const QString state = series.value(QStringLiteral("state")).toString();
+    if (state != QLatin1String("between")) {
+        if (rematchDialog_) {
+            rematchDialog_->close();
+            // it ended without a next match (no rematch in time, the other left): the launcher says so, unless
+            // single player comes back in front of it (standby)
+            if (series.isEmpty() && !controller_->soloRunning()) popUp(this);
+        }
+        return;
+    }
+    const QString key = series.value(QStringLiteral("series")).toString() + QLatin1Char('/') +
+                        QString::number(series.value(QStringLiteral("played")).toInt());
+    // once per match, when the game has played its end (the finisher, a fatality, the winner's pose) and is ready
+    if (!rematchDialog_ && rematchShownFor_ != key && controller_->phase() == MatchController::Phase::Idle) {
+        rematchShownFor_ = key;
+        auto* dlg = new RematchDialog(this);
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        rematchDialog_ = dlg;
+        connect(dlg, &RematchDialog::chose, this, [this](const QString& choice) {
+            if (choice == QLatin1String("leave")) {
+                casual_->leaveSeries();
+                if (rematchDialog_) rematchDialog_->close();
+            } else {
+                casual_->choose(choice);  // the prompt stays, waiting for the other player, until the match starts
+            }
+        });
+        dlg->update(title, score, info, canChoose, canSelect);
+        popUp(dlg);
+        QApplication::alert(this);
+        return;
+    }
+    if (rematchDialog_) rematchDialog_->update(title, score, info, canChoose, canSelect);
+}
+
+void MainWindow::popUp(QWidget* dialog) {
+    if (isMinimized()) showNormal();  // a dialog of a minimized window stays hidden
+    const bool front = winutil::bringToFront(dialog);
+    applog::write(QStringLiteral("popup: %1 %2").arg(dialog->windowTitle(), front ? QStringLiteral("in front")
+                                                                                 : QStringLiteral("not in front")));
+}
+
+void MainWindow::focusGame() {
+    GameProcess* g = controller_->game();
+    if (!g || !g->pid()) return;
+    const bool front = winutil::bringProcessToFront(g->pid());
+    applog::write(QStringLiteral("popup: the game %1").arg(front ? QStringLiteral("in front again")
+                                                                 : QStringLiteral("not brought to the front")));
 }
 
 void MainWindow::showNotice(const QString& text, bool warn) {
@@ -502,6 +575,10 @@ void MainWindow::cliLogin() {
 
 void MainWindow::cliQueue() {
     if (opts_.queue.isEmpty() || cliQueued_ || !server_->isLoggedIn()) return;
+    if (opts_.solo && !controller_->soloRunning()) {  // standby: single player first, then the search beside it
+        QString err;
+        if (!controller_->startSolo(gameId_, &err)) applog::write(QStringLiteral("cli: single player: %1").arg(err));
+    }
     cliQueued_ = true;
     QueuePage* page = opts_.queue == QLatin1String("ranked") ? ranked_ : casual_;
     selectPage(opts_.queue == QLatin1String("ranked") ? kRanked : kCasual);

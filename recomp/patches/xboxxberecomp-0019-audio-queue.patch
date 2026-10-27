@@ -1,0 +1,239 @@
+diff --git a/runtime/xdk/dsound.cpp b/runtime/xdk/dsound.cpp
+--- a/runtime/xdk/dsound.cpp
++++ b/runtime/xdk/dsound.cpp
+@@ -148,6 +148,7 @@
+     bool playing = false, looping = false, paused = false;
+     bool sync = false;  // held until IDirectSound_SynchPlayback
+     bool active = false, ending = false;  // stream: took a packet since it went quiet, quiet again once they run out
++    uint32_t starved = 0;  // stream: output frames it had no packet for while started, since last reported
+     double pos = 0;  // frames
+     uint32_t freq = 0;
+     // stream
+@@ -210,9 +211,21 @@
+ 
+ // ---- the frame clock (xdk/dsound.h) and rollback (kernel/host_rollback.h) ----
+ std::atomic<bool> g_frame_clock{false};
++// The simulation hands its sound over a frame at a time, at its own pace: a wait for the other game's inputs, a frame
++// shown later to keep two games in time, a slower frame (a rollback catching up, loading) hold it back. The output
++// plays the queue with about kFifoTarget in it, read up to kFifoStretch faster or slower to stay there, so those
++// hold-ups stay off the speakers; one longer than what is queued fades out to silence, and the queue fills to
++// kFifoTarget again before it plays on. Stereo frames, interleaved.
+ std::mutex g_fifo_lock;
+ std::deque<float> g_fifo;  // interleaved stereo MixFrames queued for the output
+-constexpr size_t kFifoMax = 6 * 800 * 2, kFifoKeep = 3 * 800 * 2;  // past 100 ms queued, drop to 50 ms
++constexpr size_t kFifoTarget = 3 * 800, kFifoMax = 9 * 800;  // 50 ms; past 150 ms queued, drop to 50 ms
++constexpr double kFifoStretch = 0.02;
++constexpr uint32_t kFifoFade = 96;  // 2 ms in or out where the sound breaks off or starts again
++bool g_fifo_playing = false;        // false: filling up to kFifoTarget
++double g_fifo_at = 0;               // the read position in the queue, fractional
++double g_fifo_rate = 1;             // queued frames read per frame played
++uint32_t g_fifo_fade_in = 0;        // frames of fade-in left
++std::atomic<uint32_t> g_fifo_silent{0}, g_fifo_dropped{0};  // output frames the queue had none for, or dropped
+ 
+ void Touched(Voice& v) {
+     std::thread::id me = std::this_thread::get_id();
+@@ -704,7 +717,10 @@
+     v.block[v.last ^ 1] = -1;  // the title may have rewritten that block's memory since the last mix
+     for (uint32_t i = 0; i < frames; i++) {
+         std::optional<Cursor> cursor = v.stream ? StreamFrame(v) : BufferFrame(v);
+-        if (!cursor) break;
++        if (!cursor) {
++            if (v.stream && v.active && !v.ending) v.starved += frames - i;  // started, but no packet came in time
++            break;
++        }
+         float t = float(v.pos - cursor->f);
+         float row[kRows] = {};
+         for (uint32_t c = 0; c < channels; c++) {
+@@ -732,15 +748,77 @@
+ // bins to the stereo output: front pairs, centre and backs folded in
+ void Fold(const std::vector<float>& bins, float* out, uint32_t frames);
+ 
+-void Render(float* out, uint32_t frames) {
+-    if (g_frame_clock) {
+-        std::lock_guard<std::mutex> lock(g_fifo_lock);
+-        size_t n = std::min<size_t>(g_fifo.size(), size_t(frames) * 2);
+-        std::copy(g_fifo.begin(), g_fifo.begin() + ptrdiff_t(n), out);
+-        g_fifo.erase(g_fifo.begin(), g_fifo.begin() + ptrdiff_t(n));
+-        std::fill(out + n, out + size_t(frames) * 2, 0.0f);
++int64_t NowMs();
++
++// what the output lost, at most once a second (under g_lock): streams started but without a packet in time, and the
++// frame clock's queue running empty (silence) or over (sound dropped)
++void ReportGaps() {
++    static int64_t last = 0;
++    const int64_t now = NowMs();
++    if (now - last < 1000) return;
++    last = now;
++    for (auto& [obj, v] : g_voices) {
++        if (!v.starved) continue;
++        LOGR("dsound: stream %08X (%u Hz, %u ch) ran dry for %u ms", obj, v.freq ? v.freq : v.rate, v.channels,
++             v.starved * 1000 / audio::kRate);
++        v.starved = 0;
++    }
++    const uint32_t silent = g_fifo_silent.exchange(0), dropped = g_fifo_dropped.exchange(0);
++    if (silent || dropped)
++        LOGR("dsound: frame clock: %u ms of silence, %u ms dropped", silent * 1000 / audio::kRate,
++             dropped * 1000 / audio::kRate);
++}
++
++// the frame clock's queue to the output (see g_fifo)
++void RenderQueued(float* out, uint32_t frames) {
++    std::lock_guard<std::mutex> lock(g_fifo_lock);
++    const size_t queued = g_fifo.size() / 2;
++    if (!g_fifo_playing && queued >= kFifoTarget) {
++        g_fifo_playing = true;
++        g_fifo_at = 0;
++        g_fifo_rate = 1;
++        g_fifo_fade_in = kFifoFade;
++    }
++    if (!g_fifo_playing) {
++        std::fill(out, out + size_t(frames) * 2, 0.0f);
++        g_fifo_silent += frames;
+         return;
+     }
++    // toward the target, gently: a step of the rate every block, at most kFifoStretch off
++    const double off = (double(queued) - double(kFifoTarget)) / double(kFifoTarget);
++    const double want = 1 + std::clamp(off * kFifoStretch, -kFifoStretch, kFifoStretch);
++    g_fifo_rate += (want - g_fifo_rate) * 0.1;
++    uint32_t i = 0;
++    for (; i < frames; i++) {
++        const size_t f = size_t(g_fifo_at);
++        if (f + 1 >= queued) break;
++        const float t = float(g_fifo_at - double(f));
++        float gain = 1;
++        if (g_fifo_fade_in) gain = 1 - float(g_fifo_fade_in--) / float(kFifoFade);
++        for (size_t c = 0; c < 2; c++) {
++            const float a = g_fifo[f * 2 + c], b = g_fifo[(f + 1) * 2 + c];
++            out[size_t(i) * 2 + c] = (a + (b - a) * t) * gain;
++        }
++        g_fifo_at += g_fifo_rate;
++    }
++    const size_t used = std::min(size_t(g_fifo_at), queued);
++    g_fifo.erase(g_fifo.begin(), g_fifo.begin() + ptrdiff_t(used * 2));
++    g_fifo_at -= double(used);
++    if (i < frames) {  // ran out: the last of it fades out, silence until the queue is full again
++        const uint32_t fade = std::min(i, kFifoFade);
++        for (uint32_t k = 0; k < fade; k++) {
++            const float gain = float(k) / float(fade);
++            out[size_t(i - fade + k) * 2] *= 1 - gain;
++            out[size_t(i - fade + k) * 2 + 1] *= 1 - gain;
++        }
++        std::fill(out + size_t(i) * 2, out + size_t(frames) * 2, 0.0f);
++        g_fifo_silent += frames - i;
++        g_fifo_playing = false;
++    }
++}
++
++void Render(float* out, uint32_t frames) {
++    if (g_frame_clock) return RenderQueued(out, frames);
+     static std::vector<float> bins;  // the output thread alone renders
+     bins.assign(size_t(frames) * kBins, 0.0f);
+     std::unique_lock<std::recursive_mutex> lock(g_lock);
+@@ -753,6 +831,7 @@
+         MixVoice(v, bins.data(), frames);
+     }
+     if (dsp::Loaded()) dsp::Run(bins.data(), frames);
++    ReportGaps();
+     Fold(bins, out, frames);
+ }
+ 
+@@ -1429,6 +1508,9 @@
+     g_frame_clock = on;
+     std::lock_guard<std::mutex> lock(g_fifo_lock);
+     g_fifo.clear();
++    g_fifo_playing = false;
++    g_fifo_at = 0;
++    g_fifo_rate = 1;
+     LOGI("dsound: %s", on ? "voices move with the simulated frames" : "voices move in real time");
+ }
+ 
+@@ -1449,13 +1531,20 @@
+         }
+         if (!output) return;
+         if (dsp::Loaded()) dsp::Run(bins.data(), frames);
++        ReportGaps();
+     }
+     static std::vector<float> out;
+     out.resize(size_t(frames) * 2);
+     Fold(bins, out.data(), frames);
+     std::lock_guard<std::mutex> lock(g_fifo_lock);
+     g_fifo.insert(g_fifo.end(), out.begin(), out.end());
+-    if (g_fifo.size() > kFifoMax) g_fifo.erase(g_fifo.begin(), g_fifo.begin() + ptrdiff_t(g_fifo.size() - kFifoKeep));
++    if (g_fifo.size() / 2 > kFifoMax) {  // far ahead of the output: the oldest go, the rest fades in
++        const size_t drop = g_fifo.size() / 2 - kFifoTarget;
++        g_fifo_dropped += uint32_t(drop);
++        g_fifo.erase(g_fifo.begin(), g_fifo.begin() + ptrdiff_t(drop * 2));
++        g_fifo_at = std::max(0.0, g_fifo_at - double(drop));
++        g_fifo_fade_in = kFifoFade;
++    }
+ }
+ 
+ }  // namespace dsound
+diff --git a/runtime/audio/xaudio2.cpp b/runtime/audio/xaudio2.cpp
+--- a/runtime/audio/xaudio2.cpp
++++ b/runtime/audio/xaudio2.cpp
+@@ -8,6 +8,9 @@
+ #include <windows.h>
+ #include <xaudio2.h>
+ 
++#include <cstdio>
++#include <cstdlib>
++#include <string>
+ #include <thread>
+ #include <vector>
+ 
+@@ -16,8 +19,42 @@
+ 
+ namespace audio {
+ 
++namespace {
++
++// XBE_AUDIO_DUMP=<file.wav>: everything sent to the speakers (48 kHz float stereo), to find where the sound breaks
++void DumpHeader(std::FILE* f, uint32_t frames) {
++    const uint32_t data = frames * 8;
++    struct {
++        char riff[4] = {'R', 'I', 'F', 'F'};
++        uint32_t size;
++        char wave[8] = {'W', 'A', 'V', 'E', 'f', 'm', 't', ' '};
++        uint32_t fmt_size = 16;
++        uint16_t tag = 3, channels = 2;  // WAVE_FORMAT_IEEE_FLOAT
++        uint32_t rate = kRate, bytes_per_sec = kRate * 8;
++        uint16_t align = 8, bits = 32;
++        char data_id[4] = {'d', 'a', 't', 'a'};
++        uint32_t data_size;
++    } h;
++    h.size = 36 + data;
++    h.data_size = data;
++    std::fseek(f, 0, SEEK_SET);
++    std::fwrite(&h, sizeof h, 1, f);
++    std::fseek(f, 0, SEEK_END);
++}
++
++}  // namespace
++
+ void StartOutput(std::function<void(float*, uint32_t)> render) {
+     std::thread([render] {
++        std::FILE* dump = nullptr;
++        uint32_t dumped = 0;
++        if (const char* path = std::getenv("XBE_AUDIO_DUMP"); path && *path) {
++            std::string p = path;  // "{pid}" keeps two games of one PC apart
++            if (size_t at = p.find("{pid}"); at != std::string::npos)
++                p.replace(at, 5, std::to_string(GetCurrentProcessId()));
++            dump = std::fopen(p.c_str(), "wb");
++            if (dump) DumpHeader(dump, 0);
++        }
+         CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+         IXAudio2* xa = nullptr;
+         IXAudio2MasteringVoice* master = nullptr;
+@@ -58,6 +95,11 @@
+             }
+             float* b = &bufs[(n % kSlots) * kFrames * 2];
+             render(b, kFrames);
++            if (dump) {
++                std::fwrite(b, 8, kFrames, dump);
++                dumped += kFrames;
++                if (n % 100 == 0) DumpHeader(dump, dumped);  // readable while the game runs
++            }
+             XAUDIO2_BUFFER xb{};
+             xb.AudioBytes = kFrames * 8;
+             xb.pAudioData = reinterpret_cast<const BYTE*>(b);

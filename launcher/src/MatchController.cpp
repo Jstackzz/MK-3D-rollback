@@ -3,6 +3,7 @@
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QElapsedTimer>
+#include <QPointer>
 #include <QRandomGenerator>
 #include <QTimer>
 
@@ -11,6 +12,7 @@
 #include "GameProcess.h"
 #include "ServerClient.h"
 #include "UdpRendezvous.h"
+#include "WinUtil.h"
 
 namespace {
 QString str(const QJsonObject& o, const char* key) { return o.value(QLatin1String(key)).toString(); }
@@ -81,12 +83,59 @@ void MatchController::log(const QString& text) {
 }
 
 void MatchController::setPhase(Phase p, const QString& text) {
+    if (p == Phase::Idle && solo_ && !soloFrozen_) p = Phase::Solo;  // nothing online: the single-player game's
     phase_ = p;
     phaseText_ = text;
     if (p != Phase::Searching) keepaliveTimer_.stop();
     log(text);
     emit phaseChanged(p, text);
     if (p == Phase::Idle) sendSeriesReady();
+    maybeBackToSolo();
+}
+
+void MatchController::freezeSolo() {
+    if (!solo_ || soloFrozen_) return;
+    soloHidden_.clear();
+    soloFrozen_ = true;
+    if (!winutil::freezeProcess(solo_->pid(), &soloHidden_)) log(tr("Standby: single player could not be frozen"));
+    log(tr("Standby: single player set aside for the match"));
+}
+
+void MatchController::thawSolo() {
+    if (!solo_ || !soloFrozen_) return;
+    soloFrozen_ = false;
+    winutil::thawProcess(solo_->pid(), soloHidden_);
+    soloHidden_.clear();
+}
+
+void MatchController::freezeGame() {
+    if (!game_ || gameFrozen_ || !game_->isRunning()) return;
+    gameHidden_.clear();
+    gameFrozen_ = true;
+    winutil::freezeProcess(game_->pid(), &gameHidden_);
+}
+
+void MatchController::thawGame() {
+    if (!game_ || !gameFrozen_) return;
+    gameFrozen_ = false;
+    winutil::thawProcess(game_->pid(), gameHidden_);
+    gameHidden_.clear();
+}
+
+// Standby: once nothing more is to be played online (the match is over and no rematch or set's next match follows,
+// or it was cancelled before it started), the match's game is frozen at its hold point for the next one and single
+// player runs on where it stood.
+void MatchController::maybeBackToSolo() {
+    if (!soloFrozen_ || !solo_) return;
+    if (phase_ != Phase::Idle && phase_ != Phase::Searching) return;
+    const QString state = str(series_, "state");
+    if (state == QLatin1String("between") || state == QLatin1String("playing")) return;
+    thawSolo();
+    log(tr("Standby: back to single player"));
+    if (phase_ == Phase::Idle) setPhase(Phase::Solo, tr("Playing single player"));
+    // in front while the match's game still runs: taking the foreground from a frozen window would wait on it for ever
+    emit soloResumed();
+    freezeGame();
 }
 
 void MatchController::seriesReady(bool ready, const QString& choice) {
@@ -175,7 +224,8 @@ QString MatchController::opponentName() const {
 }
 
 GameProcess* MatchController::ensureGame(const QString& gameId, QString* error) {
-    if (solo_) {  // one game at a time, and its save is the single-player game's while it is open
+    // one game runs at a time: while single player runs, only an accepted match (which freezes it) brings this one
+    if (solo_ && !soloFrozen_) {
         if (error) *error = tr("Close your single-player game first.");
         return nullptr;
     }
@@ -183,12 +233,21 @@ GameProcess* MatchController::ensureGame(const QString& gameId, QString* error) 
         if (error) *error = tr("Your game is still playing the last match's ending: a moment.");
         return nullptr;
     }
-    if (game_ && game_->isRunning() && game_->gameId() == gameId) return game_;
+    if (game_ && game_->isRunning() && game_->gameId() == gameId) {
+        if (gameFrozen_) {
+            thawGame();
+            showWhenReady_ = soloFrozen_;
+            if (game_->isReady()) emit gameShown();  // at its hold point: up at once
+        }
+        return game_;
+    }
     if (game_) {
+        thawGame();  // a frozen game would not see its quit command
         game_->quit();
         game_->deleteLater();
         game_ = nullptr;
     }
+    showWhenReady_ = soloFrozen_;
     auto* g = new GameProcess(gameId, 1, this);
     connect(g, &GameProcess::statusChanged, this, &MatchController::onGameStatus);
     connect(g, &GameProcess::exited, this, &MatchController::onGameExited);
@@ -208,15 +267,12 @@ bool MatchController::findMatch(const QueueRequest& req, QString* error) {
         if (error) *error = tr("Sign in first.");
         return false;
     }
-    if (solo_) {
-        if (error) *error = tr("Close your single-player game first.");
-        return false;
-    }
-    if (phase_ != Phase::Idle && phase_ != Phase::Searching) {
+    if (phase_ != Phase::Idle && phase_ != Phase::Searching && phase_ != Phase::Solo) {
         if (error) *error = tr("Busy: %1").arg(phaseText_);
         return false;
     }
-    if (!ensureGame(req.game, error)) return false;
+    // standby: single player runs on while this searches; the match's game starts once a match is accepted
+    if (!solo_ && !ensureGame(req.game, error)) return false;
     QString uerr;
     if (!openUdp(&uerr)) {
         if (error) *error = uerr;
@@ -264,6 +320,16 @@ void MatchController::cancelSearch() {
 
 void MatchController::accept() {
     if (phase_ != Phase::Found) return;
+    if (solo_ && !soloFrozen_) {  // standby: single player steps aside, the match's game comes up
+        freezeSolo();
+        QString err;
+        if (!ensureGame(str(found_, "game"), &err)) {
+            log(err);
+            thawSolo();
+            decline();
+            return;
+        }
+    }
     server_->send({{QStringLiteral("type"), QStringLiteral("match_accept")}, {QStringLiteral("match"), str(found_, "match")}});
     setPhase(Phase::Connecting, tr("Accepted; waiting for the opponent..."));
 }
@@ -298,7 +364,9 @@ void MatchController::onServerMessage(const QJsonObject& msg) {
         go_ = {};
         resultSent_ = false;
         QString err;
-        if (!ensureGame(str(msg, "game"), &err)) {
+        // standby: the match's game waits for the accept, which sets single player aside
+        const bool standby = solo_ && !soloFrozen_ && msg.value(QStringLiteral("accept_required")).toBool();
+        if (!standby && !ensureGame(str(msg, "game"), &err)) {
             log(err);
             phase_ = Phase::Found;
             decline();
@@ -387,6 +455,7 @@ void MatchController::onServerMessage(const QJsonObject& msg) {
         emit seriesChanged(msg);
         if (state == QLatin1String("over")) series_ = {};
         sendSeriesReady();
+        maybeBackToSolo();
     } else if (type == QLatin1String("result_ack")) {
         log(tr("Result of %1 acknowledged by the server").arg(match));
     }
@@ -446,6 +515,10 @@ void MatchController::onGameStatus(const QString& line) {
     const bool forThisMatch = !keys.contains(QStringLiteral("match")) || keys.value(QStringLiteral("match")) == goMatch;
     const bool inOnline = (phase_ == Phase::Starting || phase_ == Phase::Playing) && !go_.isEmpty();
     if (st == QLatin1String("ready")) {
+        if (showWhenReady_) {  // standby: started for an accepted match, its window is up now
+            showWhenReady_ = false;
+            emit gameShown();
+        }
         if (phase_ == Phase::Finishing) {
             finishTimeout_.stop();
             setPhase(Phase::Idle, tr("Match over"));
@@ -536,19 +609,23 @@ void MatchController::finishMatch() {
 }
 
 // The whole game started plainly, its menus as on the console (arcade, its practice mode, the side modes): no hold
-// point and no match. The game waiting in the background for a match closes first, so one game runs at a time.
+// point and no match. One game runs at a time: the game waiting in the background for a match closes first, or,
+// while a search runs (standby), is frozen until a match is accepted.
 bool MatchController::startSolo(const QString& gameId, QString* error) {
     if (solo_) {
         if (error) *error = tr("Your single-player game is already open.");
         return false;
     }
-    if (phase_ != Phase::Idle) {
+    if (phase_ != Phase::Idle && phase_ != Phase::Searching) {
         if (error) *error = tr("Busy: %1").arg(phaseText_);
         return false;
     }
-    if (game_) {
+    if (game_ && phase_ == Phase::Searching) {
+        freezeGame();
+    } else if (game_) {
         GameProcess* waiting = game_;
         game_ = nullptr;
+        gameFrozen_ = false;
         disconnect(waiting, nullptr, this, nullptr);
         waiting->quit();
         QElapsedTimer t;
@@ -559,18 +636,30 @@ bool MatchController::startSolo(const QString& gameId, QString* error) {
     auto* g = new GameProcess(gameId, 1, this);
     if (!g->start(cfg::gameExe(gameId), error, false)) {
         delete g;
+        thawGame();
         return false;
     }
     solo_ = g;
+    soloFrozen_ = false;
     connect(g, &GameProcess::exited, this, [this, g] {
         if (solo_ != g) return;
         solo_ = nullptr;
+        soloFrozen_ = false;
+        soloHidden_.clear();
         g->deleteLater();
-        setPhase(Phase::Idle, tr("Single player closed"));
+        if (phase_ == Phase::Solo) {
+            setPhase(Phase::Idle, tr("Single player closed"));
+        } else {
+            log(tr("Single player closed"));
+            // still searching: the match's game waits for it in the open again
+            QString err;
+            if (phase_ == Phase::Searching && !ensureGame(request_.game, &err)) log(err);
+        }
         emit gameStatusChanged(gameStatus());
     });
     log(tr("Game %1 started for single player (session %2)").arg(gameId, g->sessionDir()));
-    setPhase(Phase::Solo, tr("Playing single player"));
+    if (phase_ == Phase::Idle) setPhase(Phase::Solo, tr("Playing single player"));
+    else log(tr("Playing single player while the search runs: a match found comes up over it"));
     emit gameStatusChanged(gameStatus());
     return true;
 }
@@ -659,23 +748,30 @@ void MatchController::stopLocalTest() {
 }
 
 void MatchController::stopGame() {
+    thawSolo();  // frozen games would not see their quit
     stopSolo();
+    thawGame();
     if (game_) game_->quit();
 }
 
 void MatchController::shutdown() {
     stopLocalTest();
     if (phase_ == Phase::Searching) cancelSearch();
-    QList<GameProcess*> procs = findChildren<GameProcess*>();
-    for (GameProcess* g : procs)
+    thawSolo();  // frozen games would not see their quit
+    thawGame();
+    // guarded: an exit handler run by the wait below may delete its game (single player's does)
+    QList<QPointer<GameProcess>> procs;
+    for (GameProcess* g : findChildren<GameProcess*>()) procs.append(g);
+    for (const QPointer<GameProcess>& g : procs)
         if (g->isRunning()) g->quit();
     QElapsedTimer t;
     t.start();
     while (t.elapsed() < 2500) {
         bool any = false;
-        for (GameProcess* g : procs) any = any || g->isRunning();
+        for (const QPointer<GameProcess>& g : procs) any = any || (g && g->isRunning());
         if (!any) break;
         QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
     }
-    for (GameProcess* g : procs) g->kill();
+    for (const QPointer<GameProcess>& g : procs)
+        if (g) g->kill();
 }

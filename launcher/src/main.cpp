@@ -63,9 +63,15 @@ int main(int argc, char* argv[]) {
         QStringLiteral("Development: what each --rematches choice is, rematch (the same fighters) or select (both "
                        "pick again), comma-separated; the last one repeats (default rematch)."),
         QStringLiteral("choices"));
+    const QCommandLineOption leaveSeriesOpt(
+        QStringLiteral("leave-series"),
+        QStringLiteral("Development: once the --rematches are chosen, leave the series at once instead of letting it run out."));
+    const QCommandLineOption soloOpt(
+        QStringLiteral("solo"),
+        QStringLiteral("Development: with --queue, start single player first and search alongside it (standby)."));
     for (const auto* o : {&configOpt, &serverOpt, &fpOpt, &userOpt, &pwEnvOpt, &regOpt, &queueOpt, &gameOpt, &modeOpt,
                           &charOpt, &pageOpt, &acceptOpt, &localTestOpt, &extractOpt, &lobbyOpt, &lobbyNameOpt,
-                          &lobbyMatchesOpt, &upnpProbeOpt, &rematchesOpt, &rematchChoiceOpt})
+                          &lobbyMatchesOpt, &upnpProbeOpt, &rematchesOpt, &rematchChoiceOpt, &leaveSeriesOpt, &soloOpt})
         cli.addOption(*o);
     cli.process(app);
 
@@ -114,6 +120,8 @@ int main(int argc, char* argv[]) {
     opts.lobbyMatches = cli.isSet(lobbyMatchesOpt) ? std::max(1, cli.value(lobbyMatchesOpt).toInt()) : 1;
     opts.rematches = cli.isSet(rematchesOpt) ? std::max(0, cli.value(rematchesOpt).toInt()) : 0;
     opts.rematchChoices = cli.value(rematchChoiceOpt).split(QLatin1Char(','), Qt::SkipEmptyParts);
+    opts.leaveSeries = cli.isSet(leaveSeriesOpt);
+    opts.solo = cli.isSet(soloOpt);
     opts.upnpProbe = cli.isSet(upnpProbeOpt);
 
     MainWindow window(opts);

@@ -1,5 +1,5 @@
 #pragma once
-// Account sign-in/registration, the match-found accept prompt, and lobby creation.
+// Account sign-in/registration, the match-found accept prompt, the Kasual rematch prompt, and lobby creation.
 
 #include <QDialog>
 #include <QJsonObject>
@@ -56,6 +56,27 @@ private:
     QLabel* countdown_;
     QTimer tick_;
     qint64 deadlineMs_ = 0;
+};
+
+// After a Kasual match, over the game once it has played the match's end: the score against the opponent and what
+// comes next, REMATCH (the same fighters, when both choose it), SELECT (both pick again) or LEAVE, as on the Kasual
+// page's series card, which it mirrors
+class RematchDialog : public QDialog {
+    Q_OBJECT
+public:
+    explicit RematchDialog(QWidget* parent = nullptr);
+    // the card's state: its title, score and info line, whether a choice can still be made, whether SELECT applies
+    void update(const QString& title, const QString& score, const QString& info, bool canChoose, bool canSelect);
+
+signals:
+    void chose(const QString& choice);  // "rematch", "select" or "leave"
+
+private:
+    QLabel* title_;
+    QLabel* score_;
+    QLabel* info_;
+    QPushButton* rematch_;
+    QPushButton* select_;
 };
 
 class CreateLobbyDialog : public QDialog {

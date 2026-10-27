@@ -26,6 +26,8 @@ param(
     [string[]]$RematchChoice = @(),  # casual: what both choose each time, rematch (the same fighters) or select (both
                                  # pick again), e.g. select,rematch, the last one repeating; default rematch
     [switch]$Relay,              # the server relays every match (--relay-only): the relay path, on one PC
+    [switch]$StandbyA,           # A plays single player while it searches (--solo): the match freezes it, then A
+                                 # leaves the series (--leave-series) and single player runs on
     [int]$Pads = 2,              # controllers each game reports at least (<GAME>_PADS); 0: only what is plugged in, as a player's PC
     [switch]$PickInGame,         # both players pick on the game's own select screen (their scripts move the cursor
                                  # and press A first); otherwise the launchers pick CharA and CharB
@@ -101,6 +103,7 @@ if ($Queue -eq 'casual' -and $Rematches -gt 0) { $Matches = 1 + $Rematches }
 $queueArgs = @('--queue', $Queue, '--rematches', "$Rematches")
 if ($RematchChoice) { $queueArgs += @('--rematch-choice', ($RematchChoice -join ',')) }  # one argument, no spaces
 $how = if ($Queue -eq 'lobby') { @('--lobby', 'host', '--lobby-name', "e2e$stamp", '--lobby-matches', "$Matches") } else { $queueArgs }
+if ($StandbyA) { $how += @('--solo', '--leave-series') }
 $la = Start-Process -FilePath $launcher -ArgumentList (@('--config', "`"$work\a\mk3d-launcher.ini`"", '--user', "e2eA$stamp", '--register') + $how + @('--game', $Game, '--mode', $Mode, '--character', $CharA, '--auto-accept', '3')) -PassThru
 Start-Sleep -Seconds 1
 Set-Item "env:${x}_INPUT" $InputB
@@ -137,8 +140,11 @@ foreach ($s in 'a', 'b') { Get-Content "$work\$s\mk3d-launcher.log" -Tail 8 -Err
 "--- match starts (the fighters each game was given; empty: picked on the select screen)"
 foreach ($s in 'a', 'b') {
     Get-ChildItem -Path "$work\$s\sessions" -Directory -ErrorAction SilentlyContinue | ForEach-Object {
-        Select-String -Path (Join-Path $_.FullName 'game.log') -Pattern 'link: start|picked character' -ErrorAction SilentlyContinue |
-            ForEach-Object { "[$s] $($_.Line)" }
+        # a game older than its session log has none (Select-String stops the script on a missing path)
+        $log = Join-Path $_.FullName 'game.log'
+        if (Test-Path $log) {
+            Select-String -Path $log -Pattern 'link: start|picked character' | ForEach-Object { "[$s] $($_.Line)" }
+        }
     }
 }
 "--- server log (matches and results)"

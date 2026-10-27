@@ -64,6 +64,8 @@ GameProcess::~GameProcess() {
 
 bool GameProcess::isRunning() const { return proc_ && proc_->state() != QProcess::NotRunning; }
 
+qint64 GameProcess::pid() const { return isRunning() ? proc_->processId() : 0; }
+
 QString GameProcess::state() const { return status_.section(QLatin1Char(' '), 0, 0); }
 
 QHash<QString, QString> GameProcess::parseKeys(const QString& line) {

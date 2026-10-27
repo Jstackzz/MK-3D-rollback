@@ -66,7 +66,9 @@ class ServerConfig:
     chat_interval: float = 0.5
     default_rounds: int = 3
     set_wins: int = 2             # a ranked set goes to the first to win this many matches
-    rematch_timeout: float = 30.0  # casual: both choose a rematch within this, or the series ends
+    # casual: both choose a rematch within this, or the series ends; it starts with the result, and the launcher asks
+    # once the game has played the match's end (the finisher, a fatality, the winner's pose: up to 30 s)
+    rematch_timeout: float = 60.0
     set_next_timeout: float = 90.0  # ranked: both games ready for the set's next match within this, or the one
                                     # that is not loses the set (the last match's ending plays first)
     set_rejoin_grace: float = 20.0  # a player whose launcher drops between two matches has this long to be back

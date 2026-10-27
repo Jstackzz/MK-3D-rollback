@@ -21,6 +21,14 @@ public:
     QueuePage(bool ranked, ServerClient* server, MatchController* controller, QWidget* parent = nullptr);
     void setGame(const QString& gameId) override;
     bool startSearch(const QString& mode = {}, const QString& character = {});  // also used by --queue
+    // the series card's choices, the rematch prompt's too: "rematch" or "select", or leaving the series
+    void choose(const QString& choice);
+    void leaveSeries();
+
+signals:
+    // the series card's state at every change (series {}: none any more), mirrored by the rematch prompt
+    void seriesCard(const QJsonObject& series, const QString& title, const QString& score, const QString& info,
+                    bool canChoose, bool canSelect);
 
 private:
     void refreshModes();
@@ -69,7 +77,6 @@ private:
     QJsonObject stats_;
     QJsonObject series_;      // this page's series (Kasual or ranked), {} when none
     QString chosen_;  // "rematch" or "select" pressed, not seen by the server yet (sent once the game is ready)
-    void choose(const QString& choice);
 };
 
 // the whole game with its own menus (arcade, its practice mode, the side modes), and in a source build the two-game

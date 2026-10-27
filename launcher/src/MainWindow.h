@@ -13,6 +13,7 @@ class QStackedWidget;
 class LobbyPage;
 class MatchController;
 class MatchFoundDialog;
+class RematchDialog;
 class Page;
 class QueuePage;
 class BuildPage;
@@ -39,6 +40,8 @@ struct LaunchOptions {
     int lobbyMatches = 1;    // matches to play there, one after the other
     int rematches = 0;       // --queue casual: rematches to choose after the first match
     QStringList rematchChoices;  // what each of them chooses, "rematch" or "select" (the last one repeats)
+    bool leaveSeries = false;    // once those are chosen, leave the series at once instead of letting it run out
+    bool solo = false;           // --queue: single player first, the search running alongside it (standby)
     bool upnpProbe = false;  // find the router and its public address, open nothing
 };
 
@@ -66,6 +69,11 @@ private:
     void warnSmartAppControl();  // it blocks the games: what it is and where to switch it off
     void onServerMessage(const QJsonObject& msg);
     void onMatchFound(const QJsonObject& found);
+    // the Kasual series card's state: the rematch prompt over the game once its match's end has played
+    void onKasualSeries(const QJsonObject& series, const QString& title, const QString& score, const QString& info,
+                        bool canChoose, bool canSelect);
+    void popUp(QWidget* dialog);  // in front of the game, the launcher's window restored first when minimized
+    void focusGame();             // the game's window in front again: the player is back in it
     void showNotice(const QString& text, bool warn);
     void cliLogin();
     void cliQueue();
@@ -96,6 +104,8 @@ private:
     QString lastError_;
     QJsonObject online_;
     QPointer<MatchFoundDialog> matchDialog_;
+    QPointer<RematchDialog> rematchDialog_;
+    QString rematchShownFor_;  // the series and matches played the prompt last came up for (once each)
     bool askedForAccount_ = false;  // the account window opened by itself this run
     int cliLoginId_ = -1;
     bool cliTriedRegister_ = false;

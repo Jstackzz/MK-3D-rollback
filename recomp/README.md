@@ -148,6 +148,23 @@ for p in recomp/patches/xboxxberecomp-*.patch; do git -C external/XboxXBERecomp 
   XInput takes every XInput device as a gamepad (triggers apart, read whether
   or not the window is in front), WGI skips those and keeps the rest, HIDAPI
   still takes PlayStation and Switch pads.
+- `0019-audio-queue`: on the frame clock (0010), the sound reaches the output
+  through a jitter buffer: the queue plays with about 50 ms in it, read up to
+  2% faster or slower to stay there, fading out where it runs dry and filling
+  to 50 ms before it plays on. It held a frame or two before, so every frame
+  that came late (a wait for the other game's inputs, a frame shown later for
+  time sync, a rollback catching up) broke the sound off: online the music cut
+  in and out, at a fight's start above all. Also what the output lost, once a
+  second at most (`dsound: stream ... ran dry`, `dsound: frame clock: ... of
+  silence`), and `XBE_AUDIO_DUMP=<file.wav>` (`{pid}` in it keeps two games
+  apart) records everything sent to the speakers.
+- `0020-frozen-time`: `kernel::RealNanoseconds` leaves out the time the
+  process stood still. The launcher freezes a single-player game for the
+  length of an online match (standby); thawed, the game would have found the
+  minutes gone at once (menu idle timers, timeouts). The clock thread reads it
+  every millisecond, so more than a second between two reads is time nothing
+  ran, all but a millisecond of which is dropped. Read under a lock, it never
+  goes backwards.
 
 `tools/py/lib_audit.py <game dir> <xbsdb symbols>` lists the XDK library
 functions the game calls that still run console code against host objects,

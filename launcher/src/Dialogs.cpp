@@ -213,6 +213,61 @@ MatchFoundDialog::MatchFoundDialog(const QJsonObject& found, const QString& game
     winutil::useDarkTitleBar(this);
 }
 
+// --- RematchDialog ---------------------------------------------------------------------------------
+
+RematchDialog::RematchDialog(QWidget* parent) : QDialog(parent) {
+    setWindowTitle(tr("Rematch?"));
+    setModal(false);
+    setMinimumWidth(480);
+    auto* v = new QVBoxLayout(this);
+    v->setContentsMargins(28, 22, 28, 22);
+    v->setSpacing(10);
+    auto* emblem = new QLabel;
+    emblem->setPixmap(style::emblem(64));
+    emblem->setAlignment(Qt::AlignCenter);
+    v->addWidget(emblem);
+    title_ = ui::label(QString(), "CardTitle");
+    title_->setAlignment(Qt::AlignCenter);
+    v->addWidget(title_);
+    score_ = ui::label(QString(), "Big");
+    score_->setAlignment(Qt::AlignCenter);
+    v->addWidget(score_);
+    info_ = ui::label(QString(), "Muted");
+    info_->setAlignment(Qt::AlignCenter);
+    info_->setWordWrap(true);
+    v->addWidget(info_);
+    auto* buttons = new QHBoxLayout;
+    rematch_ = new QPushButton(tr("REMATCH"));
+    rematch_->setObjectName(QStringLiteral("Primary"));
+    rematch_->setProperty("compact", true);
+    rematch_->setMinimumHeight(40);
+    rematch_->setDefault(true);
+    rematch_->setToolTip(tr("Fight again with the same fighters (when you both choose it)"));
+    select_ = new QPushButton(tr("SELECT"));
+    select_->setMinimumHeight(40);
+    select_->setToolTip(tr("Both go back to character select to pick again"));
+    auto* leave = new QPushButton(tr("LEAVE"));
+    leave->setMinimumHeight(40);
+    buttons->addWidget(rematch_, 1);
+    buttons->addWidget(select_, 1);
+    buttons->addWidget(leave, 1);
+    v->addLayout(buttons);
+    connect(rematch_, &QPushButton::clicked, this, [this] { emit chose(QStringLiteral("rematch")); });
+    connect(select_, &QPushButton::clicked, this, [this] { emit chose(QStringLiteral("select")); });
+    connect(leave, &QPushButton::clicked, this, [this] { emit chose(QStringLiteral("leave")); });
+    winutil::useDarkTitleBar(this);
+}
+
+void RematchDialog::update(const QString& title, const QString& score, const QString& info, bool canChoose,
+                           bool canSelect) {
+    title_->setText(title);
+    score_->setText(score);
+    info_->setText(info);
+    rematch_->setEnabled(canChoose);
+    select_->setEnabled(canChoose);
+    select_->setVisible(canSelect);
+}
+
 // --- CreateLobbyDialog -----------------------------------------------------------------------------
 
 CreateLobbyDialog::CreateLobbyDialog(const Game& game, const QString& defaultName, QWidget* parent) : QDialog(parent) {

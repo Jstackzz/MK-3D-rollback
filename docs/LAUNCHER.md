@@ -159,7 +159,7 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    losses of that game and mode (and the Elo in Ranked). After the match a
    series card shows the score against that opponent (docs/PROTOCOL.md
    1.9.1): Kasual offers *Rematch* (the same fighters, when both press it),
-   *Select* (both pick again on the select screen) and *Leave* for 30 s; the
+   *Select* (both pick again on the select screen) and *Leave* for 60 s; the
    game reports the fighters with its result. A ranked set (first
    to 2) asks for its next match by itself once the game is back at its hold
    point, and *Leave set* asks first when leaving would lose the set.
@@ -168,9 +168,17 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    host starts.
 6. **Single player**: *PLAY* starts the game plainly (no `MK3D_NET`), so it
    runs its own menus as on the console, its practice mode included; *Close
-   the game* closes its window as the player would. While it is open the match
-   controller refuses online play ("Close your single-player game first"), so
-   one game at a time writes the save. In a source build the **Local test** box
+   the game* closes its window as the player would. One game runs at a time,
+   but a queue search can run alongside it (standby): no match game boots
+   while it is open (one that was waiting is frozen), the match-found prompt
+   comes up over it, and accepting freezes it (`winutil::freezeProcess`: its
+   windows hidden, then `NtSuspendProcess` on it and any process it started)
+   and starts or thaws the match's game. Once nothing more is to be played
+   online (the match, its rematches or its set are over, or it was cancelled
+   before it started) the match's game is frozen at its hold point and single
+   player is thawed and brought to the front, where it stood (runtime patch
+   0020 keeps the frozen minutes out of its clock). Lobby matches still wait
+   for single player to close. In a source build the **Local test** box
    starts two instances on this PC (UDP 7001/7002) with matching start lines,
    no server needed; a player package hides it.
 7. **Leaderboard**: top 100 by Elo per game and mode.
@@ -233,6 +241,8 @@ Command-line options for development and automation:
 | `--auto-accept N` | accept a found match after N seconds |
 | `--rematches N` | with `--queue casual`: choose a rematch after each match, N times (a ranked set plays on by itself) |
 | `--rematch-choice rematch,select` | what each of those choices is: `rematch` (the same fighters) or `select` (both pick again); the last one repeats (default `rematch`; `tools/online-e2e.ps1 -RematchChoice`) |
+| `--leave-series` | once those are chosen, leave the series at once instead of letting its time run out |
+| `--solo` | with `--queue`: start single player first and search alongside it, standby (`tools/online-e2e.ps1 -StandbyA`) |
 | `--lobby host\|join --lobby-name NAME --game mkd --mode kombat --character Scorpion` | host a lobby of that name and start its match once both are ready, or join it by name and mark ready |
 | `--page ranked\|casual\|lobby\|single\|leaderboard\|build\|controls\|settings` | start page (`practice`, its old name, opens `single`) |
 | `--local-test` | start the two-instance loopback test |

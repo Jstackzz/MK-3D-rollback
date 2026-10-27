@@ -328,7 +328,7 @@ S: {"type":"series","series":"8d01c3e2a9f4", ...,"state":"over","outcome":"won",
 - `state`: `between` (the server waits for both players' `series_ready`),
   `playing` (a match of it runs), `over`. `you`/`them` count each player's
   agreed match wins in the series; `seconds_left` is the time left between
-  matches: 30 s for a casual rematch, 90 s for a set's next match (the last
+  matches: 60 s for a casual rematch, 90 s for a set's next match (the last
   match's ending plays first). The server sends the state to both players at
   every change, and to a player who logs in again in the middle of one.
 - A launcher sends `series_ready` true once its game is back at its hold

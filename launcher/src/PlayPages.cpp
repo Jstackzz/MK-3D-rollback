@@ -176,9 +176,7 @@ QueuePage::QueuePage(bool ranked, ServerClient* server, MatchController* control
     });
     connect(rematch_, &QPushButton::clicked, this, [this] { choose(QStringLiteral("rematch")); });
     connect(select_, &QPushButton::clicked, this, [this] { choose(QStringLiteral("select")); });
-    connect(leave_, &QPushButton::clicked, this, [this] {
-        if (leavingLosesSet()) controller_->seriesReady(false);
-    });
+    connect(leave_, &QPushButton::clicked, this, &QueuePage::leaveSeries);
     connect(controller_, &MatchController::seriesChanged, this, &QueuePage::onSeries);
     seriesClock_.setInterval(1000);
     connect(&seriesClock_, &QTimer::timeout, this, &QueuePage::updateSeries);
@@ -335,6 +333,7 @@ void QueuePage::onSeries(const QJsonObject& s) {
         seriesCard_->setVisible(false);
         mmCard_->setVisible(true);
         server_->send({{QStringLiteral("type"), QStringLiteral("profile")}});  // the record, a set's Elo
+        emit seriesCard({}, {}, {}, {}, false, false);
         return;
     }
     if (s.value(QStringLiteral("state")).toString() != QLatin1String("between") ||
@@ -349,9 +348,14 @@ void QueuePage::onSeries(const QJsonObject& s) {
 }
 
 void QueuePage::choose(const QString& choice) {
+    if (series_.isEmpty() || !chosen_.isEmpty()) return;
     chosen_ = choice;
     controller_->seriesReady(true, choice);
     updateSeries();
+}
+
+void QueuePage::leaveSeries() {
+    if (leavingLosesSet()) controller_->seriesReady(false);
 }
 
 void QueuePage::updateSeries() {
@@ -398,6 +402,7 @@ void QueuePage::updateSeries() {
     rematch_->setEnabled(between && !youReady);
     select_->setEnabled(between && !youReady);
     leave_->setEnabled(between);
+    emit seriesCard(series_, seriesTitle_->text(), seriesScore_->text(), info, between && !youReady, canSelect);
 }
 
 QString QueuePage::seriesOverText(const QJsonObject& s) const {
@@ -453,7 +458,7 @@ void QueuePage::updateButton() {
     const bool mine = controller_->lastRequest().ranked == ranked_;
     const bool active = p == P::Searching || p == P::Found || p == P::Connecting;
     find_->setProperty("searching", active && mine);
-    if (p == P::Idle) {
+    if (p == P::Idle || p == P::Solo) {  // single player keeps running while a search does (standby)
         find_->setText(tr("FIND MATCH"));
         find_->setEnabled(server_->isLoggedIn());
         const QString signIn = tr("Sign in to search for matches.");
@@ -504,7 +509,10 @@ SinglePlayerPage::SinglePlayerPage(MatchController* controller, QWidget* parent)
     exeInfo_ = ui::label(QString(), "Muted");
     exeInfo_->setWordWrap(true);
     solo->addWidget(exeInfo_);
-    auto* onlineNote = ui::label(tr("Online matches wait while it is open: close the game to search for one."), "Muted");
+    auto* onlineNote = ui::label(tr("You can search for an online match while you play: when one is found, accept it "
+                                    "over your game, which waits frozen through the match and the rematches after "
+                                    "it, then carries on where you left it."),
+                                 "Muted");
     onlineNote->setWordWrap(true);
     solo->addWidget(onlineNote);
     solo->addStretch();
@@ -561,7 +569,8 @@ SinglePlayerPage::SinglePlayerPage(MatchController* controller, QWidget* parent)
     connect(controller_, &MatchController::logLine, this, [this](const QString& t) {
         const auto p = controller_->phase();
         if (p == MatchController::Phase::Solo || p == MatchController::Phase::LocalTest ||
-            t.startsWith(QLatin1String("Local test")) || t.startsWith(QLatin1String("Single player")))
+            t.startsWith(QLatin1String("Local test")) || t.startsWith(QLatin1String("Single player")) ||
+            t.startsWith(QLatin1String("Standby")))
             log_->line(t);
     });
     connect(controller_, &MatchController::gameStatusChanged, this, [this](const QString& s) {
@@ -573,7 +582,8 @@ SinglePlayerPage::SinglePlayerPage(MatchController* controller, QWidget* parent)
 
 void SinglePlayerPage::updateButtons() {
     const bool open = controller_->soloRunning();
-    const bool idle = controller_->phase() == MatchController::Phase::Idle;
+    const auto p = controller_->phase();
+    const bool idle = p == MatchController::Phase::Idle || p == MatchController::Phase::Searching;  // standby
     play_->setText(open ? tr("PLAYING") : tr("PLAY"));
     play_->setEnabled(!open && idle);
     play_->setToolTip(!open && !idle ? tr("Busy: %1").arg(controller_->phaseText()) : QString());

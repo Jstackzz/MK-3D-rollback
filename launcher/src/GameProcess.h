@@ -22,6 +22,7 @@ public:
     void quit();
     void kill();
     bool isRunning() const;
+    qint64 pid() const;  // 0 when not running
 
     QString gameId() const { return gameId_; }
     int instance() const { return instance_; }

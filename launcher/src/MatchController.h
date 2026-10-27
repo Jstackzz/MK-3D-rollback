@@ -55,10 +55,14 @@ public:
     // fighters, when both choose it) or "select" (both pick again on the select screen); a ranked set ignores it.
     void seriesReady(bool ready, const QString& choice = QStringLiteral("rematch"));
     bool prepareGame(const QString& gameId, QString* error);
-    // the whole game with its own menus, no match: online play waits until it is closed
+    // the whole game with its own menus, no match. A search can run alongside it (standby): accepting a match freezes
+    // it (winutil::freezeProcess) and starts or thaws the match's game; once the match, and the rematches or the set
+    // after it, are over (or the match never started), that game is frozen in turn and single player runs on where
+    // it stood.
     bool startSolo(const QString& gameId, QString* error);
     void stopSolo();
     bool soloRunning() const { return solo_ != nullptr; }
+    GameProcess* solo() const { return solo_; }
     bool startLocalTest(const QString& gameId, const QString& mode, const QString& p1, const QString& p2,
                         QString* error);
     void stopLocalTest();
@@ -74,6 +78,8 @@ signals:
     void seriesChanged(const QJsonObject& series);
     void gameStatusChanged(const QString& text);
     void logLine(const QString& text);
+    void soloResumed();  // standby: single player runs again, its window wants the front
+    void gameShown();    // standby: the match's game started for an accepted match has its window up
 
 private:
     void setPhase(Phase p, const QString& text);
@@ -98,11 +104,19 @@ private:
     void openUdpThen(std::function<void()> next, int tries);
     QString opponentName() const;
     void log(const QString& text);
+    void freezeSolo();
+    void thawSolo();
+    void freezeGame();
+    void thawGame();
+    void maybeBackToSolo();  // standby: nothing more to play online, single player again
 
     ServerClient* server_;
     UdpRendezvous* udp_;
     GameProcess* game_ = nullptr;
     GameProcess* solo_ = nullptr;
+    bool soloFrozen_ = false, gameFrozen_ = false;
+    QList<quintptr> soloHidden_, gameHidden_;  // the windows freezing hid, shown again by thawing
+    bool showWhenReady_ = false;  // standby: the match's game started on accepting; to the front once it is up
     GameProcess* localA_ = nullptr;
     GameProcess* localB_ = nullptr;
     Phase phase_ = Phase::Idle;
