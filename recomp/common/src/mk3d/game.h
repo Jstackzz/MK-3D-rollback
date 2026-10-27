@@ -22,6 +22,8 @@ X86Context* MainContext();
 using FrameListener = void (*)(uint64_t frame);
 // at the top of every main loop iteration, before anything of that frame ran; on the main thread
 void OnFrameStart(FrameListener f);
+// right before the main loop's pad update, once everything else of the frame before it ran; on the main thread
+void OnBeforePads(FrameListener f);
 // right after the main loop's pad update wrote the game's per-port input blocks; on the main thread
 void OnPadsRead(FrameListener f);
 

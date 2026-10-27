@@ -16,7 +16,8 @@
       "roster": "fighters",
       "character_select": "launcher",
       "rounds": [1, 3, 5],
-      "default_rounds": 3
+      "default_rounds": 3,
+      "death_traps": true
     },
     {
       "id": "motor",

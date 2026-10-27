@@ -145,10 +145,12 @@ X86_FUNC(sub_0014EF20) {
     __imp__sub_0014EF20(ctx, base);
     mkd::g_actions++;
     if (redirect) {
-        // both players take part (the original only does this for versus)
+        // both players take part (the original only does this for versus), except in practice, where port 0 picks
+        // both fighters: a second player taking part there would stop the game for their controller
+        const bool both = to != 0xB;
         kernel::CallGuest(ctx, mkd::kSetPlayerActive, {mkd::kP1Record, 1});
-        kernel::CallGuest(ctx, mkd::kSetPlayerActive, {mkd::kP2Record, 1});
-        LOGI("event: menu action %u redirected to %d, both players in", action, to);
+        if (both) kernel::CallGuest(ctx, mkd::kSetPlayerActive, {mkd::kP2Record, 1});
+        LOGI("event: menu action %u redirected to %d, %s", action, to, both ? "both players in" : "player 1 in");
     }
 }
 

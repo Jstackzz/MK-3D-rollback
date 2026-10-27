@@ -23,6 +23,7 @@ struct GameMode {
     bool ranked = false;
     QList<int> rounds;
     int defaultRounds = 3;
+    bool deathTraps = false;  // its fights' arenas have death traps (Deception, Armageddon), a match may turn off
     bool picksInGame() const { return characterSelect == QLatin1String("in_game"); }
 };
 

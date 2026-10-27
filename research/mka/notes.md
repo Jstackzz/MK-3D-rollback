@@ -49,6 +49,9 @@ The bring-up follows Deception's (`research/mkd/notes.md`); the engine is the sa
 | last yield ret / hop esp / SetFunction time | 0x46DDA8 / C0 / A4 | 0x5B8B3C / 54 / 38 |
 | task system init | 0x13B6D0 | 0x1C43C0 |
 | pad read, per-port block | 0x1C52F0, 0x62109C + port * 0x1C | 0x26A9C0, 0x831C0C + port * 0x20 (same fields: flags +0, current +0x10, new +0x14) |
+| left stick to directions (in the pad read, before it reads the sticks +0x18 afresh: last frame's stick; online that was the left player's on port 0, see research/mkd/notes.md, so the netplay restores port 0's sticks first) | sub_0006AC90 (flag 4) | sub_0007B9F0 (flag 8) |
+| game options block (rounds to win, round time, blood level, death traps; 0.1.7) | 0x5FC980, see research/mkd/notes.md | 0x723BA0 (0x64 bytes): 0x723BC0, 0x723BC4 (90 s), 0x723BC8 (3), 0x723BCC (1); defaults sub_00236320, one item sub_00236150 (0x332F rounds, 0x3331 time, 0x3332 traps, 0x3333 blood), block copy sub_00235AF0(dst, src), a profile's made the game's by sub_00235B60 (0x736560 + profile * 0x1AFC0) |
+| death traps work (0 when the blood level is 0; the arenas' scripts call it through their natives table) | sub_001BF070 (blood sub_001BF010, table 0x6597E8) | sub_0025D2D0 (blood sub_0025D280, table 0x965270) |
 | CRI SVM_Lock / SVM_Unlock | 0x2427D0 / 0x242A90 | 0x323C50 / 0x324190 |
 | CRI "locked by me" (priority 15) / force unlock loop | 0x24BB10 / 0x24BB20 | 0x331B90 / 0x331BA0 |
 

@@ -115,6 +115,8 @@ QString region() { return get(QStringLiteral("online/region"), QStringLiteral("e
 int maxPing() { return get(QStringLiteral("online/max_ping"), 150).toInt(); }
 bool strict() { return get(QStringLiteral("online/strict"), false).toBool(); }
 bool pickInGame() { return get(QStringLiteral("online/pick_in_game"), true).toBool(); }
+bool practiceWhileWaiting() { return get(QStringLiteral("online/practice_while_waiting"), true).toBool(); }
+bool deathTraps() { return get(QStringLiteral("online/death_traps"), true).toBool(); }
 int inputDelay() { return qBound(0, get(QStringLiteral("online/delay"), 2).toInt(), 4); }
 int gamePort() { return get(QStringLiteral("online/game_port"), 7001).toInt(); }
 // as a game the launcher does not start: borderless at the monitor's own resolution

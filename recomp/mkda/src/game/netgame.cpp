@@ -145,6 +145,10 @@ void WritePort(int port, uint32_t buttons, uint32_t sticks, uint32_t prev) {
     kernel::W32(kPlayerSticks + uint32_t(port) * 4, sticks);
 }
 
+// Deadly Alliance's pad update turns no stick into directions (pads.cpp presses the d-pad from the controller's own
+// stick before the game reads it): nothing of the other player's reaches this player's buttons
+void RestoreLocalSticks(uint32_t) {}
+
 // both players' blocks and sticks in one range (the four slots' buttons, then their sticks)
 uint32_t PortBlock(int, uint32_t& size) {
     size = kPlayerSticks + 0x10 - kPlayerBlock;

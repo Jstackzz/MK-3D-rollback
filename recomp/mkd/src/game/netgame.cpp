@@ -112,7 +112,12 @@ bool SameMatch(uint32_t start, uint32_t now) {
 }
 
 // READY words (ReadyWords / Agree)
-enum ReadyWord { kWordMode, kWordP1, kWordP2, kWordFrames, kWordGameFrames, kWordArena, kWordTeams, kWordCount = kWordTeams + 10 };
+enum ReadyWord {
+    kWordMode, kWordP1, kWordP2, kWordFrames, kWordGameFrames, kWordArena, kWordTeams,
+    kWordOptions = kWordTeams + 10,  // the options a launcher match sets (linkgame.cpp): round time, blood, death traps
+    kWordCount = kWordOptions + 3
+};
+constexpr uint32_t kOptions[3] = {0x5FC9AC, 0x5FC9B4, 0x5FC9B8};
 
 }  // namespace
 }  // namespace mkd
@@ -153,6 +158,10 @@ void WritePort(int port, uint32_t buttons, uint32_t sticks, uint32_t prev) {
     kernel::W32(b + kPortSticks, sticks);
 }
 
+// the pad update's sub_0006AC90 ORs the left stick's directions into the current buttons from the block's sticks,
+// which the pad update only reads afresh after it
+void RestoreLocalSticks(uint32_t sticks) { kernel::W32(kPortBlock + kPortSticks, sticks); }
+
 uint32_t PortBlock(int port, uint32_t& size) {
     size = kPortStride;
     return kPortBlock + uint32_t(port) * kPortStride;
@@ -173,6 +182,7 @@ void ReadyWords(std::vector<uint32_t>& out) {
         out[kWordTeams + i] = kernel::R32(kChessTeams + 4 * i);
         out[kWordTeams + 5 + i] = kernel::R32(kChessTeams + 0x1C + 4 * i);
     }
+    for (uint32_t i = 0; i < 3; i++) out[kWordOptions + i] = kernel::R32(kOptions[i]);
 }
 
 std::string Describe() {
@@ -197,6 +207,12 @@ void Agree(X86Context&, int side, const std::vector<uint32_t>& mine, const std::
          mine[kWordGameFrames]);
     kernel::W32(kFrameCounter, frames);
     kernel::W32(kGameFrameCounter, game_frames);
+    LOGR("netplay: round time %u s, blood %u, death traps %s", mine[kWordOptions], mine[kWordOptions + 1],
+         mine[kWordOptions + 2] ? "on" : "off");
+    for (uint32_t i = 0; i < 3; i++)
+        if (theirs[kWordOptions + i] != mine[kWordOptions + i])
+            LOGE("netplay: the games' options differ (round time, blood, death traps: theirs %u %u %u)",
+                 theirs[kWordOptions], theirs[kWordOptions + 1], theirs[kWordOptions + 2]);
     uint32_t mode = GameMode();
     if (mode != kModeChess && mode != kModePuzzle && theirs[kWordArena] != mine[kWordArena])
         LOGE("netplay: the arenas differ (theirs %u, ours %u): the fight's arena loaded already, the games will part",

@@ -82,6 +82,18 @@ whether to trust it: compare it with your host's.
 - Lobby, to play someone you know: one of you presses Create lobby and gives the
   other the 5-letter code; the other presses Join code and types it. Both choose
   a fighter (or "Pick in the game") and press Ready, then the host presses START.
+- Watching a lobby: select it in the list and press Watch selected (or join it,
+  then press Watch). Each match its host starts plays in your own game, a moment
+  behind the players, select screen and ending included; a match already under
+  way is caught up from its start, fast. Up to eight people can watch a lobby.
+  Press Play to take a free place to play between matches, Watch to step aside.
+- Death traps: the arenas' death traps (Deception and Armageddon: the Dead
+  Pool's acid, the Lower Mines' spikes and the others) kill on the spot. The
+  Death traps box under Matchmaking on the Kasual page says whether you want
+  them; a Kasual match has them only when both players leave it ticked. Ranked
+  matches never have them. A lobby's host chooses for its matches when creating
+  it. Online matches also play with the game's default round time and blood,
+  whatever your own game's options say, so both players play the same fight.
 - Single player, then PLAY, starts the whole game with its own menus, as on the
   console: arcade, its practice mode and the rest. What you unlock and set is
   saved in the game's folder (games\<game>\hdd).
@@ -92,6 +104,12 @@ whether to trust it: compare it with your host's.
   When the match is over (with its rematches, or the whole ranked set), you are
   back in your single-player game where you left it. Decline, or let the match
   go, and you just play on.
+- Practice while you wait (the box under Matchmaking on the Ranked and Kasual
+  pages, on by default): once you search, the game opens its practice mode by
+  itself, at the character select screen, where you pick your fighter and then
+  the dummy with your controller. A match found comes up over it as above, and
+  after the match you are back in practice. Untick the box to wait at the game's
+  menu instead.
 
 Both players need the same package: VERSION.txt lists fingerprints of its programs
 to compare.
@@ -114,7 +132,16 @@ plays for you: with several plugged in, it is the one the game found first, so
 unplug the ones you do not use. The left stick moves like the d-pad in all
 three games (Deadly Alliance on the console took the d-pad alone), so a stick
 that drifts (reads as pushed while you do not touch it) can walk or crouch your
-fighter by itself. The keyboard plays as player 1
+fighter by itself. (Up to 0.1.6, in Deception and Armageddon, the left
+player's stick also moved the right player's fighter online; fixed in 0.1.7.)
+
+The launcher works with a controller too, while its window or one of its
+prompts is in front: the d-pad or the left stick moves the gold highlight, A
+(Cross) presses, B (Circle) closes a window (never MATCH FOUND or the rematch
+prompt), LB and RB switch pages and START finds a match on the Ranked and Kasual
+pages. A prompt that comes up over the game waits for the buttons you were
+holding in the game to be let go, so a combo cannot accept or decline anything.
+Typing (sign in, lobby names, chat) still takes the keyboard. The keyboard plays as player 1
 while the game window is in front: arrows or WASD move, J I K L are X Y A B,
 Space is the right trigger, O the left trigger, U and P are white and black,
 Enter is START and Backspace is BACK.

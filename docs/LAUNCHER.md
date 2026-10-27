@@ -163,9 +163,13 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    game reports the fighters with its result. A ranked set (first
    to 2) asks for its next match by itself once the game is back at its hold
    point, and *Leave set* asks first when leaving would lose the set.
-5. **Lobby**: create (optional password, best of 1/3/5), join from the list or
-   by 5-letter code, pick a fighter (or *Pick in the game*), chat, *Ready*; the
-   host starts.
+5. **Lobby**: create (optional password, best of 1/3/5, death traps), join from
+   the list or by 5-letter code, pick a fighter (or *Pick in the game*), chat,
+   *Ready*; the host starts. *Watch selected* (or *Watch* in the lobby) makes
+   you a spectator: each lobby match plays in your game from both players'
+   feeds (docs/PROTOCOL.md 1.10.1; `FeedLink` passes them between game and
+   server: a player's game writes to a TCP port of the launcher's on
+   127.0.0.1, a spectator's reads from one). *Play* takes a free place again.
 6. **Single player**: *PLAY* starts the game plainly (no `MK3D_NET`), so it
    runs its own menus as on the console, its practice mode included; *Close
    the game* closes its window as the player would. One game runs at a time,
@@ -178,7 +182,12 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    before it started) the match's game is frozen at its hold point and single
    player is thawed and brought to the front, where it stood (runtime patch
    0020 keeps the frozen minutes out of its clock). Lobby matches still wait
-   for single player to close. In a source build the **Local test** box
+   for single player to close. *Practice while you wait* (Ranked and Kasual,
+   `cfg::practiceWhileWaiting`, on by default): once a search's match game is
+   at its hold point it is frozen there and the game starts again for practice
+   (`MK3D_TRAINING=1`: the autopilot takes it to practice's character select,
+   only player 1 taking part, and hands it over), so accepting a match thaws a
+   game that is ready at once; standby does the rest. In a source build the **Local test** box
    starts two instances on this PC (UDP 7001/7002) with matching start lines,
    no server needed; a player package hides it.
 7. **Leaderboard**: top 100 by Elo per game and mode.
@@ -221,6 +230,20 @@ The player package for friends (launcher, Qt, the three games, no game data,
 no Python): `tools\package.ps1`, see [HOSTING.md](HOSTING.md); what a player
 does with it: [PLAYING.md](PLAYING.md).
 
+A controller steers the launcher (`src/GamepadNav.cpp`, SDL3 static at the
+games' version and hints, so the same pads work): only while the foreground
+window is one of the launcher's, since the games read the controllers in the
+background too. The d-pad or left stick moves the focus to the nearest control
+that way (a list or table moves its own current item first, to its edge), A
+clicks (a combo box opens its list, which then takes up / down / A / B), B is
+Esc in a dialog except MATCH FOUND and the rematch prompt
+(`GamepadNav::keepFromBack`), LB / RB step the pages, START presses FIND MATCH
+on a queue page. Buttons held when a launcher window comes to the front (a
+prompt over the game) count only once let go, after 250 ms of quiet. The focus
+shows gold (`Style.cpp`). `MK3D_PAD_ANY_WINDOW=1` takes any active launcher
+window as in front, for tests on Qt's offscreen platform with an SDL virtual
+gamepad.
+
 ### Without the game
 
 Until the game side of PROTOCOL.md section 3 lands in `recomp/`, point a
@@ -243,7 +266,9 @@ Command-line options for development and automation:
 | `--rematch-choice rematch,select` | what each of those choices is: `rematch` (the same fighters) or `select` (both pick again); the last one repeats (default `rematch`; `tools/online-e2e.ps1 -RematchChoice`) |
 | `--leave-series` | once those are chosen, leave the series at once instead of letting its time run out |
 | `--solo` | with `--queue`: start single player first and search alongside it, standby (`tools/online-e2e.ps1 -StandbyA`) |
-| `--lobby host\|join --lobby-name NAME --game mkd --mode kombat --character Scorpion` | host a lobby of that name and start its match once both are ready, or join it by name and mark ready |
+| `--practice on\|off` | practice while a search waits, saved like the queue pages' box (`tools/online-e2e.ps1 -PracticeA` writes it into launcher A's ini) |
+| `--lobby host\|join\|watch --lobby-name NAME --game mkd --mode kombat --character Scorpion` | host a lobby of that name and start its match once both are ready, join it by name and mark ready, or watch it as a spectator (`tools/online-e2e.ps1 -Watch`) |
+| `--death-traps on\|off` | the arenas' death traps this player searches for or hosts, saved like the Kasual page's box (`tools/online-e2e.ps1 -DeathTraps`) |
 | `--page ranked\|casual\|lobby\|single\|leaderboard\|build\|controls\|settings` | start page (`practice`, its old name, opens `single`) |
 | `--local-test` | start the two-instance loopback test |
 | `--extract <image>` | open *Build game* and extract that image |
@@ -331,8 +356,9 @@ while the server runs (WAL mode).
   penalty, and two colluding accounts can trade wins.
 - Elo per game and mode (K = 32), no per-character ratings, seasons, rank
   tiers or match history page; the launcher shows the top 100.
-- Lobbies hold two players, no spectators, replays, blocks or reports; chat
-  is limited only by length and rate.
+- Lobbies hold two players and up to eight spectators; no replays, blocks or
+  reports; chat is limited only by length and rate. Queue matches have no
+  spectators.
 - No rematch negotiation for queue matches (the `rematch` command exists for
   the game; lobbies rematch by starting again).
 - One server process with in-memory queues and lobbies; a restart drops

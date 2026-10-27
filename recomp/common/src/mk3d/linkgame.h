@@ -26,8 +26,10 @@ struct Start {
     uint32_t seed = 0;
     std::string stage;
     int wins_needed = 2;   // rounds a player must win (from the launcher's best of N)
+    bool death_traps = true;  // the arenas' death traps (Deception, Armageddon: the options' DEATH TRAPS)
     bool online = false;
     int side = 0;          // online: this PC's player, 0 (P1) or 1 (P2)
+    bool watch = false;    // a spectator: no player on this PC, both picks come from the players' games
 };
 // from the hold point: the autopilot drives the front end to the mode with these picks; false when it cannot start
 bool Begin(const Start& start);

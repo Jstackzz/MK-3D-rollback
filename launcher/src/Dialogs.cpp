@@ -14,6 +14,7 @@
 
 #include <algorithm>
 
+#include "AppPaths.h"
 #include "ServerClient.h"
 #include "Style.h"
 #include "Widgets.h"
@@ -196,6 +197,7 @@ MatchFoundDialog::MatchFoundDialog(const QJsonObject& found, const QString& game
     v->addLayout(buttons);
     connect(acceptBtn, &QPushButton::clicked, this, &QDialog::accept);
     connect(decline, &QPushButton::clicked, this, &QDialog::reject);
+    acceptBtn->setFocus();  // A on a controller, as Enter on the keyboard, accepts
 
     const int timeout = qMax(1, found.value(QStringLiteral("accept_timeout")).toInt(15));
     deadlineMs_ = QDateTime::currentMSecsSinceEpoch() + timeout * 1000;
@@ -255,6 +257,7 @@ RematchDialog::RematchDialog(QWidget* parent) : QDialog(parent) {
     connect(rematch_, &QPushButton::clicked, this, [this] { emit chose(QStringLiteral("rematch")); });
     connect(select_, &QPushButton::clicked, this, [this] { emit chose(QStringLiteral("select")); });
     connect(leave, &QPushButton::clicked, this, [this] { emit chose(QStringLiteral("leave")); });
+    rematch_->setFocus();  // A on a controller, as Enter on the keyboard, chooses the rematch
     winutil::useDarkTitleBar(this);
 }
 
@@ -290,11 +293,25 @@ CreateLobbyDialog::CreateLobbyDialog(const Game& game, const QString& defaultNam
     rounds_ = new QComboBox;
     for (int r : {1, 3, 5}) rounds_->addItem(tr("Best of %1").arg(r), r);
     rounds_->setCurrentIndex(1);
+    deathTraps_ = new QCheckBox(tr("Death traps"));
+    deathTraps_->setChecked(cfg::deathTraps());
+    deathTraps_->setToolTip(tr("Arenas whose death traps kill on the spot, in this lobby's matches."));
     form->addRow(tr("Name"), name_);
     form->addRow(tr("Mode"), mode_);
     form->addRow(tr("Password"), password_);
     form->addRow(tr("Rounds"), rounds_);
+    form->addRow(QString(), deathTraps_);
     v->addLayout(form);
+    // only for a mode whose fights have them
+    const auto showTraps = [this, modes = game.modes] {
+        const QString id = mode_->currentData().toString();
+        bool traps = false;
+        for (const auto& m : modes)
+            if (m.id == id) traps = m.deathTraps;
+        deathTraps_->setVisible(traps);
+    };
+    showTraps();
+    connect(mode_, &QComboBox::currentIndexChanged, this, showTraps);
     auto* buttons = new QHBoxLayout;
     auto* cancel = new QPushButton(tr("Cancel"));
     auto* ok = new QPushButton(tr("Create"));
@@ -312,3 +329,4 @@ QString CreateLobbyDialog::name() const { return name_->text().trimmed(); }
 QString CreateLobbyDialog::mode() const { return mode_->currentData().toString(); }
 QString CreateLobbyDialog::password() const { return password_->text(); }
 int CreateLobbyDialog::rounds() const { return rounds_->currentData().toInt(); }
+bool CreateLobbyDialog::deathTraps() const { return deathTraps_->isHidden() || deathTraps_->isChecked(); }

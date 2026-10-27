@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(mk3d_launcher VERSION 0.1.6 LANGUAGES CXX)
+project(mk3d_launcher VERSION 0.1.7 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -7,6 +7,18 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS Widgets Network)
 qt_standard_project_setup()
+
+# SDL3 for controllers (GamepadNav): the games' version and settings (external/XboxXBERecomp/cmake/XbeRecomp.cmake),
+# static so it links into the exe
+include(FetchContent)
+set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+set(SDL_STATIC ON CACHE BOOL "" FORCE)
+set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
+set(SDL_RENDER OFF CACHE BOOL "" FORCE)
+set(SDL_GPU OFF CACHE BOOL "" FORCE)
+set(SDL_CAMERA OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(SDL3 GIT_REPOSITORY https://github.com/libsdl-org/SDL.git GIT_TAG release-3.4.16 GIT_SHALLOW TRUE)
+FetchContent_MakeAvailable(SDL3)
 
 qt_add_executable(MK3DLauncher WIN32
     src/main.cpp
@@ -18,6 +30,8 @@ qt_add_executable(MK3DLauncher WIN32
     src/UdpRendezvous.cpp src/UdpRendezvous.h
     src/GameProcess.cpp src/GameProcess.h
     src/MatchController.cpp src/MatchController.h
+    src/FeedLink.cpp src/FeedLink.h
+    src/GamepadNav.cpp src/GamepadNav.h
     src/Widgets.cpp src/Widgets.h
     src/Dialogs.cpp src/Dialogs.h
     src/PlayPages.cpp src/PlayPages.h
@@ -40,7 +54,7 @@ target_compile_definitions(MK3DLauncher PRIVATE
     MK3D_LAUNCHER_VERSION="${PROJECT_VERSION}"
     UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN
 )
-target_link_libraries(MK3DLauncher PRIVATE Qt6::Widgets Qt6::Network dwmapi advapi32)
+target_link_libraries(MK3DLauncher PRIVATE Qt6::Widgets Qt6::Network SDL3::SDL3-static dwmapi advapi32)
 set_target_properties(MK3DLauncher PROPERTIES OUTPUT_NAME "MK3DLauncher")
 
 if(MSVC)

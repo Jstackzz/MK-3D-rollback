@@ -71,6 +71,7 @@ bool GameData::load(QString* error) {
             m.ranked = mo.value(QStringLiteral("ranked")).toBool();
             for (const auto& r : mo.value(QStringLiteral("rounds")).toArray()) m.rounds.append(r.toInt());
             m.defaultRounds = mo.value(QStringLiteral("default_rounds")).toInt(3);
+            m.deathTraps = mo.value(QStringLiteral("death_traps")).toBool();
             g.modes.append(m);
         }
         const QJsonObject rosters = o.value(QStringLiteral("rosters")).toObject();

@@ -10,6 +10,12 @@
 // are needed. While the game loads (a state switch, the match's start), frames wait for the real input instead.
 // Version 1, lockstep, waits for the other input every frame (<prefix>_NET_MODE=lockstep).
 //
+// Spectators: a player's game also writes what a spectator needs to the launcher's feed (Settings.feed, TCP on this
+// PC): its player's pick, its words at the meeting point, its own inputs and its checks; the launchers pass both
+// players' feeds through the server to the lobby's spectators. A spectator's game (Settings.watch) reads both players'
+// from its launcher's feed and plays the match from them: it meets the two at their meeting point, never predicts, so
+// never runs a frame again, and runs ahead unseen while it is far behind them.
+//
 // Configuration, from the environment for tests (the launcher link configures it otherwise), <prefix> the game's
 // (mk3d/game.h EnvPrefix: MKD, MKA, MKDA):
 //   <prefix>_NET_BIND=<udp port>         this game's port
@@ -18,6 +24,8 @@
 //   <prefix>_NET_DELAY=<frames>          input delay, default 1 with rollback, 2 with lockstep
 //   <prefix>_NET_MODE=rollback|lockstep
 //   <prefix>_NET_LOG=<path>              per frame inputs, state and checks, for desync hunting (tools/py/rbcmp.py)
+//   <prefix>_NET_FEED=<ip>:<tcp port>    the spectator feed (a player's game writes to it, a spectator's reads)
+//   <prefix>_NET_WATCH=1                 a spectator (with NET_FEED; no NET_BIND or NET_PEER)
 //   <prefix>_NET_LAG=<ms>, _JITTER=<ms>, _LOSS=<percent>   simulated network on what this game sends
 //   <prefix>_NET_DUMP, _MEMDUMP, _SIDEDUMP=<frame>, _DATA=1  diagnostics (netplay.cpp)
 #include <cstdint>
@@ -34,6 +42,8 @@ struct Settings {
     bool loopback_only = false;  // bind 127.0.0.1 (local tests)
     std::string log;             // per-frame log path, empty for none
     int lag_ms = 0, jitter_ms = 0, loss_percent = 0;  // simulated network (tests)
+    std::string feed;            // ip:port of the launcher's spectator feed (TCP), empty for none
+    bool watch = false;          // a spectator: both players come from the feed, no peer, nothing sent
 };
 
 // Lockstep and Rollback: a match in sync with the other game
@@ -65,6 +75,8 @@ void CountRand(uint32_t value);
 void SetLocalPick(const uint32_t* words, int n);
 // false until the other player's pick for the next match arrived; n: room in words, then the count
 bool PeerPick(uint32_t* words, int& n);
+// a spectator's game: a side's pick (0 left, 1 right) for the next match, as PeerPick gives a player the other's
+bool WatchPick(int side, uint32_t* words, int& n);
 
 struct Stats {
     uint32_t frames = 0, rollbacks = 0, replayed = 0, max_depth = 0, stalls = 0;

@@ -41,6 +41,10 @@ std::vector<FrameListener>& StartListeners() {
     static std::vector<FrameListener> v;
     return v;
 }
+std::vector<FrameListener>& BeforePadListeners() {
+    static std::vector<FrameListener> v;
+    return v;
+}
 std::vector<FrameListener>& PadListeners() {
     static std::vector<FrameListener> v;
     return v;
@@ -51,11 +55,16 @@ std::vector<FrameListener>& PadListeners() {
 uint64_t Frame() { return g_frame.load(std::memory_order_relaxed); }
 X86Context* MainContext() { return g_main_ctx; }
 void OnFrameStart(FrameListener f) { StartListeners().push_back(f); }
+void OnBeforePads(FrameListener f) { BeforePadListeners().push_back(f); }
 void OnPadsRead(FrameListener f) { PadListeners().push_back(f); }
 
 void RunFrameStart() {
     uint64_t f = g_frame.fetch_add(1, std::memory_order_relaxed) + 1;
     for (FrameListener l : StartListeners()) l(f);
+}
+void RunBeforePads() {
+    uint64_t f = Frame();
+    for (FrameListener l : BeforePadListeners()) l(f);
 }
 void RunPadsRead() {
     uint64_t f = Frame();
@@ -74,6 +83,10 @@ X86_FUNC(sub_000D7F80) {
 
 X86_FUNC(sub_00143030) {
     uint32_t ret = kernel::R32(ctx.esp);
+    if (ret == mkda::kMainPadsCall) {
+        mkda::MainScope scope(ctx);
+        mk3d::RunBeforePads();
+    }
     __imp__sub_00143030(ctx, base);
     if (ret == mkda::kMainPadsCall) {
         mkda::MainScope scope(ctx);

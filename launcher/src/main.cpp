@@ -44,8 +44,9 @@ int main(int argc, char* argv[]) {
     const QCommandLineOption acceptOpt(QStringLiteral("auto-accept"), QStringLiteral("Development: accept found matches after N seconds."),
                                        QStringLiteral("seconds"));
     const QCommandLineOption lobbyOpt(QStringLiteral("lobby"),
-                                      QStringLiteral("Development: host a lobby (start once both are ready) or join it, ready at once."),
-                                      QStringLiteral("host|join"));
+                                      QStringLiteral("Development: host a lobby (start once both are ready), join it "
+                                                     "(ready at once) or watch it (as a spectator)."),
+                                      QStringLiteral("host|join|watch"));
     const QCommandLineOption lobbyNameOpt(QStringLiteral("lobby-name"), QStringLiteral("Development: the lobby's name for --lobby."),
                                           QStringLiteral("name"));
     const QCommandLineOption upnpProbeOpt(QStringLiteral("upnp-probe"),
@@ -69,9 +70,18 @@ int main(int argc, char* argv[]) {
     const QCommandLineOption soloOpt(
         QStringLiteral("solo"),
         QStringLiteral("Development: with --queue, start single player first and search alongside it (standby)."));
+    const QCommandLineOption deathTrapsOpt(
+        QStringLiteral("death-traps"),
+        QStringLiteral("The arenas' death traps in matches this player searches for or hosts, saved (on|off)."),
+        QStringLiteral("on|off"));
+    const QCommandLineOption practiceOpt(
+        QStringLiteral("practice"),
+        QStringLiteral("Practice while a Ranked or Kasual search waits: on or off (saved like the queue pages' box)."),
+        QStringLiteral("on|off"));
     for (const auto* o : {&configOpt, &serverOpt, &fpOpt, &userOpt, &pwEnvOpt, &regOpt, &queueOpt, &gameOpt, &modeOpt,
                           &charOpt, &pageOpt, &acceptOpt, &localTestOpt, &extractOpt, &lobbyOpt, &lobbyNameOpt,
-                          &lobbyMatchesOpt, &upnpProbeOpt, &rematchesOpt, &rematchChoiceOpt, &leaveSeriesOpt, &soloOpt})
+                          &lobbyMatchesOpt, &upnpProbeOpt, &rematchesOpt, &rematchChoiceOpt, &leaveSeriesOpt, &soloOpt,
+                          &practiceOpt, &deathTrapsOpt})
         cli.addOption(*o);
     cli.process(app);
 
@@ -122,6 +132,8 @@ int main(int argc, char* argv[]) {
     opts.rematchChoices = cli.value(rematchChoiceOpt).split(QLatin1Char(','), Qt::SkipEmptyParts);
     opts.leaveSeries = cli.isSet(leaveSeriesOpt);
     opts.solo = cli.isSet(soloOpt);
+    opts.practice = cli.value(practiceOpt);
+    opts.deathTraps = cli.value(deathTrapsOpt);
     opts.upnpProbe = cli.isSet(upnpProbeOpt);
 
     MainWindow window(opts);

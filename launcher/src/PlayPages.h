@@ -24,11 +24,15 @@ public:
     // the series card's choices, the rematch prompt's too: "rematch" or "select", or leaving the series
     void choose(const QString& choice);
     void leaveSeries();
+    void pressFind();  // FIND MATCH (or cancelling the search) as a click would, for a controller's START
 
 signals:
     // the series card's state at every change (series {}: none any more), mirrored by the rematch prompt
     void seriesCard(const QJsonObject& series, const QString& title, const QString& score, const QString& info,
                     bool canChoose, bool canSelect);
+
+protected:
+    void showEvent(QShowEvent* event) override;  // the other queue page may have changed the shared settings
 
 private:
     void refreshModes();
@@ -54,6 +58,8 @@ private:
     QComboBox* region_;
     QComboBox* maxPing_;
     QCheckBox* strict_;
+    QCheckBox* practice_;  // practice while the search waits (shared by both queue pages)
+    QCheckBox* deathTraps_;  // the arenas' death traps (both queue pages)
     QLabel* delayInfo_;
     QPushButton* find_;
     QLabel* status_;

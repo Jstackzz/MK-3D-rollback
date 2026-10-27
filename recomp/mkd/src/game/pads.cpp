@@ -2,7 +2,8 @@
 //
 // MKD_PADS=2            report a second controller even when only one is plugged in (idle unless scripted)
 // MKD_INPUT=<script>    scripted presses, comma separated entries  [p<port>@]<seconds>:<buttons>[:<hold seconds>]
-//                       buttons joined with '+': A B X Y BLACK WHITE LT RT UP DOWN LEFT RIGHT START BACK LS RS
+//                       buttons joined with '+': A B X Y BLACK WHITE LT RT UP DOWN LEFT RIGHT START BACK LS RS,
+//                       the left stick pushed all the way: LSUP LSDOWN LSLEFT LSRIGHT
 //                       e.g. MKD_INPUT=8:START,10:A,12:DOWN,12.5:A,p2@14:A
 //                       times count from the first controller read; holds default to 0.15 s
 //                       (with MKD_AUTOPILOT the times count from when it is done instead, the first fight setup or
@@ -32,6 +33,7 @@ struct Press {
     double at = 0, until = 0;
     uint16_t buttons = 0;
     uint8_t analog_mask = 0;  // bits of Pad::analog to press fully
+    int16_t lx = 0, ly = 0;   // the left stick (ly up-positive)
 };
 
 std::once_flag g_once;
@@ -71,6 +73,15 @@ bool ParseButton(const std::string& name, uint16_t& buttons, uint8_t& analog) {
     return false;
 }
 
+bool ParseStick(const std::string& name, Press& p) {
+    if (name == "LSUP") p.ly = 32767;
+    else if (name == "LSDOWN") p.ly = -32768;
+    else if (name == "LSLEFT") p.lx = -32768;
+    else if (name == "LSRIGHT") p.lx = 32767;
+    else return false;
+    return true;
+}
+
 void Load() {
     if (const char* n = std::getenv("MKD_PADS")) g_forced_pads = std::atoi(n);
     // the launcher's matches need player 2's controller: the other player's online, the autopilot's on the select
@@ -102,7 +113,7 @@ void Load() {
         while (b <= names.size()) {
             size_t plus = names.find('+', b);
             std::string name = names.substr(b, plus == std::string::npos ? std::string::npos : plus - b);
-            if (!name.empty() && !ParseButton(name, p.buttons, p.analog_mask)) {
+            if (!name.empty() && !ParseStick(name, p) && !ParseButton(name, p.buttons, p.analog_mask)) {
                 LOGE("pads: unknown button %s in MKD_INPUT", name.c_str());
                 ok = false;
             }
@@ -193,6 +204,8 @@ void PadHook(int port, input::Pad& pad) {
             pad.buttons |= p.buttons;
             for (int i = 0; i < 8; i++)
                 if (p.analog_mask & (1u << i)) pad.analog[i] = 0xFF;
+            if (p.lx) pad.lx = p.lx;
+            if (p.ly) pad.ly = p.ly;
         }
     }
     // the launcher's autopilot drives the menus: the player's own controller reaches the game in the match only, and

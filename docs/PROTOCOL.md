@@ -169,6 +169,10 @@ S: {"type":"queue_left","reason":"left"}
 
 - `max_ping` is the highest acceptable round trip in ms; `0` means any.
 - `delay` is the player's preferred input delay in frames (0-4).
+- `death_traps` (optional, default `true`) is whether the player wants the
+  arenas' death traps (Deception, Armageddon). A casual match has them only
+  when both players want them; a ranked match never does. It never keeps two
+  players apart.
 - `server_rtt` (optional) is the client's last measured UDP round trip to the
   server in ms (section 2.2); it only orders otherwise equal ranked candidates.
 - `character` is a roster id from the launcher data (e.g. `SubZero`); it may
@@ -210,7 +214,7 @@ S: {"type":"queue_left","reason":"left"}
 1. **Found.**
    ```json
    S: {"type":"match_found","match":"5f2c9a01d4e3","game":"mkd","mode":"kombat","ranked":false,
-       "side":1,"accept_timeout":15,"accept_required":true,"lobby":null,
+       "side":1,"accept_timeout":15,"accept_required":true,"lobby":null,"death_traps":true,
        "opponent":{"name":"Fujin","elo":null,"region":"eu","character":"Raiden"}}
    ```
    In ranked, `opponent` is `null` until both have accepted (no dodging by
@@ -256,10 +260,13 @@ S: {"type":"queue_left","reason":"left"}
    ```json
    S: {"type":"match_go","match":"5f2c9a01d4e3","game":"mkd","mode":"kombat","ranked":false,
        "side":1,"remote":"203.0.113.7:7001","rtt_ms":38,"delay":2,"seed":2718281828,"rounds":3,
-       "p1":"Scorpion","p2":"Raiden","p1_name":"Raijin","p2_name":"Fujin","lobby":null}
+       "p1":"Scorpion","p2":"Raiden","p1_name":"Raijin","p2_name":"Fujin","lobby":null,
+       "death_traps":true,"feed":false}
    ```
    `delay` = the larger of both preferences, at least 1 in ranked. `seed` is
-   a fresh 32-bit value. Sides are random for queue matches; in a lobby the
+   a fresh 32-bit value. `death_traps`: the match's (1.7; a lobby's, 1.10).
+   `feed`: a lobby match, whose spectators watch it from what both games write
+   (1.10.1). Sides are random for queue matches; in a lobby the
    host is side 1. `remote` echoes the endpoint this side reported. A missing
    report 15 s after `match_peer` cancels with `ping_timeout`.
 6. **Cancellation** at any step before `playing`:
@@ -366,16 +373,19 @@ S: {"type":"series","series":"8d01c3e2a9f4", ...,"state":"over","outcome":"won",
 ### 1.10 Lobbies
 
 A lobby has a 5-character code from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`, at
-most two players, an optional password, and is always casual in v1.
+most two players and eight spectators, an optional password, and is always
+casual in v1.
 
 ```json
 C: {"type":"lobby_create","name":"Friday sets","game":"mkd","mode":"kombat",
-    "password":"","rounds":3,"region":"eu","character":"Scorpion"}
+    "password":"","rounds":3,"region":"eu","character":"Scorpion","death_traps":true}
 C: {"type":"lobby_list","game":"mkd"}                          (game optional)
 S: {"type":"lobbies","lobbies":[{"id":"K7WQ2","name":"Friday sets","host":"Raijin",
     "game":"mkd","mode":"kombat","region":"eu","players":1,"max_players":2,
-    "locked":false,"state":"open","rounds":3}]}
-C: {"type":"lobby_join","lobby":"K7WQ2","password":"","character":"Kenshi"}
+    "spectators":0,"max_spectators":8,"locked":false,"state":"open","rounds":3,
+    "death_traps":true}]}
+C: {"type":"lobby_join","lobby":"K7WQ2","password":"","character":"Kenshi","spectate":false}
+C: {"type":"lobby_role","role":"spectator"}                    (or "player")
 C: {"type":"lobby_leave"}
 C: {"type":"lobby_chat","text":"gg"}
 C: {"type":"lobby_character","character":"Kenshi"}
@@ -383,8 +393,10 @@ C: {"type":"lobby_ready","ready":true,"delay":2}               (delay optional, 
 C: {"type":"lobby_start"}                                       (host only)
 S: {"type":"lobby","lobby":{"id":"K7WQ2","name":"Friday sets","host":"Raijin","game":"mkd",
     "mode":"kombat","region":"eu","rounds":3,"locked":false,"state":"open","match":null,
-    "members":[{"name":"Raijin","character":"Scorpion","ready":true,"host":true},
-               {"name":"Fujin","character":"Kenshi","ready":true,"host":false}],
+    "death_traps":true,"max_spectators":8,
+    "members":[{"name":"Raijin","character":"Scorpion","ready":true,"host":true,"spectator":false},
+               {"name":"Fujin","character":"Kenshi","ready":true,"host":false,"spectator":false},
+               {"name":"Kitana","character":"","ready":false,"host":false,"spectator":true}],
     "chat":[{"from":"Fujin","text":"gg","ts":1761300042.1}]}}
 S: {"type":"lobby_chat","lobby":"K7WQ2","from":"Fujin","text":"gg","ts":1761300042.1}
 S: {"type":"lobby_left","lobby":"K7WQ2"}
@@ -395,14 +407,66 @@ S: {"type":"lobby_left","lobby":"K7WQ2"}
   message per 0.5 s per player (`slow_down`).
 - `lobby_create` and `lobby_join` reply with `lobby`; errors: `busy`,
   `no_such_lobby`, `lobby_full`, `bad_lobby_password`. `rounds` is 1, 3 or 5.
-- `lobby_start`: host only (`not_host`), needs two members who are both ready
+- `lobby_start`: host only (`not_host`), needs two players who are both ready
   (`not_ready`). It starts the match flow of 1.8 at step 3 with the host as
-  side 1; the lobby `state` becomes `in_match` with `match` set, and the reply
-  is that `lobby` state. Changing character clears your `ready` flag.
-- If the host leaves, the other member becomes host; an empty lobby is
-  deleted. A member who disconnects leaves the lobby (and cancels a match
-  that has not reached `playing`).
-- States: `open`, `full`, `in_match`. `locked` = has a password.
+  side 1 (when the host plays); the lobby `state` becomes `in_match` with
+  `match` set, and the reply is that `lobby` state. Changing character clears
+  your `ready` flag. `death_traps` (the host's, default `true`) is every
+  lobby match's.
+- Spectators: `lobby_join` with `spectate:true` joins to watch (also while a
+  match runs, and when both places to play are taken: a plain join then gets
+  `lobby_full`). `lobby_role` moves a member between the two: to `player`
+  needs a free place and no match running (`lobby_full`, `busy`), to
+  `spectator` is refused to a player whose match is set up or runs (`busy`).
+  Spectators neither ready (`not_player`) nor play; a host who watches still
+  starts the lobby's matches.
+- If the host leaves, a player (else another member) becomes host; an empty
+  lobby is deleted. A member who disconnects leaves the lobby (and a player
+  cancels a match that has not reached `playing`; a spectator does not).
+- States: `open`, `full` (both places to play taken), `in_match`. `locked` =
+  has a password.
+
+### 1.10.1 Spectators
+
+Each player's game writes what a spectator's game needs to play the match
+itself to its launcher (section 3.3, `feed`); the launchers pass it on to the
+server, which keeps it for the match and passes it to the lobby's spectators,
+whose launchers hand it to their games. Nothing of it goes between the two
+players.
+
+```json
+C: {"type":"feed","match":"5f2c9a01d4e3","data":"<base64>"}       (a player's launcher, every 0.1 s)
+S: {"type":"spectate","match":"5f2c9a01d4e3","lobby":"K7WQ2","game":"mkd","mode":"kombat",
+    "seed":2718281828,"rounds":3,"death_traps":true,"p1":"Scorpion","p2":"-",
+    "p1_name":"Raijin","p2_name":"Fujin"}
+S: {"type":"spectate_feed","match":"5f2c9a01d4e3","data":"<base64>"}
+S: {"type":"spectate_end","match":"5f2c9a01d4e3","status":"agreed","winner":1,
+    "p1_rounds":2,"p2_rounds":0}
+```
+
+- `data` is whole packets of the game's spectator feed, each after its
+  little-endian `u16` length, at most ~9 KB a message. The packets are the
+  netplay's (header `MKDR`, type, side, barrier number): `5` the player's pick
+  on the select screen, `6` the game's READY words at the meeting point and
+  its seed, `7` the player's own inputs (`u32 first, u8 n, n x (u32 buttons,
+  u32 sticks)`), `8` the game's state checks, `9` the frame it left the match
+  at. A player's launcher may send only its own side's packets
+  (`bad_request` otherwise); feed for a match that is gone is dropped
+  silently. A match's feed holds at most 8 MB.
+- `spectate` goes to every spectator when a lobby match reaches `match_go`,
+  and to a spectator who comes in while one runs, followed by everything the
+  feed holds so far (batched, paced by the spectator's connection);
+  `spectate_feed` then passes on each `feed` message as it comes.
+- `spectate_end` goes out with the match's result (1.9). The feed is still
+  passed on for 180 s after it: the match's end plays after the result, and
+  spectators run behind the players.
+- A spectator's game starts like a player's (`start` with `watch=1`, section
+  3.3), takes both picks from the feed, meets both games' READY words where a
+  player's game meets the other's, and plays every frame from both players'
+  inputs, never predicting: a frame waits for both inputs, and once they ran
+  out for 20 more. A game far behind (a spectator who came in late) runs
+  three frames of four unseen until it is close again. Its own checks are
+  compared with the players'.
 
 ### 1.11 Leaderboard
 
@@ -557,6 +621,7 @@ environment variables and two small text files in a per-session folder.
 | `MK3D_RESOLUTION` | `desktop` (the monitor's own) or e.g. `1920x1080`; a window at `desktop` opens at 1280x720 |
 | `MK3D_VSYNC` | `0` or `1` |
 | `XBE_CONTROLS` | the launcher's `controls.toml`: what keys and controller buttons press (runtime patch 0016) |
+| `MK3D_TRAINING` | `1`, a plain game (no `MK3D_NET`) for practice while a search waits: the autopilot goes to practice's character select and hands it to the player (port 0 picks both fighters; only player 1 takes part) |
 | `<GAME>_NET_LOG` | with `MK3D_NET=1`, unless already set: `<session>\net-{match}.log`, every online match's frames (both players' inputs, the state checks; `{match}` becomes the match id) |
 
 The three display variables (Settings, *Display*) override what the game's
@@ -600,7 +665,8 @@ one was taken, or after 2 s; a newer untaken command replaces the older one
 
 | command | meaning |
 |---|---|
-| `start game=mkd mode=kombat side=1 local_port=7001 remote=1.2.3.4:7002 delay=2 seed=123456 p1=Scorpion p2=SubZero rounds=3 ranked=1 match=<id>` | start an online match from the hold point |
+| `start game=mkd mode=kombat side=1 local_port=7001 remote=1.2.3.4:7002 delay=2 seed=123456 p1=Scorpion p2=SubZero rounds=3 ranked=1 traps=1 match=<id>` | start an online match from the hold point |
+| `start game=mkd mode=kombat watch=1 feed=127.0.0.1:50210 seed=123456 p1=Scorpion p2=- rounds=3 traps=1 match=<id>` | watch a lobby match (a spectator, 1.10.1) |
 | `start game=mkd mode=practice side=1 p1=Scorpion p2=SubZero` | start offline practice (no network keys) |
 | `park` | leave the current match or practice and return to the hold point; after a result while the match's end (finisher, fatality, winner's pose) still plays in sync, once both games have left the match together (30 s at most); the players' controllers keep working until then, so the winner can finish |
 | `rematch [seed=N] [match=<id>]` | play again against the same peer with the same settings (new seed and id when given) |
@@ -614,9 +680,15 @@ identical on both sides); `p1`/`p2` (roster ids, identical on both sides,
 `kombat` the player of that side picks on the game's own select screen with
 their own controller, and the other game takes the pick over netplay, see
 below); `rounds` (best of N); `ranked` (0 or
-1); `match` (id, echoed in status lines). Optional: `p1_name`, `p2_name`
-(account names), `stage` (absent = the game derives it from the seed). Both
-sides get the same line except for `side`, `local_port` and `remote`.
+1); `traps` (the arenas' death traps, 1 or 0; Deception and Armageddon set
+their options' DEATH TRAPS from it, and the round time and blood level to
+their defaults, whatever each PC's options and profile say); `match` (id,
+echoed in status lines). Optional: `p1_name`, `p2_name` (account names),
+`stage` (absent = the game derives it from the seed), `feed` (`127.0.0.1:port`,
+a TCP port of the launcher's: the game writes its spectator feed there, 1.10.1;
+a lobby match's), `watch=1` (a spectator: no `side`, `local_port` or `remote`;
+the game reads both players' feed from `feed`). Both sides get the same line
+except for `side`, `local_port`, `remote` and `feed`.
 
 **Picks on the game's select screen** (`kombat` with `p1` and/or `p2` = `-`,
 the launcher's "pick my fighter in the game", sent to the server as an empty

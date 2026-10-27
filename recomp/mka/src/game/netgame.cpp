@@ -113,7 +113,12 @@ uint32_t KartPlace(uint32_t race, uint32_t player) {
 bool SameMatch(uint32_t start, uint32_t now) { return now == start; }
 
 // READY words (ReadyWords / Agree)
-enum ReadyWord { kWordMode, kWordP1, kWordP2, kWordFrames, kWordGameFrames, kWordArena, kWordKarts, kWordCount = kWordKarts + 4 };
+enum ReadyWord {
+    kWordMode, kWordP1, kWordP2, kWordFrames, kWordGameFrames, kWordArena, kWordKarts,
+    kWordOptions = kWordKarts + 4,  // the options a launcher match sets (linkgame.cpp): round time, blood, death traps
+    kWordCount = kWordOptions + 3
+};
+constexpr uint32_t kOptions[3] = {0x723BC4, 0x723BC8, 0x723BCC};
 
 // with netplay set up from the environment (tests on one PC), both games start the arena list at its first entry:
 // the boot draws the place from the generator, which main seeds from the time stamp counter (a launcher match sets it
@@ -166,6 +171,10 @@ void WritePort(int port, uint32_t buttons, uint32_t sticks, uint32_t prev) {
     kernel::W32(b + kPortSticks, sticks);
 }
 
+// the pad update's sub_0007B9F0 ORs the left stick's directions into the current buttons from the block's sticks,
+// which the pad update only reads afresh after it
+void RestoreLocalSticks(uint32_t sticks) { kernel::W32(kPortBlock + kPortSticks, sticks); }
+
 uint32_t PortBlock(int port, uint32_t& size) {
     size = kPortStride;
     return kPortBlock + uint32_t(port) * kPortStride;
@@ -183,6 +192,7 @@ void ReadyWords(std::vector<uint32_t>& out) {
     out[kWordGameFrames] = kernel::R32(kGameCounter);
     out[kWordArena] = kernel::R32(GameMode() == kModeKart ? kTrackChoice : kArena);
     for (uint32_t i = 0; i < 4; i++) out[kWordKarts + i] = kernel::R32(kKartChoice + i * 0xC);
+    for (uint32_t i = 0; i < 3; i++) out[kWordOptions + i] = kernel::R32(kOptions[i]);
 }
 
 std::string Describe() {
@@ -214,6 +224,14 @@ void Agree(X86Context&, int, const std::vector<uint32_t>& mine, const std::vecto
          mine[kWordGameFrames]);
     kernel::W32(kFrameCounter, frames);
     kernel::W32(kGameCounter, game_frames);
+    if (mine[kWordMode] != kModeKart) {
+        LOGR("netplay: round time %u s, blood %u, death traps %s", mine[kWordOptions], mine[kWordOptions + 1],
+             mine[kWordOptions + 2] ? "on" : "off");
+        for (uint32_t i = 0; i < 3; i++)
+            if (theirs[kWordOptions + i] != mine[kWordOptions + i])
+                LOGE("netplay: the games' options differ (round time, blood, death traps: theirs %u %u %u)",
+                     theirs[kWordOptions], theirs[kWordOptions + 1], theirs[kWordOptions + 2]);
+    }
     if (theirs[kWordArena] != mine[kWordArena]) {
         LOGE("netplay: the arenas or tracks differ (theirs %u, ours %u): the games will part", theirs[kWordArena],
              mine[kWordArena]);

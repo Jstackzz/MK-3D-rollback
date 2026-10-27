@@ -33,6 +33,9 @@ int maxPing();
 bool strict();
 // the player picks their fighter on the game's own select screen in online matches, not in the launcher
 bool pickInGame();
+// a Ranked or Kasual search starts the game's practice to play while it waits (MatchController::maybeStartPractice)
+bool practiceWhileWaiting();
+bool deathTraps();  // the arenas' death traps in Ranked and Kasual matches (off when either player turns them off)
 int inputDelay();
 int gamePort();
 QString displayMode();

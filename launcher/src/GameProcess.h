@@ -18,6 +18,8 @@ public:
     // Starts `exe` (a .py file is run with the configured Python, for the development stand-in).
     // `netMode` false starts it plainly (first-launch compile, single player), without MK3D_NET.
     bool start(const QString& exe, QString* error, bool netMode = true);
+    // one more environment variable for the next start (MK3D_TRAINING for practice while a search waits)
+    void setEnv(const QString& name, const QString& value) { extraEnv_.insert(name, value); }
     // "quit" command (a plain game: its window is closed, as the player would), then kill after 5 s
     void quit();
     void kill();
@@ -61,4 +63,5 @@ private:
     bool netMode_ = true;
     bool quitting_ = false;
     QByteArray outBuf_;
+    QHash<QString, QString> extraEnv_;
 };

@@ -8,6 +8,7 @@
 #include <QTimer>
 
 #include "AppPaths.h"
+#include "FeedLink.h"
 #include "GameData.h"
 #include "GameProcess.h"
 #include "ServerClient.h"
@@ -64,7 +65,15 @@ MatchController::MatchController(ServerClient* server, QObject* parent)
     connect(&keepaliveTimer_, &QTimer::timeout, this, &MatchController::sendKeepaliveHello);
     finishTimeout_.setSingleShot(true);
     connect(&finishTimeout_, &QTimer::timeout, this, [this] {
-        if (phase_ == Phase::Finishing) setPhase(Phase::Idle, tr("Match over"));
+        if (phase_ != Phase::Finishing) return;
+        closeFeed();
+        closeWatchFeed();
+        setPhase(Phase::Idle, finishText_.isEmpty() ? tr("Match over") : finishText_);
+    });
+    // a watched match whose game never got into it (the players' feed never came): parked after this
+    watchTimeout_.setSingleShot(true);
+    connect(&watchTimeout_, &QTimer::timeout, this, [this] {
+        if (phase_ == Phase::Watching) endWatch(tr("The watched match never came through"));
     });
     startTimeout_.setSingleShot(true);
     connect(&startTimeout_, &QTimer::timeout, this, [this] {
@@ -91,14 +100,17 @@ void MatchController::setPhase(Phase p, const QString& text) {
     emit phaseChanged(p, text);
     if (p == Phase::Idle) sendSeriesReady();
     maybeBackToSolo();
+    if (p == Phase::Searching) maybeStartPractice();
+    if (p == Phase::Idle) startWatch();  // a lobby match waiting to be watched
 }
 
 void MatchController::freezeSolo() {
     if (!solo_ || soloFrozen_) return;
     soloHidden_.clear();
     soloFrozen_ = true;
-    if (!winutil::freezeProcess(solo_->pid(), &soloHidden_)) log(tr("Standby: single player could not be frozen"));
-    log(tr("Standby: single player set aside for the match"));
+    const QString what = soloPractice_ ? tr("practice") : tr("single player");
+    if (!winutil::freezeProcess(solo_->pid(), &soloHidden_)) log(tr("Standby: %1 could not be frozen").arg(what));
+    log(tr("Standby: %1 set aside for the match").arg(what));
 }
 
 void MatchController::thawSolo() {
@@ -131,8 +143,8 @@ void MatchController::maybeBackToSolo() {
     const QString state = str(series_, "state");
     if (state == QLatin1String("between") || state == QLatin1String("playing")) return;
     thawSolo();
-    log(tr("Standby: back to single player"));
-    if (phase_ == Phase::Idle) setPhase(Phase::Solo, tr("Playing single player"));
+    log(soloPractice_ ? tr("Standby: back to practice") : tr("Standby: back to single player"));
+    if (phase_ == Phase::Idle) setPhase(Phase::Solo, soloPractice_ ? tr("Practicing") : tr("Playing single player"));
     // in front while the match's game still runs: taking the foreground from a frozen window would wait on it for ever
     emit soloResumed();
     freezeGame();
@@ -289,7 +301,8 @@ bool MatchController::findMatch(const QueueRequest& req, QString* error) {
                     {QStringLiteral("max_ping"), req.maxPing},
                     {QStringLiteral("strict"), req.strict},
                     {QStringLiteral("character"), req.character},
-                    {QStringLiteral("delay"), req.delay}};
+                    {QStringLiteral("delay"), req.delay},
+                    {QStringLiteral("death_traps"), req.deathTraps}};
     if (udp_->serverRttMs() >= 0) msg.insert(QStringLiteral("server_rtt"), udp_->serverRttMs());
     server_->send(msg);
     searchClock_.start();
@@ -363,6 +376,7 @@ void MatchController::onServerMessage(const QJsonObject& msg) {
         found_ = msg;
         go_ = {};
         resultSent_ = false;
+        closeFeed();
         QString err;
         // standby: the match's game waits for the accept, which sets single player aside
         const bool standby = solo_ && !soloFrozen_ && msg.value(QStringLiteral("accept_required")).toBool();
@@ -405,6 +419,7 @@ void MatchController::onServerMessage(const QJsonObject& msg) {
         if (match != str(found_, "match")) return;
         go_ = msg;
         releaseUdp();  // the game binds the same port right away
+        openFeed(msg);
         pendingStart_ = startLine(go_);
         setPhase(Phase::Starting, tr("Starting the match against %1 (%2 ms)...")
                                       .arg(opponentName()).arg(msg.value(QStringLiteral("rtt_ms")).toInt()));
@@ -458,7 +473,158 @@ void MatchController::onServerMessage(const QJsonObject& msg) {
         maybeBackToSolo();
     } else if (type == QLatin1String("result_ack")) {
         log(tr("Result of %1 acknowledged by the server").arg(match));
+    } else if (type == QLatin1String("spectate")) {
+        // a lobby match this player watches: its game plays it from both players' feeds, once it is free
+        if (match == str(watch_, "match")) return;
+        for (const QJsonObject& q : std::as_const(watchQueue_))
+            if (str(q, "match") == match) return;
+        while (watchQueue_.size() >= 2) watchData_.remove(str(watchQueue_.takeFirst(), "match"));  // long missed
+        watchQueue_.append(msg);
+        watchData_.insert(match, QByteArray());
+        log(tr("Lobby match %1 vs %2 to watch").arg(str(msg, "p1_name"), str(msg, "p2_name")));
+        startWatch();
+    } else if (type == QLatin1String("spectate_feed")) {
+        const QByteArray data = QByteArray::fromBase64(str(msg, "data").toLatin1());
+        if (watchFeed_ && match == watchFeedMatch_) watchFeed_->deliver(data);
+        else if (watchData_.contains(match)) watchData_[match] += data;
+    } else if (type == QLatin1String("spectate_end")) {
+        // the players are done; this game, behind them, plays on to the same end with what it has
+        if (match == str(watch_, "match"))
+            log(tr("The players finished the match being watched (%1)").arg(str(msg, "status")));
     }
+}
+
+// --- spectators (docs/PROTOCOL.md 1.10.1)
+
+void MatchController::openFeed(const QJsonObject& go) {
+    closeFeed();
+    if (!go.value(QStringLiteral("feed")).toBool()) return;
+    auto* feed = new FeedLink(FeedLink::Role::Player, this);
+    QString err;
+    if (!feed->open(&err)) {
+        log(err);
+        delete feed;
+        return;
+    }
+    const QString match = str(go, "match");
+    connect(feed, &FeedLink::outgoing, this, [this, match](const QByteArray& packets) {
+        if (server_->isLoggedIn())
+            server_->send({{QStringLiteral("type"), QStringLiteral("feed")},
+                           {QStringLiteral("match"), match},
+                           {QStringLiteral("data"), QString::fromLatin1(packets.toBase64())}});
+    });
+    feed_ = feed;
+}
+
+// once the game is back at its hold point: what it wrote last (the match's end) goes out first
+void MatchController::closeFeed() {
+    if (!feed_) return;
+    QPointer<FeedLink> feed = feed_;
+    feed_ = nullptr;
+    QTimer::singleShot(1500, this, [this, feed] {
+        if (!feed) return;
+        feed->flush();
+        log(tr("Spectator feed: %1 KB passed on").arg(feed->bytes() / 1024));
+        feed->deleteLater();
+    });
+}
+
+QString MatchController::watchStartLine(const QJsonObject& info) const {
+    const QStringList tokens = {
+        QStringLiteral("start"),
+        QStringLiteral("game=") + str(info, "game"),
+        QStringLiteral("mode=") + str(info, "mode"),
+        QStringLiteral("watch=1"),
+        QStringLiteral("feed=") + (watchFeed_ ? watchFeed_->endpoint() : QString()),
+        QStringLiteral("seed=%1").arg(info.value(QStringLiteral("seed")).toInteger()),
+        QStringLiteral("p1=") + (str(info, "p1").isEmpty() ? QStringLiteral("-") : str(info, "p1")),
+        QStringLiteral("p2=") + (str(info, "p2").isEmpty() ? QStringLiteral("-") : str(info, "p2")),
+        QStringLiteral("rounds=%1").arg(info.value(QStringLiteral("rounds")).toInt(3)),
+        QStringLiteral("traps=%1").arg(info.value(QStringLiteral("death_traps")).toBool(true) ? 1 : 0),
+        QStringLiteral("ranked=0"),
+        QStringLiteral("match=") + str(info, "match"),
+        QStringLiteral("p1_name=") + str(info, "p1_name"),
+        QStringLiteral("p2_name=") + str(info, "p2_name"),
+    };
+    return tokens.join(QLatin1Char(' '));
+}
+
+// the next lobby match to watch, once nothing else runs here (a search, a match, single player, the last match's end)
+void MatchController::startWatch() {
+    if (!watch_.isEmpty() || watchQueue_.isEmpty() || phase_ != Phase::Idle) return;
+    const QJsonObject info = watchQueue_.takeFirst();
+    const QString match = str(info, "match");
+    const QByteArray data = watchData_.take(match);
+    QString err;
+    if (!ensureGame(str(info, "game"), &err)) {
+        log(tr("Cannot watch the lobby's match: %1").arg(err));
+        return;
+    }
+    auto* feed = new FeedLink(FeedLink::Role::Watcher, this);
+    if (!feed->open(&err)) {
+        log(err);
+        delete feed;
+        return;
+    }
+    feed->deliver(data);
+    closeWatchFeed();
+    watchFeed_ = feed;
+    watchFeedMatch_ = match;
+    watch_ = info;
+    finishText_ = tr("Done watching");
+    pendingStart_ = watchStartLine(info);
+    setPhase(Phase::Watching, tr("Watching %1 vs %2: the match is being set up...")
+                                  .arg(str(info, "p1_name"), str(info, "p2_name")));
+    // the players pick on the select screen (up to 75 s), and the game may start behind them
+    watchTimeout_.start(6 * 60 * 1000);
+    tryStart();
+    emit gameShown();  // the watched match comes to the game
+}
+
+void MatchController::onWatchStatus(const QString& state) {
+    if (state == QLatin1String("ready")) {
+        tryStart();
+    } else if (state == QLatin1String("in_match")) {
+        watchTimeout_.stop();
+        setPhase(Phase::Watching, tr("Watching %1 vs %2").arg(str(watch_, "p1_name"), str(watch_, "p2_name")));
+        emit gameShown();
+    } else if (state == QLatin1String("result")) {
+        endWatch(tr("Done watching %1 vs %2").arg(str(watch_, "p1_name"), str(watch_, "p2_name")));
+    } else if (state == QLatin1String("desync")) {
+        endWatch(tr("The watched match went out of step with the players' games; stopped watching"));
+    } else if (state == QLatin1String("disconnected") || state == QLatin1String("error")) {
+        endWatch(tr("The watched match ended before its end (a player left)"));
+    }
+}
+
+// the game parks once the watched match's end has played (link RequestPark), from the rest of the feed, which goes on
+// to it until then; then the next one may come
+void MatchController::endWatch(const QString& text) {
+    watchTimeout_.stop();
+    watch_ = {};
+    pendingStart_.clear();
+    finishText_ = text;
+    if (game_ && game_->isRunning() && !game_->isReady()) {
+        game_->command(QStringLiteral("park"));
+        finishTimeout_.start(45000);
+        setPhase(Phase::Finishing, text);
+        return;
+    }
+    closeWatchFeed();
+    setPhase(Phase::Idle, text);
+}
+
+void MatchController::closeWatchFeed() {
+    if (!watchFeed_) return;
+    watchFeed_->deleteLater();
+    watchFeed_ = nullptr;
+    watchFeedMatch_.clear();
+}
+
+void MatchController::stopWatching() {
+    watchQueue_.clear();
+    watchData_.clear();
+    if (phase_ == Phase::Watching) endWatch(tr("Stopped watching"));
 }
 
 void MatchController::onPunchDone(bool ok, int rtt, const QString& remote, const QString& via) {
@@ -490,11 +656,14 @@ QString MatchController::startLine(const QJsonObject& go) const {
         QStringLiteral("p2=") + (str(go, "p2").isEmpty() ? QStringLiteral("-") : str(go, "p2")),
         QStringLiteral("rounds=%1").arg(go.value(QStringLiteral("rounds")).toInt(3)),
         QStringLiteral("ranked=%1").arg(go.value(QStringLiteral("ranked")).toBool() ? 1 : 0),
+        QStringLiteral("traps=%1").arg(go.value(QStringLiteral("death_traps")).toBool(true) ? 1 : 0),
         QStringLiteral("match=") + str(go, "match"),
         QStringLiteral("p1_name=") + str(go, "p1_name"),
         QStringLiteral("p2_name=") + str(go, "p2_name"),
     };
-    return tokens.join(QLatin1Char(' '));
+    QString line = tokens.join(QLatin1Char(' '));
+    if (feed_) line += QStringLiteral(" feed=") + feed_->endpoint();
+    return line;
 }
 
 void MatchController::tryStart() {
@@ -510,6 +679,10 @@ void MatchController::tryStart() {
 void MatchController::onGameStatus(const QString& line) {
     emit gameStatusChanged(line);
     const QString st = line.section(QLatin1Char(' '), 0, 0);
+    if (phase_ == Phase::Watching) {
+        onWatchStatus(st);
+        return;
+    }
     const QHash<QString, QString> keys = GameProcess::parseKeys(line);
     const QString goMatch = str(go_, "match");
     const bool forThisMatch = !keys.contains(QStringLiteral("match")) || keys.value(QStringLiteral("match")) == goMatch;
@@ -521,9 +694,12 @@ void MatchController::onGameStatus(const QString& line) {
         }
         if (phase_ == Phase::Finishing) {
             finishTimeout_.stop();
-            setPhase(Phase::Idle, tr("Match over"));
+            closeFeed();
+            closeWatchFeed();
+            setPhase(Phase::Idle, finishText_.isEmpty() ? tr("Match over") : finishText_);
         }
         tryStart();
+        maybeStartPractice();
     } else if (st == QLatin1String("in_match")) {
         if (phase_ == Phase::Starting && forThisMatch) {
             startTimeout_.stop();
@@ -568,6 +744,9 @@ void MatchController::onGameExited() {
         finishTimeout_.stop();
         setPhase(Phase::Idle, tr("Match over"));
         break;
+    case Phase::Watching:
+        endWatch(tr("The game closed while watching"));
+        break;
     default:
         break;
     }
@@ -598,6 +777,7 @@ void MatchController::finishMatch() {
     go_ = {};
     found_ = {};
     pendingStart_.clear();
+    finishText_.clear();
     if (game_ && game_->isRunning() && !game_->isReady()) {
         // the game parks once its ending has played (it holds the game port until then): ready again, then idle
         game_->command(QStringLiteral("park"));
@@ -605,13 +785,14 @@ void MatchController::finishMatch() {
         setPhase(Phase::Finishing, tr("Match over: the game plays its ending"));
         return;
     }
+    closeFeed();
     setPhase(Phase::Idle, tr("Match over"));
 }
 
 // The whole game started plainly, its menus as on the console (arcade, its practice mode, the side modes): no hold
 // point and no match. One game runs at a time: the game waiting in the background for a match closes first, or,
 // while a search runs (standby), is frozen until a match is accepted.
-bool MatchController::startSolo(const QString& gameId, QString* error) {
+bool MatchController::startSolo(const QString& gameId, QString* error, bool practice) {
     if (solo_) {
         if (error) *error = tr("Your single-player game is already open.");
         return false;
@@ -634,34 +815,49 @@ bool MatchController::startSolo(const QString& gameId, QString* error) {
         waiting->deleteLater();
     }
     auto* g = new GameProcess(gameId, 1, this);
+    if (practice) g->setEnv(QStringLiteral("MK3D_TRAINING"), QStringLiteral("1"));
     if (!g->start(cfg::gameExe(gameId), error, false)) {
         delete g;
         thawGame();
         return false;
     }
     solo_ = g;
+    soloPractice_ = practice;
     soloFrozen_ = false;
     connect(g, &GameProcess::exited, this, [this, g] {
         if (solo_ != g) return;
+        const QString closed = soloPractice_ ? tr("Practice closed") : tr("Single player closed");
         solo_ = nullptr;
+        soloPractice_ = false;
         soloFrozen_ = false;
         soloHidden_.clear();
         g->deleteLater();
         if (phase_ == Phase::Solo) {
-            setPhase(Phase::Idle, tr("Single player closed"));
+            setPhase(Phase::Idle, closed);
         } else {
-            log(tr("Single player closed"));
+            log(closed);
             // still searching: the match's game waits for it in the open again
             QString err;
             if (phase_ == Phase::Searching && !ensureGame(request_.game, &err)) log(err);
         }
         emit gameStatusChanged(gameStatus());
     });
-    log(tr("Game %1 started for single player (session %2)").arg(gameId, g->sessionDir()));
+    log(tr("Game %1 started for %2 (session %3)")
+            .arg(gameId, practice ? tr("practice") : tr("single player"), g->sessionDir()));
     if (phase_ == Phase::Idle) setPhase(Phase::Solo, tr("Playing single player"));
+    else if (practice) log(tr("Practice while you wait: pick your fighter, then the dummy; a match found comes up over it"));
     else log(tr("Playing single player while the search runs: a match found comes up over it"));
     emit gameStatusChanged(gameStatus());
+    emit soloStarted();
     return true;
+}
+
+// Practice while a Ranked or Kasual search waits: once the match's game is at its hold point, ready for a match, it is
+// frozen there (a match found thaws it at once) and the game starts again for practice (standby takes it from there)
+void MatchController::maybeStartPractice() {
+    if (phase_ != Phase::Searching || solo_ || !game_ || !game_->isReady() || !cfg::practiceWhileWaiting()) return;
+    QString err;
+    if (!startSolo(request_.game, &err, true)) log(tr("Practice while you wait: %1").arg(err));
 }
 
 void MatchController::stopSolo() {

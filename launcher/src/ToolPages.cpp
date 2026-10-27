@@ -3,7 +3,6 @@
 #include <QCheckBox>
 #include <QCryptographicHash>
 #include <QComboBox>
-#include <QDesktopServices>
 #include <QDir>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -21,7 +20,6 @@
 #include <QSpinBox>
 #include <QStorageInfo>
 #include <QThread>
-#include <QUrl>
 #include <QVBoxLayout>
 
 #include "AppPaths.h"
@@ -88,8 +86,6 @@ BuildPage::BuildPage(QWidget* parent) : Page(parent) {
     info->addWidget(folderInfo_);
     info->addWidget(assetsInfo_);
     info->addWidget(exeInfo_);
-    auto* openFolder = new QPushButton(tr("Open game folder"));
-    info->addWidget(openFolder, 0, Qt::AlignLeft);
     info->addStretch();
 
     QVBoxLayout* steps = nullptr;
@@ -131,9 +127,6 @@ BuildPage::BuildPage(QWidget* parent) : Page(parent) {
     });
     connect(extract_, &QPushButton::clicked, this, &BuildPage::startExtract);
     connect(compile_, &QPushButton::clicked, this, &BuildPage::compileFirstLaunch);
-    connect(openFolder, &QPushButton::clicked, this, [this] {
-        QDesktopServices::openUrl(QUrl::fromLocalFile(cfg::gameFolder(gameId_)));
-    });
     connect(cancel_, &QPushButton::clicked, this, [this] {
         stop_ = true;
         if (firstRun_) firstRun_->kill();

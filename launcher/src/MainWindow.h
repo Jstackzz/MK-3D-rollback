@@ -10,6 +10,7 @@ class QButtonGroup;
 class QLabel;
 class QPushButton;
 class QStackedWidget;
+class GamepadNav;
 class LobbyPage;
 class MatchController;
 class MatchFoundDialog;
@@ -42,6 +43,8 @@ struct LaunchOptions {
     QStringList rematchChoices;  // what each of them chooses, "rematch" or "select" (the last one repeats)
     bool leaveSeries = false;    // once those are chosen, leave the series at once instead of letting it run out
     bool solo = false;           // --queue: single player first, the search running alongside it (standby)
+    QString practice;            // "on" / "off": practice while a search waits, saved (cfg::practiceWhileWaiting)
+    QString deathTraps;          // "on" / "off": the arenas' death traps, saved (cfg::deathTraps)
     bool upnpProbe = false;  // find the router and its public address, open nothing
 };
 
@@ -74,6 +77,7 @@ private:
                         bool canChoose, bool canSelect);
     void popUp(QWidget* dialog);  // in front of the game, the launcher's window restored first when minimized
     void focusGame();             // the game's window in front again: the player is back in it
+    void frontSoloWhenUp();       // single player's (practice's) new game window in front once it has one
     void showNotice(const QString& text, bool warn);
     void cliLogin();
     void cliQueue();
@@ -100,6 +104,9 @@ private:
     QLabel* gameText_ = nullptr;
     QLabel* phaseText_ = nullptr;
     QTimer noticeTimer_;
+    GamepadNav* pad_ = nullptr;  // the launcher with a controller
+    QTimer soloFrontTimer_;  // frontSoloWhenUp's tries, 30 s at most
+    int soloFrontTries_ = 0;
     QString gameId_;
     QString lastError_;
     QJsonObject online_;

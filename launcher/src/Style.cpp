@@ -151,6 +151,16 @@ QLabel#Dot { font-size: 12pt; }
 
 /* match found */
 QLabel#MatchFound { font-family: "Bahnschrift"; font-size: 28pt; font-weight: 800; color: #E31D2B; }
+
+/* the focus a controller (or Tab) moves: gold, over hover and checked */
+QPushButton:focus, QComboBox:focus, QListWidget:focus, QTableWidget:focus, QSpinBox:focus, QLineEdit:focus {
+    border-color: #F2C14E;
+}
+QPushButton#Primary:focus { border: 1px solid #FFE7A3; color: #FFF4D6; }
+QPushButton#GameButton:focus { color: #F2C14E; border-color: #F2C14E; }
+QPushButton#NavButton:focus { color: #F2C14E; }
+QCheckBox:focus { color: #F2C14E; }
+QListWidget#CharacterGrid:focus::item:selected { border: 1px solid #F2C14E; }
 )QSS");
 }
 

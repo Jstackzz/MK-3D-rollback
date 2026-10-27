@@ -11,6 +11,8 @@
 #include <QLabel>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QShowEvent>
+#include <QSignalBlocker>
 #include <QStyle>
 #include <QTableWidget>
 #include <QVBoxLayout>
@@ -118,6 +120,19 @@ QueuePage::QueuePage(bool ranked, ServerClient* server, MatchController* control
     strict_->setChecked(cfg::strict());
     strict_->setVisible(ranked);
     mm->addWidget(strict_);
+    practice_ = new QCheckBox(tr("Practice while you wait"));
+    practice_->setChecked(cfg::practiceWhileWaiting());
+    practice_->setToolTip(tr("While the search runs, the game opens its practice: pick your fighter and the dummy and "
+                             "train. A match found comes up over it, and afterwards you are back in practice."));
+    mm->addWidget(practice_);
+    // ranked: never (the server holds to it too)
+    deathTraps_ = new QCheckBox(ranked ? tr("Death traps: always off in Ranked") : tr("Death traps"));
+    deathTraps_->setChecked(!ranked && cfg::deathTraps());
+    deathTraps_->setEnabled(!ranked);
+    deathTraps_->setToolTip(ranked ? tr("Ranked matches never have the arenas' death traps.")
+                                   : tr("Arenas whose death traps kill on the spot (the Dead Pool's acid, the Lower "
+                                        "Mines' spikes...). A match has them only when both players leave this on."));
+    mm->addWidget(deathTraps_);
     delayInfo_ = ui::label(QString(), "Muted");
     mm->addWidget(delayInfo_);
 
@@ -162,6 +177,11 @@ QueuePage::QueuePage(bool ranked, ServerClient* server, MatchController* control
     connect(region_, &QComboBox::currentIndexChanged, this, [this] { cfg::set(QStringLiteral("online/region"), region_->currentData()); });
     connect(maxPing_, &QComboBox::currentIndexChanged, this, [this] { cfg::set(QStringLiteral("online/max_ping"), maxPing_->currentData()); });
     connect(strict_, &QCheckBox::toggled, this, [](bool on) { cfg::set(QStringLiteral("online/strict"), on); });
+    connect(practice_, &QCheckBox::toggled, this,
+            [](bool on) { cfg::set(QStringLiteral("online/practice_while_waiting"), on); });
+    connect(deathTraps_, &QCheckBox::toggled, this, [this](bool on) {
+        if (!ranked_) cfg::set(QStringLiteral("online/death_traps"), on);
+    });
     connect(pickInGame_, &QCheckBox::toggled, this, [this](bool on) {
         cfg::set(QStringLiteral("online/pick_in_game"), on);
         refreshRoster();
@@ -233,6 +253,17 @@ QString QueuePage::key(const QString& what) const {
     return QStringLiteral("ui/%1/%2/%3").arg(ranked_ ? QStringLiteral("ranked") : QStringLiteral("casual"), gameId_, what);
 }
 
+void QueuePage::pressFind() {
+    if (find_->isVisible() && find_->isEnabled()) find_->animateClick();
+}
+
+void QueuePage::showEvent(QShowEvent* event) {
+    const QSignalBlocker block(practice_), blockTraps(deathTraps_);
+    practice_->setChecked(cfg::practiceWhileWaiting());  // the other queue page may have changed it
+    if (!ranked_) deathTraps_->setChecked(cfg::deathTraps());
+    Page::showEvent(event);
+}
+
 void QueuePage::setGame(const QString& gameId) {
     Page::setGame(gameId);
     refreshModes();
@@ -263,6 +294,7 @@ void QueuePage::refreshRoster() {
     }
     const bool team = m && m->picksInGame();  // the mode's own (Chess Kombat's teams)
     const bool inGame = team || pickInGame_->isChecked();
+    deathTraps_->setVisible(m && m->deathTraps);
     pickInGame_->setVisible(!team);
     picker_->setVisible(!inGame);
     inGamePick_->setVisible(inGame);
@@ -304,6 +336,7 @@ bool QueuePage::startSearch(const QString& mode, const QString& character) {
     req.strict = ranked_ && strict_->isChecked();
     req.character = m->picksInGame() || cfg::pickInGame() ? QString() : picker_->currentId();
     req.delay = qMax(ranked_ ? 1 : 0, cfg::inputDelay());
+    req.deathTraps = !ranked_ && (!m->deathTraps || deathTraps_->isChecked());
     QString error;
     if (!controller_->findMatch(req, &error)) {
         log_->line(error);

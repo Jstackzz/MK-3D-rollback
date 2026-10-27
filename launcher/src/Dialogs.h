@@ -87,10 +87,12 @@ public:
     QString mode() const;
     QString password() const;
     int rounds() const;
+    bool deathTraps() const;
 
 private:
     QLineEdit* name_;
     QComboBox* mode_;
     QLineEdit* password_;
     QComboBox* rounds_;
+    QCheckBox* deathTraps_;
 };

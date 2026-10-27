@@ -16,7 +16,8 @@
       "roster": "fighters",
       "character_select": "launcher",
       "rounds": [1, 3, 5],
-      "default_rounds": 3
+      "default_rounds": 3,
+      "death_traps": true
     },
     {
       "id": "chess",
@@ -27,7 +28,8 @@
       "roster": "fighters",
       "character_select": "in_game",
       "rounds": [1],
-      "default_rounds": 1
+      "default_rounds": 1,
+      "death_traps": true
     },
     {
       "id": "puzzle",

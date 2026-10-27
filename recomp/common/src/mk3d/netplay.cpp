@@ -14,6 +14,13 @@
 //             at the top of a frame both games agree on: the game's state hash, the C runtime's random numbers drawn
 //             since the barrier reseeded them, and whether the match was still loading (Checks)
 //
+// The spectator feed (TCP to the launcher, each packet after its u16 length; the header's side is the sender's):
+//   5 PICK    [u8 n, n x u32]             the sender's player's pick on the select screen (as in HELLO)
+//   6 MEET    u32 seed, u8 n, n x u32     the sender's READY at the meeting point: its seed and words
+//   7 OWN     u32 first, u8 n, n x (u32 buttons, u32 sticks)   the sender's own inputs, frames first .. first+n-1
+//   8 CHECK   as above, the sender's
+//   9 END     u32 frame, u8 how           the sender left the match in sync at that frame (0 over, 1 not)
+//
 // Rollback, per frame (the frame hooks of mk3d/game.h):
 //   top of frame    the frame that ran is closed (rollback.h); what arrived is read; if the other player's real
 //                   input for a frame differs from what that frame used, the game goes back to that frame's top
@@ -63,6 +70,7 @@ using Clock = std::chrono::steady_clock;
 
 constexpr uint32_t kMagic = 0x52444B4D;  // "MKDR"
 constexpr uint8_t kHello = 1, kReady = 2, kInput = 3, kCheck = 4;
+constexpr uint8_t kFeedPick = 5, kFeedMeet = 6, kFeedOwn = 7, kFeedCheck = 8, kFeedEnd = 9;
 constexpr int kWindow = 16;                      // inputs repeated in every INPUT packet
 constexpr uint32_t kCheckEvery = 30;
 constexpr uint32_t kMaxPredict = 12;             // frames past the last agreed one (rollback keeps 16)
@@ -87,6 +95,9 @@ struct Config {
     bool rollback = true;
     FILE* log = nullptr;
     int lag = 0, jitter = 0, loss = 0;
+    bool feed_on = false;  // the launcher's spectator feed
+    sockaddr_in feed{};
+    bool watch = false;    // a spectator
 };
 
 Config g_cfg;
@@ -165,6 +176,113 @@ bool ParsePeer(const char* s, sockaddr_in& out) {
     return inet_pton(AF_INET, a.substr(0, c).c_str(), &out.sin_addr) == 1;
 }
 
+// --- the spectator feed: a TCP connection to the launcher on this PC, each packet after its u16 length. A player's
+// game writes to it (FeedSend), a spectator's game reads both players' packets from it (HandleFeed); the launcher
+// sends a spectator everything again when it connects again, so duplicates are taken as they come.
+SOCKET g_feed = INVALID_SOCKET;
+bool g_feed_connected = false;
+Clock::time_point g_feed_retry;
+std::string g_feed_out, g_feed_in;
+constexpr size_t kFeedOutMax = size_t(4) << 20;  // what may wait for a launcher that does not read
+bool g_feed_overflow = false;
+
+void HandleFeed(const uint8_t* b, int n);
+
+void FeedClose(const char* why) {
+    if (g_feed != INVALID_SOCKET) {
+        if (why) LOGW("netplay: the spectator feed %s", why);
+        closesocket(g_feed);
+    }
+    g_feed = INVALID_SOCKET;
+    g_feed_connected = false;
+    g_feed_in.clear();
+}
+
+void FeedConnect() {
+    if (g_feed != INVALID_SOCKET || Clock::now() < g_feed_retry) return;
+    g_feed_retry = Clock::now() + std::chrono::milliseconds(500);
+    g_feed = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (g_feed == INVALID_SOCKET) return;
+    u_long nb = 1;
+    ioctlsocket(g_feed, FIONBIO, &nb);
+    BOOL nodelay = TRUE;
+    setsockopt(g_feed, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&nodelay), sizeof nodelay);
+    if (connect(g_feed, reinterpret_cast<const sockaddr*>(&g_cfg.feed), sizeof g_cfg.feed) == 0)
+        g_feed_connected = true;
+    else if (WSAGetLastError() != WSAEWOULDBLOCK)
+        FeedClose(nullptr);
+}
+
+// main thread: connects (again, every half second while the launcher does not listen), writes what waits, and for a
+// spectator reads and handles what came
+void FeedPump() {
+    if (!g_cfg.feed_on) return;
+    FeedConnect();
+    if (g_feed == INVALID_SOCKET) return;
+    if (!g_feed_connected) {
+        fd_set w, e;
+        FD_ZERO(&w);
+        FD_ZERO(&e);
+        FD_SET(g_feed, &w);
+        FD_SET(g_feed, &e);
+        timeval tv{0, 0};
+        if (select(0, nullptr, &w, &e, &tv) <= 0) return;
+        if (FD_ISSET(g_feed, &e) || !FD_ISSET(g_feed, &w)) {
+            FeedClose(nullptr);
+            return;
+        }
+        g_feed_connected = true;
+        LOGI("netplay: spectator feed connected");
+    }
+    while (!g_feed_out.empty()) {
+        const int n = send(g_feed, g_feed_out.data(), int(std::min<size_t>(g_feed_out.size(), 1 << 16)), 0);
+        if (n > 0) {
+            g_feed_out.erase(0, size_t(n));
+            continue;
+        }
+        if (WSAGetLastError() != WSAEWOULDBLOCK) FeedClose("could not be written");
+        break;
+    }
+    if (!g_cfg.watch || g_feed == INVALID_SOCKET) return;
+    char buf[1 << 14];
+    for (;;) {
+        const int n = recv(g_feed, buf, sizeof buf, 0);
+        if (n > 0) {
+            g_feed_in.append(buf, size_t(n));
+            continue;
+        }
+        if (n == 0 || WSAGetLastError() != WSAEWOULDBLOCK) {
+            FeedClose("was closed by the launcher");
+            return;
+        }
+        break;
+    }
+    size_t at = 0;
+    while (g_feed_in.size() - at >= 2) {
+        uint16_t len;
+        std::memcpy(&len, g_feed_in.data() + at, 2);
+        if (g_feed_in.size() - at - 2 < len) break;
+        HandleFeed(reinterpret_cast<const uint8_t*>(g_feed_in.data()) + at + 2, len);
+        at += 2 + size_t(len);
+    }
+    g_feed_in.erase(0, at);
+}
+
+// the last packets (a match's end) go out before the connection closes, for a moment at most
+void FeedFlushAndClose() {
+    auto t0 = Clock::now();
+    while (g_feed != INVALID_SOCKET && g_feed_connected && !g_feed_out.empty() &&
+           Clock::now() - t0 < std::chrono::milliseconds(200)) {
+        const int n = send(g_feed, g_feed_out.data(), int(std::min<size_t>(g_feed_out.size(), 1 << 16)), 0);
+        if (n > 0) g_feed_out.erase(0, size_t(n));
+        else if (WSAGetLastError() == WSAEWOULDBLOCK) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        else break;
+    }
+    FeedClose(nullptr);
+    g_feed_out.clear();
+    g_feed_overflow = false;
+}
+
 // the rollback machinery off, the game on its own again
 void StopRollback() {
     game::RngEnd();
@@ -191,6 +309,7 @@ void Unsettle() {
 
 void CloseNow() {
     StopRollback();
+    FeedFlushAndClose();
     if (g_sock != INVALID_SOCKET) closesocket(g_sock);
     g_sock = INVALID_SOCKET;
     if (g_cfg.log) std::fclose(g_cfg.log);
@@ -199,19 +318,45 @@ void CloseNow() {
     SetStatus(Status::Off);
 }
 
+void WatchReset();
+
+// a spectator: no peer and no UDP, only the launcher's feed
+bool OpenWatch(const Settings& st) {
+    if (!ParsePeer(st.feed.c_str(), g_cfg.feed)) {
+        LOGE("netplay: the spectator feed must be ip:port, not %s", st.feed.c_str());
+        return false;
+    }
+    g_cfg.feed_on = true;
+    g_cfg.watch = true;
+    g_cfg.side = 0;  // P1's inputs go to port 0, P2's to port 1, as in the players' games
+    g_cfg.rollback = true;
+    g_cfg.delay = 0;
+    if (!st.log.empty()) g_cfg.log = std::fopen(st.log.c_str(), "w");
+    g_cfg.on = true;
+    g_phase = Phase::Local;
+    g_seq = 0;
+    g_left_seq = 0xFFFF;
+    g_desync_frame = 0;
+    WatchReset();
+    SetStatus(Status::Local);
+    LOGR("netplay: watching, both players' inputs from the feed at %s", st.feed.c_str());
+    return true;
+}
+
 // main thread only
 bool OpenNow(const Settings& st) {
     CloseNow();
-    sockaddr_in peer{};
-    if (!ParsePeer(st.peer.c_str(), peer)) {
-        LOGE("netplay: the peer must be ip:port, not %s", st.peer.c_str());
-        return false;
-    }
     static const bool wsa_up = [] {
         WSADATA wsa;
         return WSAStartup(MAKEWORD(2, 2), &wsa) == 0;
     }();
     (void)wsa_up;
+    if (st.watch) return OpenWatch(st);
+    sockaddr_in peer{};
+    if (!ParsePeer(st.peer.c_str(), peer)) {
+        LOGE("netplay: the peer must be ip:port, not %s", st.peer.c_str());
+        return false;
+    }
     g_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
@@ -234,14 +379,19 @@ bool OpenNow(const Settings& st) {
     g_cfg.jitter = std::max(0, st.jitter_ms);
     g_cfg.loss = std::max(0, std::min(90, st.loss_percent));
     if (!st.log.empty()) g_cfg.log = std::fopen(st.log.c_str(), "w");
+    if (!st.feed.empty()) {
+        if (ParsePeer(st.feed.c_str(), g_cfg.feed)) g_cfg.feed_on = true;
+        else LOGW("netplay: the spectator feed must be ip:port, not %s", st.feed.c_str());
+    }
     g_cfg.on = true;
     g_phase = Phase::Local;
     g_seq = 0;
     g_left_seq = 0xFFFF;
     g_desync_frame = 0;
     SetStatus(Status::Local);
-    LOGR("netplay: UDP %u, peer %s, side %d, %s with %d frames of delay%s", st.bind, st.peer.c_str(), g_cfg.side,
-         g_cfg.rollback ? "rollback" : "lockstep", g_cfg.delay, g_cfg.lag || g_cfg.jitter || g_cfg.loss ? "," : "");
+    LOGR("netplay: UDP %u, peer %s, side %d, %s with %d frames of delay%s%s", st.bind, st.peer.c_str(), g_cfg.side,
+         g_cfg.rollback ? "rollback" : "lockstep", g_cfg.delay, g_cfg.feed_on ? ", a feed for spectators" : "",
+         g_cfg.lag || g_cfg.jitter || g_cfg.loss ? "," : "");
     if (g_cfg.lag || g_cfg.jitter || g_cfg.loss)
         LOGR("netplay: simulated network on what this game sends: %d ms + up to %d ms, %d%% lost", g_cfg.lag,
              g_cfg.jitter, g_cfg.loss);
@@ -263,10 +413,14 @@ void ApplyPending() {
 void Load() {
     const char* bind_port = Env("NET_BIND");
     const char* peer = Env("NET_PEER");
-    if (!bind_port || !peer) return;
+    const char* feed = Env("NET_FEED");
+    const bool watch = Env("NET_WATCH") != nullptr;
+    if (watch ? !feed : !bind_port || !peer) return;
     Settings st;
-    st.bind = uint16_t(std::atoi(bind_port));
-    st.peer = peer;
+    if (bind_port) st.bind = uint16_t(std::atoi(bind_port));
+    if (peer) st.peer = peer;
+    if (feed) st.feed = feed;
+    st.watch = watch;
     if (const char* v = Env("NET_SIDE")) st.side = std::atoi(v) ? 1 : 0;
     if (const char* v = Env("NET_DELAY")) st.delay = std::atoi(v);
     if (const char* v = Env("NET_MODE")) st.rollback = std::strcmp(v, "lockstep") != 0;
@@ -306,8 +460,22 @@ std::deque<Delayed> g_outbox;
 std::mt19937 g_rng{0x4D4B44u};
 
 void SendRaw(const uint8_t* b, int n) {
+    if (g_sock == INVALID_SOCKET) return;  // a spectator has no peer
     sendto(g_sock, reinterpret_cast<const char*>(b), n, 0, reinterpret_cast<const sockaddr*>(&g_cfg.peer),
            sizeof g_cfg.peer);
+}
+
+// a player's packet for the spectators, out with the next FeedPump (every frame's Receive)
+void FeedSend(const Writer& w) {
+    if (!g_cfg.feed_on || g_cfg.watch) return;
+    if (g_feed_out.size() + size_t(w.n) + 2 > kFeedOutMax) {
+        if (!g_feed_overflow) LOGW("netplay: the launcher does not read the spectator feed: dropping what it carries");
+        g_feed_overflow = true;
+        return;
+    }
+    const uint16_t len = uint16_t(w.n);
+    g_feed_out.append(reinterpret_cast<const char*>(&len), 2);
+    g_feed_out.append(reinterpret_cast<const char*>(w.b), size_t(w.n));
 }
 
 void Pump() {
@@ -336,11 +504,26 @@ std::mutex g_pick_lock;
 std::vector<uint32_t> g_my_pick, g_their_pick;
 bool g_their_pick_in = false;
 
+// a spectator: what the feed brought from one player's game
+struct WatchSide {
+    std::vector<uint32_t> pick;        // for the match set up next (g_pick_lock)
+    bool meet_in = false;              // its READY at the meeting point: its seed and words
+    uint32_t seed = 0;
+    std::vector<uint32_t> words;
+    std::map<uint32_t, Input> inputs;  // its player's own inputs in the match in sync (or about to be)
+    uint32_t contiguous = 0;           // frames held without a gap (exclusive)
+    bool ended = false;                // its game left the match in sync at end_frame (how: 0 over, 1 not)
+    uint32_t end_frame = 0;
+    uint8_t end_how = 0;
+};
+WatchSide g_watch[2];
+
 void ClearPicks() {
     std::lock_guard<std::mutex> lock(g_pick_lock);
     g_my_pick.clear();
     g_their_pick.clear();
     g_their_pick_in = false;
+    for (WatchSide& w : g_watch) w.pick.clear();
 }
 
 void SendHello() {
@@ -349,20 +532,25 @@ void SendHello() {
     if (!g_my_pick.empty()) {
         w.U8(uint8_t(g_my_pick.size()));
         for (uint32_t v : g_my_pick) w.U32(v);
+        Writer f = w;  // the same words for the spectators
+        f.b[4] = kFeedPick;
+        FeedSend(f);
     }
     Send(w);
 }
 
 std::vector<uint32_t> g_my_words;  // this game's READY words at the barrier now
 
-void SendReady() {
-    Writer w = Header(kReady);
+Writer ReadyPacket(uint8_t type) {
+    Writer w = Header(type);
     w.U32(g_my_seed);
     uint8_t n = uint8_t(std::min<size_t>(g_my_words.size(), kMaxReadyWords));
     w.U8(n);
     for (uint8_t i = 0; i < n; i++) w.U32(g_my_words[i]);
-    Send(w);
+    return w;
 }
+
+void SendReady() { Send(ReadyPacket(kReady)); }
 
 uint32_t g_theirs_contiguous = 0;  // the other player's inputs we hold without gaps (exclusive)
 
@@ -402,12 +590,53 @@ void SendCheck(uint32_t frame, const Check& c) {
     w.U32(c.rand);
     w.U8(c.loading ? 1 : 0);
     Send(w);
+    w.b[4] = kFeedCheck;  // the spectators compare theirs with it
+    FeedSend(w);
+}
+
+// --- what a player's game writes to the spectator feed besides its pick and its checks
+
+uint32_t g_fed = 0;  // this player's own inputs from this frame on are not in the feed yet
+
+// this player's own inputs (final the moment the pad is read), every 4 frames or all of them now, the last 4 again
+void FeedOwn(bool all) {
+    if (!g_cfg.feed_on || g_cfg.watch || g_mine.empty()) return;
+    const uint32_t last = g_mine.rbegin()->first;
+    if (last < g_fed || (!all && last < g_fed + 3)) return;
+    uint32_t first = std::max(g_fed > 4 ? g_fed - 4 : 0u, g_mine.begin()->first);
+    while (first <= last) {
+        const uint32_t n = std::min<uint32_t>(last - first + 1, 100);
+        Writer w = Header(kFeedOwn);
+        w.U32(first);
+        w.U8(uint8_t(n));
+        for (uint32_t f = first; f < first + n; f++) {
+            auto it = g_mine.find(f);
+            const Input in = it != g_mine.end() ? it->second : Input{};
+            w.U32(in.buttons);
+            w.U32(in.sticks);
+        }
+        FeedSend(w);
+        first += n;
+    }
+    g_fed = last + 1;
+}
+
+// this game left the match in sync at frame `frame`: how 0 at its end, 1 otherwise (the other game gone, a desync)
+void FeedEnd(uint32_t frame, uint8_t how) {
+    if (!g_cfg.feed_on || g_cfg.watch) return;
+    FeedOwn(true);
+    Writer w = Header(kFeedEnd);
+    w.U32(frame);
+    w.U8(how);
+    FeedSend(w);
 }
 
 bool InSync() { return g_phase == Phase::Lockstep || g_phase == Phase::Rollback; }
 
 void Receive() {
     Pump();
+    FeedPump();
+    if (g_sock == INVALID_SOCKET) return;  // a spectator: the feed only
     uint8_t b[1500];
     for (;;) {
         sockaddr_in from{};
@@ -483,11 +712,87 @@ void Receive() {
     }
 }
 
+// --- a spectator: both players' packets from the feed
+
+bool g_rebuffer = true;   // the inputs ran out: wait until kWatchLead frames are ahead before going on
+bool g_fast = false;      // far behind the players: three frames of four run unseen (FastForward)
+constexpr uint32_t kWatchLead = 20;                    // the feed comes in bursts (the launchers send every 0.1 s)
+constexpr uint32_t kFastFrom = 180, kFastUntil = 30;   // frames behind both players' newest input
+
+void WatchReset() {
+    for (WatchSide& w : g_watch) {
+        std::lock_guard<std::mutex> lock(g_pick_lock);
+        w = WatchSide{};
+    }
+    g_their_checks.clear();
+    g_rebuffer = true;
+    g_fast = false;
+}
+
+// A packet from one player's game. Its pick and READY count for the match set up next, its inputs, checks and end
+// for the match in sync, or the one about to be (a spectator runs behind the players: their match may be under way
+// while this game still sets it up).
+void HandleFeed(const uint8_t* b, int n) {
+    if (n < 8 || !g_cfg.watch) return;
+    uint32_t magic;
+    std::memcpy(&magic, b, 4);
+    if (magic != kMagic) return;
+    const uint8_t type = b[4];
+    const int side = b[5] ? 1 : 0;
+    uint16_t seq;
+    std::memcpy(&seq, b + 6, 2);
+    auto u32 = [&](int o) {
+        uint32_t v;
+        std::memcpy(&v, b + o, 4);
+        return v;
+    };
+    WatchSide& w = g_watch[side];
+    const bool next_match = !InSync() && seq == g_seq;
+    const uint16_t sync_seq = InSync() ? g_seq : uint16_t(g_seq + 1);
+    if (type == kFeedPick && n >= 9 && next_match) {
+        const int count = std::min<int>(b[8], kMaxPickWords);
+        std::lock_guard<std::mutex> lock(g_pick_lock);
+        const bool had = !w.pick.empty();
+        w.pick.clear();
+        for (int i = 0; i < count && 9 + i * 4 + 4 <= n; i++) w.pick.push_back(u32(9 + i * 4));
+        if (!had && !w.pick.empty()) LOGI("netplay: P%d picked %08X (match %u)", side + 1, w.pick[0], unsigned(seq));
+    } else if (type == kFeedMeet && n >= 13 && next_match) {
+        if (!w.meet_in) LOGI("netplay: P%d's game is at the meeting point", side + 1);
+        w.meet_in = true;
+        w.seed = u32(8);
+        w.words.clear();
+        for (int i = 0; i < b[12] && 13 + i * 4 + 4 <= n; i++) w.words.push_back(u32(13 + i * 4));
+    } else if (type == kFeedOwn && n >= 13 && seq == sync_seq) {
+        const uint32_t first = u32(8);
+        for (int i = 0; i < b[12] && 13 + i * 8 + 8 <= n; i++) {
+            Input in;
+            in.buttons = u32(13 + i * 8);
+            in.sticks = u32(17 + i * 8);
+            w.inputs.emplace(first + uint32_t(i), in);
+        }
+        while (w.inputs.count(w.contiguous)) w.contiguous++;
+    } else if (type == kFeedCheck && n >= 21 && seq == sync_seq) {
+        g_their_checks[u32(8)] = Check{u32(12), u32(16), b[20] != 0};
+    } else if (type == kFeedEnd && n >= 13 && seq == sync_seq && !w.ended) {
+        w.ended = true;
+        w.end_frame = u32(8);
+        w.end_how = b[12];
+        LOGI("netplay: P%d's game left the match at frame %u%s", side + 1, w.end_frame,
+             w.end_how ? " before its end" : "");
+    }
+}
+
 // --- the game's per-port blocks
+
+// this PC's sticks as the last pad update read them, for the next one (BeforePads)
+uint32_t g_local_sticks = 0;
+bool g_local_sticks_in = false;
 
 Input ReadLocal() {
     Input in;
     game::ReadLocal(in.buttons, in.sticks);
+    g_local_sticks = in.sticks;
+    g_local_sticks_in = true;
     return in;
 }
 
@@ -577,6 +882,7 @@ void DumpCheckCopy(uint32_t frame) {
 
 void Leave(const char* why, Status st = Status::Local) {
     LOGR("netplay: leaving the match in sync at frame %u: %s", g_frame, why);
+    FeedEnd(g_frame, st == Status::Local ? 0 : 1);
     g_left_seq = g_seq;
     StopRollback();
     g_phase = Phase::Local;
@@ -614,6 +920,8 @@ void Checks(uint32_t frame, bool agreed) {
 
 // --- the match in sync starts
 
+bool WaitForFeed(uint32_t f);
+
 void StartSync(X86Context& ctx) {
     ClearPicks();  // the match set up: the next one picks again
     g_seq++;
@@ -628,8 +936,10 @@ void StartSync(X86Context& ctx) {
     g_their_now = 0;
     g_their_adv = 0;
     g_prev_buttons[0] = g_prev_buttons[1] = 0;
+    g_local_sticks_in = false;  // the blocks hold this PC's own sticks until the first frame writes them
+    g_fed = 0;
     g_my_checks.clear();
-    g_their_checks.clear();
+    if (!g_cfg.watch) g_their_checks.clear();  // a spectator's came with the feed, maybe before this
     g_desynced = false;  // the random numbers' counters run from the barrier's reseed (MeetBeforeSetup)
     g_confirmed = 0;
     g_replaying = false;
@@ -666,13 +976,49 @@ void StartSync(X86Context& ctx) {
         g_phase = Phase::Rollback;
         SetStatus(Status::Rollback);
         g_last_slowdown = Clock::now();
-        LOGR("netplay: match %u in sync with rollback, %d frame%s of delay", g_seq, g_cfg.delay,
-             g_cfg.delay == 1 ? "" : "s");
+        if (g_cfg.watch) LOGR("netplay: watching match %u", g_seq);
+        else LOGR("netplay: match %u in sync with rollback, %d frame%s of delay", g_seq, g_cfg.delay,
+                  g_cfg.delay == 1 ? "" : "s");
     } else {
         g_phase = Phase::Lockstep;
         SetStatus(Status::Lockstep);
         LOGR("netplay: match %u in lockstep, %d frames of delay", g_seq, g_cfg.delay);
     }
+    if (g_cfg.watch) {
+        for (WatchSide& w : g_watch) w.meet_in = false;
+        WaitForFeed(0);  // frame 0's top: its pads take both players' inputs for it
+    }
+}
+
+// a spectator at the match's setup: both players' words from their meeting point, then everything as they made it
+void WatchMeet(X86Context& ctx) {
+    g_phase = Phase::Barrier;
+    SetStatus(Status::Barrier);
+    LOGI("netplay: match %u about to be set up (%s), waiting for the players' meeting point", g_seq + 1,
+         game::Describe().c_str());
+    auto t0 = Clock::now();
+    while (!g_watch[0].meet_in || !g_watch[1].meet_in) {
+        Receive();
+        if (Clock::now() - t0 > std::chrono::seconds(120)) {
+            LOGE("netplay: the players never reached the match");
+            g_phase = Phase::Local;
+            SetStatus(Status::Disconnected);
+            return;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    // each player's game keeps some values of its own side (Chess Kombat's team): a spectator's has neither, so it
+    // agrees as each of the two in turn
+    game::Agree(ctx, 0, g_watch[0].words, g_watch[1].words, g_cfg.log);
+    game::Agree(ctx, 1, g_watch[1].words, g_watch[0].words, g_cfg.log);
+    g_seed = g_watch[0].seed;
+    game::Reseed(ctx, g_seed);
+    g_rand_calls = 0;
+    g_rand_last = 0;
+    LOGI("netplay: random generator seeded with %08X", g_seed);
+    WritePort(0, Input{}, 0);
+    WritePort(1, Input{}, 0);
+    g_start_pending = true;
 }
 
 // A match is about to be set up (netgame.h OnMatchSetup, inside the frame): meet the other game here. Both games reach
@@ -682,9 +1028,11 @@ void StartSync(X86Context& ctx) {
 // match in sync starts at the next frame's top (FrameStart).
 void MeetBeforeSetup(X86Context& ctx) {
     if (!g_cfg.on || g_phase != Phase::Local) return;
+    if (g_cfg.watch) return WatchMeet(ctx);
     g_my_seed = uint32_t(std::random_device{}()) | 1;
     g_my_words.clear();
     game::ReadyWords(g_my_words);
+    FeedSend(ReadyPacket(kFeedMeet));
     g_phase = Phase::Barrier;
     SetStatus(Status::Barrier);
     g_peer_ready = false;
@@ -990,6 +1338,7 @@ void RollbackPads() {
     if (!g_replaying) {
         g_mine[g_frame + uint32_t(g_cfg.delay)] = ReadLocal();
         SendInputs();
+        FeedOwn(false);
         WatchFocus();
     }
     Input mine = Mine(g_frame), theirs = Theirs(g_frame);
@@ -1037,6 +1386,7 @@ void LockstepPads() {
     // this frame's local input is used delay frames from now
     g_mine[g_frame + uint32_t(g_cfg.delay)] = ReadLocal();
     SendInputs();
+    FeedOwn(false);
     WatchFocus();
     auto t0 = Clock::now(), last = t0;
     bool warned = false;
@@ -1081,12 +1431,126 @@ void LockstepPads() {
     g_stats.frames = g_frame;
 }
 
+// --- a spectator's match: both players' inputs from the feed, every frame run once
+
+Input WatchInput(int side, uint32_t f) {
+    auto it = g_watch[side].inputs.find(f);
+    return it != g_watch[side].inputs.end() ? it->second : Input{};
+}
+
+uint32_t WatchHave() { return std::min(g_watch[0].contiguous, g_watch[1].contiguous); }
+
+// Waits until both players' inputs for frame f are here; once they ran out, until kWatchLead more frames are (the
+// feed comes in bursts, so a spectator stays a little behind instead of stopping at every burst). False when they
+// stopped coming: the players' match ended before this frame, or nothing came for half a minute.
+bool WaitForFeed(uint32_t f) {
+    auto t0 = Clock::now();
+    bool waited = false, warned = false;
+    for (;;) {
+        Receive();
+        const uint32_t have = WatchHave();
+        const bool ended = (g_watch[0].ended && g_watch[1].ended) || (g_watch[0].ended && g_watch[0].end_how) ||
+                           (g_watch[1].ended && g_watch[1].end_how);
+        if (have > f && (!g_rebuffer || have >= f + kWatchLead || ended)) break;
+        if (ended) {
+            Leave("the players' match ended before this frame", Status::Disconnected);
+            return false;
+        }
+        g_rebuffer = true;
+        waited = true;
+        const auto now = Clock::now();
+        if (!warned && now - t0 > std::chrono::seconds(2)) {
+            LOGW("netplay: frame %u waits for the players' inputs (P1's up to %u, P2's up to %u)", f,
+                 g_watch[0].contiguous, g_watch[1].contiguous);
+            warned = true;
+        }
+        if (now - t0 > std::chrono::seconds(30)) {
+            Leave("the players' inputs stopped coming", Status::Disconnected);
+            return false;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    g_rebuffer = false;
+    if (waited) {
+        app::PaceShift(std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - t0).count());
+        std::lock_guard<std::mutex> lock(g_stats_lock);
+        g_stats.stalls++;
+    }
+    return true;
+}
+
+// far behind the players (a spectator who came late, or whose game set the match up slowly): three frames of four
+// run unseen, as frames run again do, until it is close to them again
+bool FastForward(uint32_t next) {
+    const uint32_t have = WatchHave(), behind = have > next ? have - next : 0;
+    if (!g_fast && behind > kFastFrom) {
+        g_fast = true;
+        LOGI("netplay: %u frames behind the players: catching up", behind);
+    } else if (g_fast && behind < kFastUntil) {
+        g_fast = false;
+        LOGI("netplay: caught up with the players (%u frames behind)", behind);
+    }
+    return g_fast && next % 4 != 0;
+}
+
+// the top of a frame a spectator runs
+void WatchFrameStart(X86Context& ctx) {
+    const bool armed = rb::Armed();
+    if (armed) rb::CloseFrame();
+    const uint32_t next = g_frame + 1;
+    if (game::MatchOver()) {  // every frame a spectator runs rests on both players' real inputs
+        Settle();
+        Leave("the match is over");
+        return;
+    }
+    if (!WaitForFeed(next)) return;
+    const bool unseen = FastForward(next);
+    g_frame = next;
+    game::RngFrame(g_seed, g_frame);
+    if (armed) {
+        gclock::SetFrame(g_frame);
+        rb::OpenFrame(g_frame, ctx);
+        d3d::SetSkipPresent(unseen);
+        dsound::MixFrames(kMixFrames, !unseen);
+    }
+}
+
+// after the pad update in a spectator's match: both ports get their player's input
+void WatchPads() {
+    const Input p1 = WatchInput(0, g_frame), p2 = WatchInput(1, g_frame);
+    WritePort(0, p1, g_frame ? WatchInput(0, g_frame - 1).buttons : 0);
+    WritePort(1, p2, g_frame ? WatchInput(1, g_frame - 1).buttons : 0);
+    g_confirmed = g_frame;
+    Checks(g_frame, true);  // against the players' own, from the feed
+    Settle();
+    Diagnostics();
+    LogFrame(p1, p2, false);
+    {
+        std::lock_guard<std::mutex> lock(g_stats_lock);
+        g_stats.frames = g_frame;
+        if (g_frame % 600 == 0 && g_frame) {
+            LOGR("netplay: watching frame %u, %u frames behind the players, %u waits", g_frame,
+                 WatchHave() > g_frame ? WatchHave() - g_frame : 0, g_stats.stalls);
+        }
+    }
+    if (g_frame > 64) {
+        const uint32_t keep = g_frame - 64;
+        for (WatchSide& w : g_watch) w.inputs.erase(w.inputs.begin(), w.inputs.lower_bound(keep));
+        g_my_checks.erase(g_my_checks.begin(), g_my_checks.lower_bound(keep));
+    }
+    g_lockstep_frame = g_frame;
+}
+
 // --- frame hooks
 
 void FrameStart(uint64_t) {
     ApplyPending();
     if (!g_cfg.on) return;
     X86Context* ctx = MainContext();
+    if (g_cfg.watch && InSync()) {
+        if (ctx) WatchFrameStart(*ctx);
+        return;
+    }
     if (g_phase == Phase::Rollback) {
         if (ctx) RollbackFrameStart(*ctx);
         return;
@@ -1102,14 +1566,27 @@ void FrameStart(uint64_t) {
         StartSync(*ctx);
         return;
     }
-    if (g_phase == Phase::Local && Clock::now() - g_last_hello > std::chrono::milliseconds(500)) {
+    if (g_phase == Phase::Local && !g_cfg.watch && Clock::now() - g_last_hello > std::chrono::milliseconds(500)) {
         SendHello();
         g_last_hello = Clock::now();
     }
 }
 
+// The frames in sync write both players' inputs into the blocks, port 0's sticks included: the pad update would turn
+// those into this player's directions (the right player's buttons took the left player's stick). It reads this PC's
+// sticks there instead, once more after a match (the last frame wrote them).
+void BeforePads(uint64_t) {
+    if (!g_cfg.on || !g_local_sticks_in) return;
+    game::RestoreLocalSticks(g_local_sticks);
+    if (!InSync()) g_local_sticks_in = false;
+}
+
 void PadsRead(uint64_t) {
     if (!g_cfg.on) return;
+    if (g_cfg.watch) {
+        if (InSync()) WatchPads();
+        return;
+    }
     if (g_phase == Phase::Rollback) RollbackPads();
     else if (g_phase == Phase::Lockstep) LockstepPads();
 }
@@ -1118,6 +1595,7 @@ const bool g_registered = [] {
     Load();  // from the environment, for tests; the launcher link configures later otherwise
     game::OnMatchSetup(&MeetBeforeSetup);
     OnFrameStart(&FrameStart);
+    OnBeforePads(&BeforePads);
     OnPadsRead(&PadsRead);
     return true;
 }();
@@ -1147,6 +1625,15 @@ bool PeerPick(uint32_t* words, int& n) {
     if (!g_their_pick_in) return false;
     n = std::min(n, int(g_their_pick.size()));
     for (int i = 0; i < n; i++) words[i] = g_their_pick[i];
+    return true;
+}
+
+bool WatchPick(int side, uint32_t* words, int& n) {
+    std::lock_guard<std::mutex> lock(g_pick_lock);
+    const std::vector<uint32_t>& pick = g_watch[side ? 1 : 0].pick;
+    if (pick.empty()) return false;
+    n = std::min(n, int(pick.size()));
+    for (int i = 0; i < n; i++) words[i] = pick[i];
     return true;
 }
 

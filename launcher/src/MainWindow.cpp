@@ -22,6 +22,7 @@
 #include "ControlsPage.h"
 #include "Dialogs.h"
 #include "GameData.h"
+#include "GamepadNav.h"
 #include "GameProcess.h"
 #include "LobbyPage.h"
 #include "MatchController.h"
@@ -47,6 +48,10 @@ MainWindow::MainWindow(const LaunchOptions& opts, QWidget* parent)
     if (!opts_.server.isEmpty()) cfg::set(QStringLiteral("server/address"), opts_.server);
     if (!opts_.fingerprint.isEmpty())
         cfg::set(QStringLiteral("server/fingerprint"), ServerClient::normalizeFingerprint(opts_.fingerprint));
+    if (!opts_.practice.isEmpty())
+        cfg::set(QStringLiteral("online/practice_while_waiting"), opts_.practice != QLatin1String("off"));
+    if (!opts_.deathTraps.isEmpty())
+        cfg::set(QStringLiteral("online/death_traps"), opts_.deathTraps != QLatin1String("off"));
 
     auto* root = new QWidget;
     root->setObjectName(QStringLiteral("Root"));
@@ -91,6 +96,31 @@ MainWindow::MainWindow(const LaunchOptions& opts, QWidget* parent)
         const bool front = solo && winutil::bringProcessToFront(solo->pid());
         applog::write(QStringLiteral("popup: single player %1").arg(front ? QStringLiteral("in front again")
                                                                          : QStringLiteral("not brought to the front")));
+    });
+    connect(controller_, &MatchController::soloStarted, this, &MainWindow::frontSoloWhenUp);
+    // the launcher with a controller: LB / RB the pages, START finds a match on a queue page
+    pad_ = new GamepadNav(this);
+    pad_->onPage = [this](int step) {
+        const int n = int(pages_.size());
+        selectPage((stack_->currentIndex() + step + n) % n);
+    };
+    pad_->onStart = [this] {
+        if (auto* queue = qobject_cast<QueuePage*>(stack_->currentWidget())) queue->pressFind();
+    };
+    soloFrontTimer_.setInterval(400);
+    connect(&soloFrontTimer_, &QTimer::timeout, this, [this] {
+        GameProcess* solo = controller_->solo();
+        const MatchController::Phase p = controller_->phase();
+        // not over a match found (its prompt is up) or a match: that froze single player, which comes back by itself
+        const bool waiting = p == MatchController::Phase::Searching || p == MatchController::Phase::Solo;
+        if (!solo || !waiting || ++soloFrontTries_ > 75) {
+            soloFrontTimer_.stop();
+            return;
+        }
+        if (!winutil::bringProcessToFront(solo->pid())) return;  // no window yet
+        soloFrontTimer_.stop();
+        applog::write(QStringLiteral("popup: %1 in front").arg(controller_->soloIsPractice() ? QStringLiteral("practice")
+                                                                                            : QStringLiteral("single player")));
     });
     connect(server_, &ServerClient::stateChanged, this, [this](ServerClient::State st) {
         updateFooter();
@@ -486,6 +516,7 @@ void MainWindow::onMatchFound(const QJsonObject& found) {
     auto* dlg = new MatchFoundDialog(found, g ? g->title : QString(), m ? m->name : QString(),
                                      g ? g->characterName(req.character) : req.character, this);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
+    GamepadNav::keepFromBack(dlg);  // B, an attack button, never declines
     matchDialog_ = dlg;
     connect(dlg, &QDialog::finished, this, [this](int result) {
         if (controller_->phase() != MatchController::Phase::Found) return;
@@ -521,6 +552,7 @@ void MainWindow::onKasualSeries(const QJsonObject& series, const QString& title,
         rematchShownFor_ = key;
         auto* dlg = new RematchDialog(this);
         dlg->setAttribute(Qt::WA_DeleteOnClose);
+        GamepadNav::keepFromBack(dlg);
         rematchDialog_ = dlg;
         connect(dlg, &RematchDialog::chose, this, [this](const QString& choice) {
             if (choice == QLatin1String("leave")) {
@@ -543,6 +575,11 @@ void MainWindow::popUp(QWidget* dialog) {
     const bool front = winutil::bringToFront(dialog);
     applog::write(QStringLiteral("popup: %1 %2").arg(dialog->windowTitle(), front ? QStringLiteral("in front")
                                                                                  : QStringLiteral("not in front")));
+}
+
+void MainWindow::frontSoloWhenUp() {
+    soloFrontTries_ = 0;
+    soloFrontTimer_.start();
 }
 
 void MainWindow::focusGame() {
@@ -587,7 +624,8 @@ void MainWindow::cliQueue() {
 }
 
 // --lobby host: create the lobby; --lobby join: look for it by name until it is there, then join; both mark themselves
-// ready once two are in, and the host starts the match once both are ready (one match)
+// ready once two are in, and the host starts the match once both are ready (one match); --lobby watch: join it as a
+// spectator, whose game plays the lobby's matches
 void MainWindow::cliLobby() {
     if (opts_.lobby.isEmpty() || cliLobbyBegun_ || !server_->isLoggedIn()) return;
     cliLobbyBegun_ = true;
@@ -603,7 +641,8 @@ void MainWindow::cliLobby() {
                        {QStringLiteral("password"), QString()},
                        {QStringLiteral("rounds"), 3},
                        {QStringLiteral("region"), cfg::region()},
-                       {QStringLiteral("character"), opts_.character}});
+                       {QStringLiteral("character"), opts_.character},
+                       {QStringLiteral("death_traps"), cfg::deathTraps()}});
         return;
     }
     applog::write(QStringLiteral("cli: looking for lobby \"%1\"").arg(name));
@@ -617,28 +656,32 @@ void MainWindow::cliLobby() {
 void MainWindow::cliLobbyMessage(const QJsonObject& msg) {
     const QString type = msg.value(QStringLiteral("type")).toString();
     const QString name = opts_.lobbyName.isEmpty() ? QStringLiteral("e2e lobby") : opts_.lobbyName;
-    if (type == QLatin1String("lobbies") && opts_.lobby == QLatin1String("join") && !cliLobbyJoined_) {
+    const bool watch = opts_.lobby == QLatin1String("watch");
+    if (type == QLatin1String("lobbies") && (opts_.lobby == QLatin1String("join") || watch) && !cliLobbyJoined_) {
         for (const auto& v : msg.value(QStringLiteral("lobbies")).toArray()) {
             const QJsonObject lb = v.toObject();
             if (lb.value(QStringLiteral("name")).toString() != name ||
-                lb.value(QStringLiteral("state")).toString() != QLatin1String("open"))
+                (!watch && lb.value(QStringLiteral("state")).toString() != QLatin1String("open")))
                 continue;
             cliLobbyJoined_ = true;
             if (cliLobbyPoll_) cliLobbyPoll_->stop();
             const QString code = lb.value(QStringLiteral("id")).toString();
-            applog::write(QStringLiteral("cli: joining lobby %1").arg(code));
+            applog::write(QStringLiteral("cli: %1 lobby %2").arg(watch ? QStringLiteral("watching") : QStringLiteral("joining"), code));
             server_->send({{QStringLiteral("type"), QStringLiteral("lobby_join")},
                            {QStringLiteral("lobby"), code},
                            {QStringLiteral("password"), QString()},
-                           {QStringLiteral("character"), opts_.character}});
+                           {QStringLiteral("character"), opts_.character},
+                           {QStringLiteral("spectate"), watch}});
             break;
         }
         return;
     }
-    if (type != QLatin1String("lobby")) return;
+    if (type != QLatin1String("lobby") || watch) return;  // a spectator never readies
     cliLastLobby_ = msg;
     const QJsonObject lobby = msg.value(QStringLiteral("lobby")).toObject();
-    const QJsonArray members = lobby.value(QStringLiteral("members")).toArray();
+    QJsonArray members;  // the players: spectators neither ready nor play
+    for (const auto& v : lobby.value(QStringLiteral("members")).toArray())
+        if (!v.toObject().value(QStringLiteral("spectator")).toBool()) members.append(v);
     if (lobby.value(QStringLiteral("state")).toString() == QLatin1String("in_match")) {
         cliLobbyInMatch_ = true;
         return;

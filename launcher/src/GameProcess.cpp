@@ -135,6 +135,7 @@ bool GameProcess::start(const QString& exe, QString* error, bool netMode) {
     env.insert(QStringLiteral("MK3D_RESOLUTION"), cfg::resolution());
     env.insert(QStringLiteral("MK3D_VSYNC"), cfg::vsync() ? QStringLiteral("1") : QStringLiteral("0"));
     env.insert(QStringLiteral("XBE_CONTROLS"), QDir::toNativeSeparators(controls::file()));  // read again when it changes
+    for (auto it = extraEnv_.cbegin(); it != extraEnv_.cend(); ++it) env.insert(it.key(), it.value());
 
     proc_ = new QProcess(this);
     proc_->setProcessEnvironment(env);

@@ -12,6 +12,7 @@ struct Request {
     int characters[2] = {-1, -1};
     bool unlock_all = false;
     int local_side = -1;       // online: this PC's player, 0 (P1) or 1 (P2)
+    bool watch = false;        // a spectator's game: no player here, both picks come from the players' games
     bool by_player[2] = {};    // online: that side's player picks on the select screen (this PC's player with their
                                // own controller, the other one on their PC: their pick comes over netplay)
 };

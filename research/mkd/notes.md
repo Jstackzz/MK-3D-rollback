@@ -276,6 +276,30 @@ Frame and input:
   XInput state; it never looks at the packet number). Port block: +0 flags (2 open, 4 calls sub_0006AC90 after the
   read), +4 button table, +8 the player record the port drives (a press on a port without one calls sub_0006AB10).
   sub_0008A4F0(port, stick, &x, &y) reads a stick (0 left, 1 right) as floats past the deadzone byte 0x3EBB24.
+- sub_0006AC90 ORs the left stick's directions (the button table's entries at +0x90 / +0x9C / +0xA8 / +0xB4) into
+  the current buttons from the block's sticks (+0x18), which the pad update only reads afresh after it: the
+  directions are last frame's stick. Online the netplay writes both ports' blocks after the pad update, so on the
+  right player's PC port 0 held the left player's sticks, and the left player's stick directions went into the right
+  player's own input (0.1.0-0.1.6: the user's net logs show the same direction bits at the same frame on both sides,
+  with only the left player's stick off centre). The netplay puts port 0's sticks back to this PC's before the pad
+  update (`mk3d::OnBeforePads`, `game::RestoreLocalSticks`).
+
+Game options (0.1.7, for the death traps setting):
+- The options block 0x5FC980 (0x78 bytes; volumes as floats first): difficulty 0x5FC998, chess / puzzle difficulty
+  0x5FC99C / 0x5FC9A0, rounds to win 0x5FC9A4, puzzle rounds 0x5FC9A8, round time 0x5FC9AC (seconds, 20..95 in
+  steps of 5), blood level 0x5FC9B4 (0..3), death traps 0x5FC9B8 (0/1). Defaults sub_001B4640 (2, 2, 2, 2, 2, 60,
+  5 at 0x5FC9B0, blood 3, traps 1); sub_001B4430(item, value) sets one by its menu item (0x332C difficulty ...
+  0x3331 round time, 0x3332 death traps, 0x3333 blood: the Game Options screen of screen_engine.ssf lists
+  ROUND_TIME, DEATH_TRAPS, BLOOD_LEVEL in that order); sub_001B4300 writes them out.
+- sub_001B3DC0(dst, src) copies a whole block (0x1E dwords). sub_001B3E30(profile) makes a profile's (0x601EE0 +
+  profile * 0x2ED0) the game's: it runs when the main menu takes a mode (seen: the death traps back on by the select
+  screen, after the launcher had set them off), so a launcher match's options go back after every copy over
+  0x5FC980 and every sub_001B4640 / sub_001B4430 (linkgame.cpp hooks).
+- sub_001BF070 says whether death traps work: 0 when the blood level (sub_001BF010, the option or an Xbox Live
+  session's 0x621244..) is 0, else the option (Xbox Live: the session's 0x621248 for its game types 0 and 2). The
+  arenas' scripts call it through their natives table (0x6597E8; their .ssf files hold the death trap code:
+  `dp_do_close_arena_death_trap`, `lm_do_lion_death_trap` ...), the fight code from sub_00044080 and sub_001AE540.
+  In a launcher match the hook returns the match's setting.
 
 Game state:
 - Game mode 0x61C414, written only by sub_001BC170: 13 front end, 0 arcade, 1 versus, 4 practice (health refills),

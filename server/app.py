@@ -7,6 +7,7 @@ queries are tiny), password hashing runs in the default thread pool.
 from __future__ import annotations
 
 import asyncio
+import base64
 import collections
 import functools
 import hmac
@@ -34,8 +35,10 @@ PENDING_STATES = ("found", "accepted", "punching")
 NEEDS_LOGIN = {
     "logout", "queue_join", "queue_leave", "match_accept", "match_decline", "ping_report", "match_state",
     "result", "lobby_create", "lobby_list", "lobby_join", "lobby_leave", "lobby_chat", "lobby_character",
-    "lobby_ready", "lobby_start", "admin_notice", "series_ready",
+    "lobby_ready", "lobby_start", "admin_notice", "series_ready", "lobby_role", "feed",
 }
+FEED_MAGIC = b"MKDR"
+FEED_TYPES = (5, 6, 7, 8, 9)  # the spectator feed's packet types (recomp/common/src/mk3d/netplay.cpp)
 RESULT_OUTCOMES = ("desync", "disconnected", "error")
 
 
@@ -78,6 +81,9 @@ class ServerConfig:
     relay_rate: float = 400.0     # packets a second each player may send through the relay (a game sends ~120)
     relay_burst: float = 800.0
     relay_linger: float = 15.0    # seconds a route outlives its match: the last packets of the end still arrive
+    max_spectators: int = 8       # a lobby's spectators, besides its two players
+    feed_max_bytes: int = 8 << 20  # a lobby match's spectator feed, at most (a long chess game writes ~2 MB)
+    feed_linger: float = 180.0    # seconds a feed outlives its match: its end still plays, spectators run behind
     upnp: bool = False            # open the TCP and UDP ports on the router of a home PC (UPnP)
     upnp_location: str | None = None  # development: a router description to use instead of discovering one
     upnp_renew: float = 1200.0
@@ -171,6 +177,7 @@ class Match:
     game_state: str = ""
     relay: tuple[tuple[str, int], tuple[str, int]] | None = None  # the two endpoints the relay joins
     series: Series | None = None
+    death_traps: bool = True
 
     def player_for(self, account_id: int | None) -> MatchPlayer | None:
         for p in self.players:
@@ -215,6 +222,7 @@ class Series:
     played: int = 0
     no_contests: int = 0  # in a row
     last_picks: tuple[str, str] | None = None  # P1's and P2's fighters in the last agreed match (game character ids)
+    death_traps: bool = True
 
     def player_for(self, account_id: int | None) -> SeriesPlayer | None:
         for p in self.players:
@@ -232,6 +240,7 @@ class LobbyMember:
     character: str = ""
     ready: bool = False
     delay: int = 2
+    spectator: bool = False  # watches the lobby's matches instead of playing them
 
 
 @dataclass(eq=False)
@@ -248,12 +257,21 @@ class Lobby:
     created: float
     chat: collections.deque = field(default_factory=lambda: collections.deque(maxlen=30))
     match: Match | None = None
+    death_traps: bool = True
+    max_spectators: int = 8
+    feed: Feed | None = None  # the spectator feed of the lobby's last match
 
     @property
     def state(self) -> str:
         if self.match is not None:
             return "in_match"
-        return "full" if len(self.members) >= 2 else "open"
+        return "full" if len(self.players()) >= 2 else "open"
+
+    def players(self) -> list[LobbyMember]:
+        return [m for m in self.members if not m.spectator]
+
+    def spectators(self) -> list[LobbyMember]:
+        return [m for m in self.members if m.spectator]
 
     def member(self, s: Session) -> LobbyMember | None:
         for m in self.members:
@@ -264,21 +282,40 @@ class Lobby:
     def summary(self) -> dict[str, Any]:
         return {
             "id": self.id, "name": self.name, "host": self.host.name, "game": self.game, "mode": self.mode,
-            "region": self.region, "players": len(self.members), "max_players": 2,
-            "locked": bool(self.password), "state": self.state, "rounds": self.rounds,
+            "region": self.region, "players": len(self.players()), "max_players": 2,
+            "spectators": len(self.spectators()), "max_spectators": self.max_spectators,
+            "locked": bool(self.password), "state": self.state, "rounds": self.rounds, "death_traps": self.death_traps,
         }
 
     def full_state(self) -> dict[str, Any]:
         return {
             "id": self.id, "name": self.name, "host": self.host.name, "game": self.game, "mode": self.mode,
             "region": self.region, "rounds": self.rounds, "locked": bool(self.password), "state": self.state,
+            "death_traps": self.death_traps, "max_spectators": self.max_spectators,
             "match": self.match.id if self.match is not None else None,
             "members": [
-                {"name": m.session.name, "character": m.character, "ready": m.ready, "host": m.session is self.host}
+                {"name": m.session.name, "character": m.character, "ready": m.ready, "host": m.session is self.host,
+                 "spectator": m.spectator}
                 for m in self.members
             ],
             "chat": list(self.chat),
         }
+
+
+@dataclass(eq=False)
+class Feed:
+    """What a lobby match's two games write for its spectators (docs/PROTOCOL.md 1.10.1), kept from the match's start
+    until a while after it is done: the end still plays after the result, and spectators run behind the players."""
+    match: str
+    lobby: Lobby
+    info: dict[str, Any]   # the spectate message
+    sides: dict[int, int]  # account id -> the side byte its game's packets carry (0 P1, 1 P2)
+    chunks: list[str] = field(default_factory=list)  # base64, each whole packets
+    size: int = 0
+    watchers: set[Session] = field(default_factory=set)
+    end: dict[str, Any] | None = None  # the spectate_end message, once the match is done
+    expires: float | None = None
+    full: bool = False
 
 
 @dataclass(eq=False)
@@ -359,6 +396,7 @@ class Server:
         self.series: dict[str, Series] = {}
         self.series_of: dict[int, Series] = {}  # by account: a player is in one series at a time
         self.lobbies: dict[str, Lobby] = {}
+        self.feeds: dict[str, Feed] = {}  # by match id
         self.relay_routes: dict[tuple[str, int], RelayRoute] = {}
         self.ping_cache = PingCache()
         self.login_failures: dict[str, collections.deque[float]] = {}
@@ -400,6 +438,8 @@ class Server:
             "lobby_character": self.on_lobby_character,
             "lobby_ready": self.on_lobby_ready,
             "lobby_start": self.on_lobby_start,
+            "lobby_role": self.on_lobby_role,
+            "feed": self.on_feed,
             "series_ready": self.on_series_ready,
             "leaderboard": self.on_leaderboard,
         }
@@ -523,6 +563,10 @@ class Server:
         self._tick_series(now)
         for ep in [ep for ep, r in self.relay_routes.items() if r.expires is not None and r.expires < now]:
             del self.relay_routes[ep]
+        for feed in [f for f in self.feeds.values() if f.expires is not None and f.expires < now]:
+            del self.feeds[feed.match]
+            if feed.lobby.feed is feed:
+                feed.lobby.feed = None
         self._run_matchmaking(now)
         self._push_online(now)
 
@@ -860,6 +904,7 @@ class Server:
         strict = P.get_bool(msg, "strict", default=False)
         character = P.get_character(msg)
         delay = P.get_int(msg, "delay", lo=0, hi=P.DELAY_MAX, default=2)
+        death_traps = P.get_bool(msg, "death_traps", default=True)
         server_rtt = msg.get("server_rtt")
         if isinstance(server_rtt, bool) or not isinstance(server_rtt, int) or not 0 <= server_rtt <= 5000:
             server_rtt = None
@@ -871,7 +916,7 @@ class Server:
         entry = QueueEntry(
             account_id=s.account_id, name=s.name, game=game, mode=mode, ranked=ranked, region=region,
             max_ping=max_ping, strict=strict, character=character, delay=delay, since=now, elo=rating,
-            public_ip=s.ip, server_rtt=server_rtt,
+            public_ip=s.ip, server_rtt=server_rtt, death_traps=death_traps,
         )
         self.queue[s.account_id] = entry
         s.queue = entry
@@ -918,16 +963,18 @@ class Server:
                         entry=e)
             for i, (e, sess) in enumerate(pair)
         ]
+        # the arenas' death traps: never in ranked, in casual only when both players want them
+        traps = not a.ranked and a.death_traps and b.death_traps
         m = Match(id=secrets.token_hex(6), game=a.game, mode=a.mode, ranked=a.ranked, players=players, created=now,
                   from_queue=True, rounds=self.cfg.default_rounds, state="found",
-                  deadline=now + self.cfg.accept_timeout)
+                  deadline=now + self.cfg.accept_timeout, death_traps=traps)
         self._register_match(m)
         for p in players:
             assert p.session is not None
             p.session.send({
                 "type": "match_found", "match": m.id, "game": m.game, "mode": m.mode, "ranked": m.ranked,
                 "side": p.side, "accept_timeout": self.cfg.accept_timeout, "accept_required": True, "lobby": None,
-                "opponent": None if m.ranked else self._opponent(m, m.other(p)),
+                "death_traps": m.death_traps, "opponent": None if m.ranked else self._opponent(m, m.other(p)),
             })
         log.info("match %s found: %s vs %s (%s/%s %s)", m.id, players[0].name, players[1].name, m.game, m.mode,
                  "ranked" if m.ranked else "casual")
@@ -1113,7 +1160,10 @@ class Server:
                 "side": p.side, "remote": p.ping["remote"], "rtt_ms": rtt, "delay": delay, "seed": m.seed,
                 "rounds": m.rounds, "p1": p1.character or "-", "p2": p2.character or "-",
                 "p1_name": p1.name, "p2_name": p2.name, "lobby": m.lobby.id if m.lobby else None,
+                "death_traps": m.death_traps, "feed": m.lobby is not None,
             })
+        if m.lobby is not None:
+            self._start_feed(m)
         self.db.update_match(m.id, status="playing", started=now, seed=m.seed, rtt_ms=rtt)
         log.info("match %s go: %s vs %s, rtt %d ms, delay %d%s", m.id, p1.name, p2.name, rtt, delay,
                  ", through the relay" if m.relay is not None else "")
@@ -1245,6 +1295,7 @@ class Server:
                 if sess.match is m:
                     sess.match = None
                 sess.send(dict(out))
+        self._end_feed(m, out, now)
         if m.lobby is not None:
             self._lobby_match_over(m.lobby, m)
         elif m.from_queue or m.series is not None:
@@ -1280,7 +1331,7 @@ class Server:
                 self._end_series(old, "void", now=now)
         series = Series(
             id=secrets.token_hex(6), game=m.game, mode=m.mode, ranked=m.ranked,
-            need=self.cfg.set_wins if m.ranked else 0, created=now,
+            need=self.cfg.set_wins if m.ranked else 0, created=now, death_traps=m.death_traps,
             players=[SeriesPlayer(account_id=p.account_id, name=p.name, side=p.side, character=p.character,
                                   delay=p.delay, max_ping=p.max_ping, region=p.region, elo=p.elo)
                      for p in m.players],
@@ -1371,7 +1422,7 @@ class Server:
         )
         m = Match(id=secrets.token_hex(6), game=series.game, mode=series.mode, ranked=series.ranked, players=players,
                   created=now, from_queue=False, series=series, rounds=self.cfg.default_rounds, state="accepted",
-                  deadline=now + self.cfg.udp_timeout)
+                  deadline=now + self.cfg.udp_timeout, death_traps=series.death_traps)
         series.state = "playing"
         series.match = m
         self._register_match(m)
@@ -1380,7 +1431,7 @@ class Server:
             p.session.send({
                 "type": "match_found", "match": m.id, "game": m.game, "mode": m.mode, "ranked": m.ranked,
                 "side": p.side, "accept_timeout": 0, "accept_required": False, "lobby": None, "series": series.id,
-                "opponent": self._opponent(m, m.other(p)),
+                "death_traps": m.death_traps, "opponent": self._opponent(m, m.other(p)),
             })
         log.info("%s %s: match %s (%d played)", "set" if series.ranked else "series", series.id, m.id, series.played)
         self._send_series(series)
@@ -1504,6 +1555,112 @@ class Server:
         if lobby.id in self.lobbies:
             self._broadcast_lobby(lobby)
 
+    # --- spectators: a lobby match's feed ----------------------------------------------------------
+
+    def _start_feed(self, m: Match) -> None:
+        """A lobby match goes: its spectators get what it is (their game sets the same match up) and, from now on,
+        what both players' games write for them."""
+        lobby = m.lobby
+        assert lobby is not None
+        p1, p2 = m.players
+        info = {
+            "type": "spectate", "match": m.id, "lobby": lobby.id, "game": m.game, "mode": m.mode, "seed": m.seed,
+            "rounds": m.rounds, "death_traps": m.death_traps, "p1": p1.character or "-", "p2": p2.character or "-",
+            "p1_name": p1.name, "p2_name": p2.name,
+        }
+        feed = Feed(match=m.id, lobby=lobby, info=info, sides={p1.account_id: 0, p2.account_id: 1})
+        self.feeds[m.id] = feed
+        lobby.feed = feed
+        for member in lobby.spectators():
+            self._watch(member.session, feed)
+
+    def _watch(self, s: Session, feed: Feed) -> None:
+        """A spectator starts watching a feed: what it is, then everything written so far (paced by the spectator's
+        connection), then the rest as it comes."""
+        if s in feed.watchers:
+            return
+        feed.watchers.add(s)
+        s.send(dict(feed.info))
+        if feed.chunks:
+            asyncio.get_running_loop().create_task(self._send_backlog(s, feed, len(feed.chunks)))
+        elif feed.end is not None:
+            s.send(dict(feed.end))
+
+    async def _send_backlog(self, s: Session, feed: Feed, upto: int) -> None:
+        batch: list[bytes] = []
+        size = 0
+
+        def flush() -> None:
+            nonlocal batch, size
+            if batch:
+                s.send({"type": "spectate_feed", "match": feed.match,
+                        "data": base64.b64encode(b"".join(batch)).decode("ascii")})
+            batch, size = [], 0
+
+        for data in feed.chunks[:upto]:
+            if s.closed or s not in feed.watchers:
+                return
+            raw = base64.b64decode(data)
+            if size + len(raw) > 9 * 1024:
+                flush()
+                transport = s.writer.transport
+                while transport is not None and transport.get_write_buffer_size() > 256 * 1024 and not s.closed:
+                    await asyncio.sleep(0.05)
+            batch.append(raw)
+            size += len(raw)
+        flush()
+        if feed.end is not None and s in feed.watchers:
+            s.send(dict(feed.end))
+
+    def _unwatch(self, s: Session, lobby: Lobby) -> None:
+        for feed in self.feeds.values():
+            if feed.lobby is lobby:
+                feed.watchers.discard(s)
+
+    def _end_feed(self, m: Match, result: dict[str, Any], now: float) -> None:
+        feed = self.feeds.get(m.id)
+        if feed is None or feed.end is not None:
+            return
+        feed.end = {"type": "spectate_end", "match": m.id, "status": result.get("status"),
+                    "winner": result.get("winner"), "p1_rounds": result.get("p1_rounds"),
+                    "p2_rounds": result.get("p2_rounds")}
+        feed.expires = now + self.cfg.feed_linger
+        for s in list(feed.watchers):
+            s.send(dict(feed.end))
+        log.info("match %s feed: %d bytes, %d spectators", m.id, feed.size, len(feed.watchers))
+
+    def on_feed(self, s: Session, msg: dict[str, Any]) -> None:
+        """A player's launcher passes on what its game wrote for the spectators: whole packets of the game's feed,
+        its own side's only (docs/PROTOCOL.md 1.10.1). Late ones for a feed gone are dropped without a word."""
+        feed = self.feeds.get(P.get_str(msg, "match", max_len=64))
+        if feed is None or s.account_id not in feed.sides:
+            return
+        data = P.get_str(msg, "data", max_len=P.MAX_LINE)
+        try:
+            raw = base64.b64decode(data, validate=True)
+        except (ValueError, TypeError) as exc:
+            raise P.ProtocolError("bad_request", "Feed data must be base64.") from exc
+        side = feed.sides[s.account_id]
+        at = 0
+        while at < len(raw):
+            n = int.from_bytes(raw[at:at + 2], "little") if at + 2 <= len(raw) else -1
+            pkt = raw[at + 2:at + 2 + n] if n >= 0 else b""
+            if n < 8 or len(pkt) != n or pkt[:4] != FEED_MAGIC or pkt[4] not in FEED_TYPES or pkt[5] != side:
+                raise P.ProtocolError("bad_request", "Feed data must be whole packets of this player's game.")
+            at += 2 + n
+        if not raw:
+            return
+        if feed.size + len(raw) > self.cfg.feed_max_bytes:
+            if not feed.full:
+                log.warning("match %s feed is full (%d bytes): spectators get no more", feed.match, feed.size)
+                feed.full = True
+            return
+        feed.chunks.append(data)
+        feed.size += len(raw)
+        out = {"type": "spectate_feed", "match": feed.match, "data": data}
+        for w in list(feed.watchers):
+            w.send(out)
+
     def _need_lobby(self, s: Session) -> Lobby:
         if s.lobby is None:
             raise P.ProtocolError("not_in_lobby", "You are not in a lobby.")
@@ -1522,8 +1679,10 @@ class Server:
             raise P.ProtocolError("bad_request", "rounds must be 1, 3 or 5.")
         region = P.get_region(msg)
         character = P.get_character(msg)
+        death_traps = P.get_bool(msg, "death_traps", default=True)
         lobby = Lobby(id=self._new_lobby_code(), name=name, game=game, mode=mode, region=region, rounds=rounds,
-                      password=password, host=s, members=[LobbyMember(s, character)], created=time.time())
+                      password=password, host=s, members=[LobbyMember(s, character)], created=time.time(),
+                      death_traps=death_traps, max_spectators=self.cfg.max_spectators)
         self.lobbies[lobby.id] = lobby
         s.lobby = lobby
         log.info("lobby %s created by %s (%s/%s%s)", lobby.id, s.name, game, mode, ", locked" if password else "")
@@ -1544,16 +1703,22 @@ class Server:
         lobby = self.lobbies.get(code)
         if lobby is None:
             raise P.ProtocolError("no_such_lobby", "No lobby with that code.")
-        if lobby.match is not None or len(lobby.members) >= 2:
-            raise P.ProtocolError("lobby_full", "That lobby is full.")
+        spectate = P.get_bool(msg, "spectate", default=False)
+        if spectate and len(lobby.spectators()) >= lobby.max_spectators:
+            raise P.ProtocolError("lobby_full", "That lobby has no room for more spectators.")
+        if not spectate and (lobby.match is not None or len(lobby.players()) >= 2):
+            raise P.ProtocolError("lobby_full", "Both places to play are taken: join it to watch instead.")
         password = P.get_str(msg, "password", default="", max_len=64)
         if lobby.password and not hmac.compare_digest(lobby.password.encode(), password.encode()):
             raise P.ProtocolError("bad_lobby_password", "Wrong lobby password.")
         self._quit_series(s)
-        lobby.members.append(LobbyMember(s, P.get_character(msg)))
+        member = LobbyMember(s, P.get_character(msg), spectator=spectate)
+        lobby.members.append(member)
         s.lobby = lobby
-        log.info("lobby %s: %s joined", lobby.id, s.name)
+        log.info("lobby %s: %s joined%s", lobby.id, s.name, " to watch" if spectate else "")
         self._broadcast_lobby(lobby, reply_to=(s, msg))
+        if spectate and lobby.feed is not None and lobby.feed.end is None:
+            self._watch(s, lobby.feed)  # a match under way: from its start
 
     def _leave_lobby(self, s: Session) -> None:
         lobby = s.lobby
@@ -1563,17 +1728,19 @@ class Server:
         member = lobby.member(s)
         if member is not None:
             lobby.members.remove(member)
+        self._unwatch(s, lobby)
         if not lobby.members:
             self.lobbies.pop(lobby.id, None)
         elif lobby.host is s:
-            lobby.host = lobby.members[0].session
-        for other in lobby.members:
-            other.ready = False
+            lobby.host = (lobby.players() or lobby.members)[0].session
+        if member is None or not member.spectator:
+            for other in lobby.members:
+                other.ready = False
         log.info("lobby %s: %s left", lobby.id, s.name)
         m = lobby.match
-        if m is not None and m.state in PENDING_STATES:
-            p = m.player_for(s.account_id)
-            self._cancel_match(m, "peer_left", blame={p.side} if p else set())  # broadcasts the lobby
+        p = m.player_for(s.account_id) if m is not None else None
+        if m is not None and p is not None and m.state in PENDING_STATES:
+            self._cancel_match(m, "peer_left", blame={p.side})  # broadcasts the lobby
         elif lobby.members:
             self._broadcast_lobby(lobby)
 
@@ -1616,9 +1783,44 @@ class Server:
             raise P.ProtocolError("busy", "A match is running.")
         member = lobby.member(s)
         assert member is not None
+        if member.spectator:
+            raise P.ProtocolError("not_player", "Spectators do not ready up: take a place to play first.")
         member.ready = P.get_bool(msg, "ready")
         member.delay = P.get_int(msg, "delay", lo=0, hi=P.DELAY_MAX, default=member.delay)
         self._broadcast_lobby(lobby, reply_to=(s, msg))
+
+    def on_lobby_role(self, s: Session, msg: dict[str, Any]) -> None:
+        """Play or watch: a spectator takes a free place to play, a player steps aside to watch (not while their
+        match is being set up or runs)."""
+        lobby = self._need_lobby(s)
+        member = lobby.member(s)
+        assert member is not None
+        role = msg.get("role")
+        if role not in ("player", "spectator"):
+            raise P.ProtocolError("bad_request", "role must be player or spectator.")
+        if (role == "spectator") == member.spectator:
+            self._broadcast_lobby(lobby, reply_to=(s, msg))
+            return
+        if role == "player":
+            if lobby.match is not None:
+                raise P.ProtocolError("busy", "A match is running: take a place once it is over.")
+            if len(lobby.players()) >= 2:
+                raise P.ProtocolError("lobby_full", "Both places to play are taken.")
+            member.spectator = False
+            self._unwatch(s, lobby)
+        else:
+            if lobby.match is not None and lobby.match.player_for(s.account_id) is not None:
+                raise P.ProtocolError("busy", "Your match is running.")
+            if len(lobby.spectators()) >= lobby.max_spectators:
+                raise P.ProtocolError("lobby_full", "That lobby has no room for more spectators.")
+            member.spectator = True
+            for other in lobby.members:
+                other.ready = False
+        member.ready = False
+        log.info("lobby %s: %s %s", lobby.id, s.name, "plays" if role == "player" else "watches")
+        self._broadcast_lobby(lobby, reply_to=(s, msg))
+        if member.spectator and lobby.feed is not None and lobby.feed.end is None:
+            self._watch(s, lobby.feed)
 
     def on_lobby_start(self, s: Session, msg: dict[str, Any]) -> None:
         lobby = self._need_lobby(s)
@@ -1626,10 +1828,10 @@ class Server:
             raise P.ProtocolError("not_host", "Only the host can start.")
         if lobby.match is not None:
             raise P.ProtocolError("busy", "A match is already running.")
-        if len(lobby.members) < 2 or not all(m.ready for m in lobby.members):
+        if len(lobby.players()) < 2 or not all(m.ready for m in lobby.players()):
             raise P.ProtocolError("not_ready", "Both players must be ready.")
         now = time.time()
-        ordered = sorted(lobby.members, key=lambda mem: mem.session is not lobby.host)  # host first
+        ordered = sorted(lobby.players(), key=lambda mem: mem.session is not lobby.host)  # a host who plays first
         players = [
             MatchPlayer(side=i + 1, account_id=mem.session.account_id or 0, name=mem.session.name or "?",
                         session=mem.session, character=mem.character, delay=mem.delay, max_ping=0,
@@ -1638,7 +1840,7 @@ class Server:
         ]
         m = Match(id=secrets.token_hex(6), game=lobby.game, mode=lobby.mode, ranked=False, players=players,
                   created=now, from_queue=False, lobby=lobby, rounds=lobby.rounds, state="accepted",
-                  deadline=now + self.cfg.udp_timeout)
+                  deadline=now + self.cfg.udp_timeout, death_traps=lobby.death_traps)
         lobby.match = m
         self._register_match(m)
         for p in players:
@@ -1646,7 +1848,7 @@ class Server:
             p.session.send({
                 "type": "match_found", "match": m.id, "game": m.game, "mode": m.mode, "ranked": False,
                 "side": p.side, "accept_timeout": 0, "accept_required": False, "lobby": lobby.id,
-                "opponent": self._opponent(m, m.other(p)),
+                "death_traps": m.death_traps, "opponent": self._opponent(m, m.other(p)),
             })
         log.info("lobby %s: match %s started by %s", lobby.id, m.id, s.name)
         self._broadcast_lobby(lobby, reply_to=(s, msg))

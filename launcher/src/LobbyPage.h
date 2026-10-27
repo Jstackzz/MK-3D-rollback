@@ -1,5 +1,6 @@
 #pragma once
-// Lobby browser and the current lobby: members, character, ready, host start, chat.
+// Lobby browser and the current lobby: members, character, ready, host start, chat, and spectators: members who watch
+// the lobby's matches in their own game instead of playing them (docs/PROTOCOL.md 1.10.1).
 
 #include <QJsonObject>
 
@@ -28,7 +29,8 @@ private:
     void onMessage(const QJsonObject& msg);
     void showLobby(const QJsonObject& lobby);
     void leftLobby();
-    void join(const QString& code, bool locked);
+    void join(const QString& code, bool locked, bool spectate = false);
+    bool spectating() const;  // this player watches in the lobby they are in
     void createLobby();
     void sendChat();
     void appendChat(const QString& from, const QString& text, double ts);
@@ -47,6 +49,7 @@ private:
     QPushButton* ready_;
     QPushButton* start_;
     QPushButton* leave_;
+    QPushButton* role_;  // PLAY (a spectator takes a free place) / WATCH (a player steps aside)
     LogView* chat_;
     QLineEdit* chatInput_;
     QJsonObject lobby_;

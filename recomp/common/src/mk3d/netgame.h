@@ -23,6 +23,10 @@ uint32_t NeutralSticks();  // both sticks centred, packed as the blocks hold the
 void ReadLocal(uint32_t& buttons, uint32_t& sticks);
 // what a port's block gets: these buttons and sticks, with prev_buttons as the last frame's
 void WritePort(int port, uint32_t buttons, uint32_t sticks, uint32_t prev_buttons);
+// before a pad update in a match: port 0's sticks as this PC's controller left them (ReadLocal's), not the input the
+// last frame wrote there. Deception's and Armageddon's pad updates turn the left stick into directions before reading
+// it again, from the block: a right player's own buttons came with the left player's stick directions
+void RestoreLocalSticks(uint32_t sticks);
 // a port's whole block (the sync test copies it as the pad update left it and writes it back on the run again)
 uint32_t PortBlock(int port, uint32_t& size);
 

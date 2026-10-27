@@ -131,19 +131,23 @@ void Start(const Command& c) {
     int rounds = std::atoi(Key(c, "rounds", "3").c_str());
     g_wins_needed = rounds > 1 ? rounds / 2 + 1 : 1;
     g_match = Key(c, "match", mode == "practice" ? "practice" : "none");
-    g_online = !Key(c, "remote").empty() && mode != "practice";
+    // watch=1: a spectator, both players' inputs from the launcher's feed (no remote); a player's game writes to it
+    const bool watch = Key(c, "watch") == "1" && !Key(c, "feed").empty();
+    g_online = (!Key(c, "remote").empty() || watch) && mode != "practice";
     const int side = Key(c, "side", "1") == "2" ? 1 : 0;
     if (g_online) {
         net::Settings st;
+        st.watch = watch;
+        st.feed = Key(c, "feed");
         st.bind = uint16_t(std::atoi(Key(c, "local_port", "7001").c_str()));
         st.peer = Key(c, "remote");
         st.side = side;
         st.delay = std::atoi(Key(c, "delay", "2").c_str());
         st.loopback_only = st.peer.rfind("127.", 0) == 0;
-        if (const char* log = Env("NET_LOG")) {  // "{side}" becomes 0 or 1 (two games on one PC), "{match}" the id
+        if (const char* log = Env("NET_LOG")) {  // "{side}" becomes 0, 1 or w (games on one PC), "{match}" the id
             st.log = log;
             size_t at = st.log.find("{side}");
-            if (at != std::string::npos) st.log.replace(at, 6, std::to_string(st.side));
+            if (at != std::string::npos) st.log.replace(at, 6, watch ? std::string("w") : std::to_string(st.side));
             at = st.log.find("{match}");
             if (at != std::string::npos) st.log.replace(at, 7, Key(c, "match", "none"));
         }
@@ -158,8 +162,10 @@ void Start(const Command& c) {
     start.seed = uint32_t(std::strtoul(Key(c, "seed", "0").c_str(), nullptr, 10));
     start.stage = Key(c, "stage");
     start.wins_needed = g_wins_needed;
+    start.death_traps = Key(c, "traps", "1") != "0";
     start.online = g_online;
     start.side = side;
+    start.watch = watch;
     g_start = start;
     g_in_match = true;
     g_fighting = false;
@@ -171,8 +177,9 @@ void Start(const Command& c) {
         g_in_match = false;
         return;
     }
-    LOGR("link: start %s (%s vs %s), match %s, %s", mode.c_str(), picks[0].c_str(), picks[1].c_str(), g_match.c_str(),
-         g_online ? "online" : "offline");
+    LOGR("link: start %s (%s vs %s), match %s, %s%s", mode.c_str(), picks[0].c_str(), picks[1].c_str(),
+         g_match.c_str(), watch ? "watching" : g_online ? "online" : "offline",
+         start.death_traps ? "" : ", no death traps");
 }
 
 void Rematch(const Command& c) {
@@ -328,7 +335,8 @@ bool SuppressPhysicalPads() {
     // the player's controller reaches the game only while the match runs, its end included: online the result goes
     // out at the round that decides it, and the finisher, a fatality and the winner's pose still play in sync after
     // (and on the select screen, for their own side's cursor when they pick there: the game's pads route it,
-    // autopilot LocalPickPort)
+    // autopilot LocalPickPort); a spectator's never
+    if (g_in_match && g_start.watch) return true;
     return !(g_in_match && g_fighting && (!g_reported || InSync())) || game::AutopilotActive();
 }
 

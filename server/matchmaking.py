@@ -28,6 +28,7 @@ class QueueEntry:
     elo: int = 1500
     public_ip: str | None = None
     server_rtt: int | None = None  # client's UDP round trip to the server, ms
+    death_traps: bool = True  # the arenas' death traps; a casual match has them only when both want them, ranked never
 
     @property
     def key(self) -> tuple[str, str, bool]:

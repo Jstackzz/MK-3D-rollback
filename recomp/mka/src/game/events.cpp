@@ -214,10 +214,14 @@ X86_FUNC(sub_001D9530) {
     __imp__sub_001D9530(ctx, base);
     mka::g_actions++;
     if (armed) {
-        // both players take part (the original does this only for versus, or when both have joined)
+        // both players take part (the original does this only for versus, or when both have joined), except in
+        // practice, where port 0 picks both fighters: a second player taking part there would stop the game for their
+        // controller
+        const bool both = to != mka::kActionPractice;
         kernel::CallGuest(ctx, mka::kSetPlayerActive, {mka::kP1Record, 1});
-        kernel::CallGuest(ctx, mka::kSetPlayerActive, {mka::kP2Record, 1});
-        if (redirect) LOGI("event: menu action %u redirected to %d, both players in", action, to);
+        if (both) kernel::CallGuest(ctx, mka::kSetPlayerActive, {mka::kP2Record, 1});
+        if (redirect)
+            LOGI("event: menu action %u redirected to %d, %s", action, to, both ? "both players in" : "player 1 in");
     }
 }
 

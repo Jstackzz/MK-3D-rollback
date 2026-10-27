@@ -23,7 +23,8 @@ async def test_lobby_create_join_ready_start(server, connect, udp_peers):
     lobby = created["lobby"]
     code = lobby["id"]
     assert len(code) == 5 and lobby["locked"] and lobby["state"] == "open"
-    assert lobby["members"] == [{"name": "Goro", "character": "Scorpion", "ready": False, "host": True}]
+    assert lobby["members"] == [{"name": "Goro", "character": "Scorpion", "ready": False, "host": True,
+                                 "spectator": False}]
 
     listed = await guest.request({"type": "lobby_list", "game": "mkd"})
     assert [(lb["id"], lb["players"], lb["locked"]) for lb in listed["lobbies"]] == [(code, 1, True)]

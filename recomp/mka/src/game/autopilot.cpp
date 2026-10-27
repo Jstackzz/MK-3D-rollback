@@ -8,6 +8,8 @@
 //                                the launcher's roster id (launcher/data/mka.json: "SubZero", "JohnnyCage") or the
 //                                index; all characters are unlocked when either is given, or with MKA_UNLOCK_ALL=1
 //   MKA_AUTOPILOT_HOLD=1         stop at character select
+//   MK3D_TRAINING=1              to practice's select screen; the player picks there (the launcher's practice
+//                                while it searches for a match)
 //   MKA_TRACK=<n>                Motor Kombat's track as its select numbers them (43 the first, the default)
 //
 //   1. START every 0.7 s until the main menu task starts (skips the movies and the title; its first start opens the
@@ -74,6 +76,9 @@ SelectPort g_select[2];
 Request g_req;
 bool g_have_request = false;
 bool g_wait_for_request = false;
+// MK3D_TRAINING=1, the launcher's practice while a search waits: to practice's select screen, where the player picks
+// both fighters with their own controller as in the game's own practice
+const bool g_training = std::getenv("MK3D_TRAINING") != nullptr;
 const bool g_hold_at_select = std::getenv("MKA_AUTOPILOT_HOLD") != nullptr;
 uint32_t g_track_seed = 0;  // Motor Kombat: the launcher's seed and stage for the track
 std::string g_track_stage;
@@ -160,6 +165,7 @@ bool Selects(int action) {
 
 const bool g_loaded = [] {
     const char* s = std::getenv("MKA_AUTOPILOT");
+    if (!s && g_training) s = "practice";
     if (!s) return false;
     g_req.action = ActionFor(s);
     if (g_req.action < 0) {
@@ -294,50 +300,57 @@ int SideOf(int port) {
 // controller (the pads route it to that side's port, LocalPickPort), and the pick (character, costume bits) goes to
 // the other game with the HELLOs (net::SetLocalPick); the other side waits for the other player's pick, then the
 // autopilot makes it and sets the same costume bits. The screen goes back to the main menu after 45 s without a press
-// (2700 frames), so a side still waiting moves its cursor now and then.
+// (2700 frames), so a side still waiting moves its cursor now and then. A spectator's game waits for both players'
+// picks that way.
 constexpr int kWaitPick = -2;            // characters[]: the other player has not picked yet
 constexpr double kPlayerPickTime = 40;   // seconds this PC's player has (the screen's own 45), then the cursor's
 bool g_local_pick_sent = false;
 bool g_local_forced = false;             // the time ran out: the autopilot picks for this PC's player
-bool g_costume_due = false;              // the other player's costume bits, set once the autopilot picked
-uint32_t g_their_costume = 0;
+bool g_costume_due[2] = {};              // a player's costume bits from their game, set once the autopilot picked
+uint32_t g_their_costume[2] = {};
 
 void ResetPlayerPicks() {
-    g_local_pick_sent = g_local_forced = g_costume_due = false;
+    g_local_pick_sent = g_local_forced = false;
+    g_costume_due[0] = g_costume_due[1] = false;
     for (int i = 0; i < 2; i++)
         if (g_req.by_player[i]) g_req.characters[i] = i == g_req.local_side ? -1 : kWaitPick;
 }
 
-// this PC's player's pick, once made, to the other game; the other player's, once it came, to the autopilot
+// this PC's player's pick, once made, to the other game; the other player's (a spectator's game: both players'),
+// once it came, to the autopilot
 void ExchangePicks(double t) {
     const int me = g_req.local_side;
-    if (me < 0) return;
-    if (g_req.by_player[me] && !g_local_pick_sent && Picked(me)) {
+    if (me < 0 && !g_req.watch) return;
+    if (me >= 0 && g_req.by_player[me] && !g_local_pick_sent && Picked(me)) {
         const uint32_t words[2] = {kernel::R32(kRecord[me] + kRecordCharacter), kernel::R32(kRecord[me] + kRecordCostume)};
         mk3d::net::SetLocalPick(words, 2);
         g_local_pick_sent = true;
         LOGR("autopilot: this player picked character %u, costume bits %X", words[0], words[1]);
         LogSelectState("picked");
     }
-    if (g_req.by_player[me] && !g_local_forced && !g_local_pick_sent && t > kPlayerPickTime) {
+    if (me >= 0 && g_req.by_player[me] && !g_local_forced && !g_local_pick_sent && t > kPlayerPickTime) {
         g_local_forced = true;
         LOGR("autopilot: no pick after %.0f s: this player gets the cursor's", kPlayerPickTime);
         LogSelectState("taking over");
     }
-    const int other = me ^ 1;
-    if (g_req.by_player[other] && g_req.characters[other] == kWaitPick) {
-        uint32_t words[4] = {};
-        int n = 4;
-        if (mk3d::net::PeerPick(words, n) && n > 0 && SlotOf(int(words[0])) >= 0) {
-            g_req.characters[other] = int(words[0]);
-            g_their_costume = n > 1 ? words[1] : 0;
-            g_costume_due = true;
-            LOGR("autopilot: the other player picked character %u, costume bits %X", words[0], g_their_costume);
+    for (int other = 0; other < 2; other++) {
+        if (other == me) continue;
+        if (g_req.by_player[other] && g_req.characters[other] == kWaitPick) {
+            uint32_t words[4] = {};
+            int n = 4;
+            const bool in = g_req.watch ? mk3d::net::WatchPick(other, words, n) : mk3d::net::PeerPick(words, n);
+            if (in && n > 0 && SlotOf(int(words[0])) >= 0) {
+                g_req.characters[other] = int(words[0]);
+                g_their_costume[other] = n > 1 ? words[1] : 0;
+                g_costume_due[other] = true;
+                LOGR("autopilot: P%d picked character %u, costume bits %X", other + 1, words[0],
+                     g_their_costume[other]);
+            }
         }
-    }
-    if (g_costume_due && Picked(other)) {
-        kernel::W32(kRecord[other] + kRecordCostume, g_their_costume);
-        g_costume_due = false;
+        if (g_costume_due[other] && Picked(other)) {
+            kernel::W32(kRecord[other] + kRecordCostume, g_their_costume[other]);
+            g_costume_due[other] = false;
+        }
     }
 }
 
@@ -569,6 +582,11 @@ void Apply(int port, input::Pad& pad) {
             }
             return;
         case Phase::Select: {
+            if (g_training) {  // the player's own picks from here
+                LOGR("autopilot: practice's select screen, the player picks");
+                Enter(Phase::Done);
+                return;
+            }
             if (g_hold_at_select) return;
             if (FightSetups() > g_base_fights || t > (PlayersPick() ? 240 : 90)) {
                 Enter(Phase::Done);
