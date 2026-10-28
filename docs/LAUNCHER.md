@@ -139,7 +139,12 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    region, max ping, the game UDP port (default 7001), *Hide my IP address
    from opponents* (cfg `online/hide_ip`: `relay` in `queue_join` and
    `lobby_ready`, PROTOCOL.md 1.7) and the display (window
-   mode, resolution, v-sync, *Brightness* (`display/brightness`, 100 % unless
+   mode, resolution (the main monitor's own, `desktop`, the default, then every
+   size its display modes offer, `winutil::displaySizes`; a window at the
+   monitor's resolution is as large as fits on the screen), *V-sync* (*On*:
+   frames never tear, whatever a graphics driver forces; *On, G-SYNC or FreeSync
+   monitor*, `display/adaptive_sync`: frames may tear, which such a monitor needs
+   to follow the game; *Off*), *Brightness* (`display/brightness`, 100 % unless
    changed: the runtime's `brightness`, a gamma curve over the game's own ramp,
    blacks and whites kept), *Stretch Deadly Alliance to fill the screen*
    (`display/stretch_4x3`, on unless unticked; the runtime's `stretch_4x3` for a
@@ -149,7 +154,11 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    the game shows or hides it, F8 makes the dummy block): borderless at the
    monitor's own resolution unless changed; a game takes them over its
    `settings.toml` when it starts, through `MK3D_DISPLAY`, `MK3D_RESOLUTION`,
-   `MK3D_VSYNC`, `MK3D_BRIGHTNESS`, `MK3D_STRETCH_4X3` and `MK3D_FRAMEDATA`). A
+   `MK3D_VSYNC`, `MK3D_ADAPTIVE_SYNC`, `MK3D_BRIGHTNESS`, `MK3D_STRETCH_4X3` and
+   `MK3D_FRAMEDATA`, and follows later changes while it runs: `cfg::set` writes
+   every `display/` key into `display.txt` beside the settings file
+   (`cfg::writeDisplayFile`, `MK3D_DISPLAY_FILE`, PROTOCOL.md 3.1), the window's
+   mode and size taking effect the next time the game is in front). A
    `defaults.ini` beside the launcher (a player package's server) supplies
    any setting the settings file does not have.
 2. **Sign in** (top right): create an account or sign in; "remember me" keeps
@@ -195,7 +204,12 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    the next one is never sent into it. A spectator whose connection drops keeps
    watching: the server puts them back in the lobby at the next login within
    60 s and sends the feed again (the page waits 70 s before it stops the
-   watching). *Play* takes a free place again.
+   watching). *Play* takes a free place again. *Leave* (the server's
+   `lobby_left`, which only a player's own leave gets) closes the game the lobby
+   started once nothing needs it, a lobby match it plays or watches having ended
+   first (`MatchController::closeGameWhenIdle`); a search, a lobby's *Ready* or a
+   match to watch wanting the game before then keeps it, and a dropped connection
+   never closes it.
 6. **Single player**: *PLAY* starts the game plainly (no `MK3D_NET`), so it
    runs its own menus as on the console, its practice mode included;
    *PRACTICE* starts it with `MK3D_TRAINING=1` (below), straight to practice's
@@ -293,6 +307,12 @@ shows gold (`Style.cpp`). `MK3D_PAD_ANY_WINDOW=1` takes any active launcher
 window as in front, for tests on Qt's offscreen platform with an SDL virtual
 gamepad.
 
+**Players right now** (0.1.13, `QueuePage::updatePlayers`): the Matchmaking card
+shows the server's counts for the page's game (`online.games`, PROTOCOL.md
+1.6) and how many of the searches are in this page's queue (`online.queues`:
+the mode, Kasual or Ranked, a Kasual search's death traps), this player's own
+search left out while it runs.
+
 **Crash reports** (0.1.12, `MatchController::watchForCrash`): a game that ends
 with an exception's exit code (`0x8...`/`0xC...`, never the launcher's own kill,
 `0xF291`, nor `0xFFFFFFFF`), or whose log ends with the crash line every game
@@ -379,6 +399,7 @@ Command-line options for development and automation:
 | `--rematches N` | with `--queue casual`: choose a rematch after each match, N times (a ranked set plays on by itself) |
 | `--rematch-choice rematch,select` | what each of those choices is: `rematch` (the same fighters) or `select` (both pick again); the last one repeats (default `rematch`; `tools/online-e2e.ps1 -RematchChoice`) |
 | `--leave-series` | once those are chosen, leave the series at once instead of letting its time run out |
+| `--leave-lobby` | with `--lobby host\|join`: once the `--lobby-matches` are played, leave the lobby, which closes its game (`tools/online-e2e.ps1 -LeaveLobbyA`) |
 | `--solo` | with `--queue`: start single player first and search alongside it, standby (`tools/online-e2e.ps1 -StandbyA`) |
 | `--practice on\|off` | practice while a search waits, saved like the queue pages' box (`tools/online-e2e.ps1 -PracticeA` writes it into launcher A's ini) |
 | `--lobby host\|join\|watch --lobby-name NAME --game mkd --mode kombat --character Scorpion` | host a lobby of that name and mark ready (its match starts by itself once both are), join it by name and mark ready, or watch it as a spectator (`tools/online-e2e.ps1 -Watch`) |

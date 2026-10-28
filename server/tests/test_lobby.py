@@ -193,3 +193,33 @@ async def test_a_lobby_named_after_its_host_takes_the_next_hosts_name(server, co
     await third.request({"type": "lobby_leave"})
     kept = await fourth.expect("lobby", pred=lambda m: len(m["lobby"]["members"]) == 1)
     assert (kept["lobby"]["host"], kept["lobby"]["name"]) == ("Kitana", "Friday sets")
+
+
+async def test_online_counts_the_players_of_each_game(server, connect):
+    """Each game's players for the matchmaking pages: searching, in its matches, in its lobbies (spectators too), and
+    playing, any of those, each player once."""
+    from .conftest import queue_msg
+
+    searching, motor, host, spectator, p1, p2 = [
+        await connect(n) for n in ("Kitana", "Tanya", "Sindel", "Jade", "Frost", "Sareena")]
+    await searching.request(queue_msg(game="mkd"))
+    await motor.request(queue_msg(game="mka", mode="motor"))
+    code = (await host.request(create_msg()))["lobby"]["id"]
+    await spectator.request({"type": "lobby_join", "lobby": code, "spectate": True})
+    await p1.request(queue_msg(game="mkda"))
+    await p2.request(queue_msg(game="mkda"))
+    await p1.expect("match_found")
+    online = await searching.request({"type": "online"})
+    assert online["games"] == {
+        "mkd": {"playing": 3, "searching": 1, "matches": 0, "lobbies": 2},
+        "mka": {"playing": 1, "searching": 1, "matches": 0, "lobbies": 0},
+        "mkda": {"playing": 2, "searching": 0, "matches": 2, "lobbies": 0},
+    }
+    assert online["queues"] == {"mka/motor/casual": 1, "mkd/kombat/casual": 1}
+    # a lobby left empty is gone from the count, and the push says so
+    searching.take_all("online")  # the pushes so far
+    await spectator.request({"type": "lobby_leave"})
+    await host.request({"type": "lobby_leave"})
+    pushed = await searching.expect("online", timeout=5, pred=lambda m: "id" not in m and
+                                    m["games"]["mkd"]["lobbies"] == 0)
+    assert pushed["games"]["mkd"] == {"playing": 1, "searching": 1, "matches": 0, "lobbies": 0}

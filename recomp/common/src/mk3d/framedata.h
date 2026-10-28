@@ -57,6 +57,9 @@ bool DummyHolds(int action, int block_action, int down_action);
 // the game tested this side's attack against the other fighter during this frame (its hit test, main thread)
 void ActiveCheck(int side);
 
+// shown or hidden as the launcher's setting changed while the game runs (any thread); F7 still toggles it
+void SetShown(bool on);
+
 // app::GameInfo::window (adds the overlay's font before the renderer builds the font atlas), ::ui and ::message (F7)
 void Window(void* hwnd);
 void Ui(double fps);

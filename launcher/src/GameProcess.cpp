@@ -187,9 +187,13 @@ bool GameProcess::start(const QString& exe, QString* error, bool netMode) {
     env.insert(QStringLiteral("MK3D_DISPLAY"), cfg::displayMode());
     env.insert(QStringLiteral("MK3D_RESOLUTION"), cfg::resolution());
     env.insert(QStringLiteral("MK3D_VSYNC"), cfg::vsync() ? QStringLiteral("1") : QStringLiteral("0"));
+    env.insert(QStringLiteral("MK3D_ADAPTIVE_SYNC"), cfg::adaptiveSync() ? QStringLiteral("1") : QStringLiteral("0"));
     env.insert(QStringLiteral("MK3D_STRETCH_4X3"), cfg::stretch4x3() ? QStringLiteral("1") : QStringLiteral("0"));
     env.insert(QStringLiteral("MK3D_BRIGHTNESS"), QString::number(cfg::brightness()));
     env.insert(QStringLiteral("MK3D_FRAMEDATA"), cfg::frameData() ? QStringLiteral("1") : QStringLiteral("0"));
+    // the same settings again whenever the player changes them, for the game that runs on (it keeps watching the file)
+    cfg::writeDisplayFile();
+    env.insert(QStringLiteral("MK3D_DISPLAY_FILE"), QDir::toNativeSeparators(paths::displayFile()));
     env.insert(QStringLiteral("XBE_CONTROLS"), QDir::toNativeSeparators(controls::file()));  // read again when it changes
     for (auto it = extraEnv_.cbegin(); it != extraEnv_.cend(); ++it) env.insert(it.key(), it.value());
 

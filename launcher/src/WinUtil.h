@@ -4,6 +4,7 @@
 
 #include <QByteArray>
 #include <QList>
+#include <QSize>
 #include <QString>
 
 class QWidget;
@@ -50,6 +51,11 @@ bool bringProcessToFront(qint64 pid);
 // takes no CPU and plays no sound, and comes back exactly where it was.
 bool freezeProcess(qint64 pid, QList<quintptr>* hidden);
 bool thawProcess(qint64 pid, const QList<quintptr>& hidden);
+
+// The main monitor, where a game opens: its own resolution as the games read it (the desktop's saved mode), and every
+// size its display modes offer from 640x480 up, largest first
+QSize desktopSize();
+QList<QSize> displaySizes();
 
 // Smart App Control (Windows 11): 1 on, blocking programs without a known publisher's signature (the games, whose
 // code each PC builds for itself, never have one), 2 evaluating (it may switch itself on), 0 off, -1 not on this

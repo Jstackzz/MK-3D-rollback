@@ -235,6 +235,8 @@ void Install(const Adapter& adapter) {
     OnFrameStart(&OnFrame);
 }
 
+void SetShown(bool on) { g_on = on; }
+
 bool Following() { return g_following.load(std::memory_order_relaxed); }
 
 bool VersusToo() {

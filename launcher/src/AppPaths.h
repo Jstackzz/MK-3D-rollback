@@ -15,6 +15,7 @@ QString detectedRepoRoot();                  // walks up from the exe looking fo
 bool isPackage();                            // a player package: games\ beside the launcher
 QString packagedGameFolder(const QString& gameId);  // games\<id> beside the launcher (a player package), or empty
 QString toolchainDir();                      // toolchain\ beside the launcher: clang and lld, once for every game
+QString displayFile();                       // display.txt beside the ini: the display settings for running games
 }  // namespace paths
 
 namespace cfg {
@@ -41,9 +42,13 @@ int gamePort();
 QString displayMode();
 QString resolution();
 bool vsync();
+bool adaptiveSync();  // with vsync, a G-SYNC or FreeSync monitor: the games' frames may tear for it to follow them
 bool stretch4x3();  // a 4:3 game (Deadly Alliance) fills a widescreen monitor (else 4:3 between bars)
 int brightness();   // percent, 100 as the games draw it
 bool frameData();   // practice shows player 1's frame data (MK3D_FRAMEDATA); F7 in the game shows or hides it
+// paths::displayFile() written again from the display settings: a running game follows it (MK3D_DISPLAY_FILE). set()
+// does it for every display/ key.
+void writeDisplayFile();
 int localTestPort(int instance);
 bool udpLoopback();  // development: matches on loopback only (one-PC tests, no firewall prompt)
 bool udpBlocked();   // development: nothing goes to the server's UDP port, as from a PC whose UDP never gets there

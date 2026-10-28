@@ -107,6 +107,12 @@ QueuePage::QueuePage(bool ranked, ServerClient* server, MatchController* control
     seriesButtons->addWidget(leave_, 1);
     ser->addLayout(seriesButtons);
     seriesCard_->setVisible(false);
+    // who there is to meet: the game's players right now, as the server counts them (pushed as they change)
+    playersNow_ = ui::label(QString());
+    playersInfo_ = ui::label(QString(), "Muted");
+    playersInfo_->setWordWrap(true);
+    mm->addWidget(playersNow_);
+    mm->addWidget(playersInfo_);
     auto* form = new QFormLayout;
     form->setLabelAlignment(Qt::AlignRight);
     region_ = new QComboBox;
@@ -172,6 +178,7 @@ QueuePage::QueuePage(bool ranked, ServerClient* server, MatchController* control
         cfg::set(key(QStringLiteral("mode")), mode_->currentData());
         refreshRoster();
         updateStats();
+        updatePlayers();
     });
     connect(picker_, &CharacterPicker::picked, this, [this](const QString& id) {
         cfg::set(QStringLiteral("ui/%1/%2/character").arg(gameId_, mode_->currentData().toString()), id);
@@ -183,6 +190,7 @@ QueuePage::QueuePage(bool ranked, ServerClient* server, MatchController* control
             [](bool on) { cfg::set(QStringLiteral("online/practice_while_waiting"), on); });
     connect(deathTraps_, &QCheckBox::toggled, this, [this](bool on) {
         if (!ranked_) cfg::set(QStringLiteral("online/death_traps"), on);
+        updatePlayers();
     });
     connect(pickInGame_, &QCheckBox::toggled, this, [this](bool on) {
         cfg::set(QStringLiteral("online/pick_in_game"), on);
@@ -239,8 +247,16 @@ QueuePage::QueuePage(bool ranked, ServerClient* server, MatchController* control
         updateStats();
         updateButton();
     });
-    connect(server_, &ServerClient::stateChanged, this, [this] { updateButton(); });
+    connect(server_, &ServerClient::stateChanged, this, [this] {
+        updateButton();
+        updatePlayers();
+    });
     connect(server_, &ServerClient::message, this, [this](const QJsonObject& m) {
+        if (m.value(QStringLiteral("type")).toString() == QLatin1String("online") &&
+            m.contains(QStringLiteral("games"))) {
+            online_ = m;
+            updatePlayers();
+        }
         if (m.value(QStringLiteral("type")).toString() == QLatin1String("profile") &&
             m.value(QStringLiteral("name")).toString() == server_->accountName()) {
             stats_ = m.value(QStringLiteral("stats")).toObject();
@@ -293,6 +309,7 @@ void QueuePage::refreshModes() {
     mode_->setCurrentIndex(i >= 0 ? i : 0);
     refreshRoster();
     updateStats();
+    updatePlayers();
 }
 
 void QueuePage::refreshRoster() {
@@ -367,6 +384,49 @@ void QueuePage::onPhase(MatchController::Phase, const QString& text) {
     if (controller_->lastRequest().ranked == ranked_) status_->setText(text);
     updateButton();
     updateSeries();
+    updatePlayers();  // this player's own search is in the counts while it runs
+}
+
+// How many play this game right now (the server's online counts, docs/PROTOCOL.md 1.6): any of searching, in a match
+// or a series, in a lobby; and how many of those searching wait in this page's queue (the mode, Kasual or Ranked, the
+// death traps), the ones a search here can meet, this player's own search left out.
+void QueuePage::updatePlayers() {
+    const Game* g = gameOf(gameId_);
+    const QJsonObject game = online_.value(QStringLiteral("games")).toObject().value(gameId_).toObject();
+    const bool show = g && server_->isOnline() && !game.isEmpty();
+    playersNow_->setVisible(show);
+    playersInfo_->setVisible(show);
+    if (!show) return;
+    const QString modeId = mode_->currentData().toString();
+    const GameMode* m = g->mode(modeId);
+    const bool traps = !ranked_ && (!(m && m->deathTraps) || deathTraps_->isChecked());  // as startSearch sends it
+    const auto queueName = [](const QString& game, const QString& mode, bool ranked, bool withTraps) {
+        return QStringLiteral("%1/%2/%3%4").arg(game, mode, ranked ? QStringLiteral("ranked") : QStringLiteral("casual"),
+                                               !ranked && !withTraps ? QStringLiteral("/no-traps") : QString());
+    };
+    const QString queue = queueName(gameId_, modeId, ranked_, traps);
+    const QueueRequest r = controller_->lastRequest();
+    const bool mine = controller_->phase() == MatchController::Phase::Searching &&
+                      queueName(r.game, r.mode, r.ranked, r.deathTraps) == queue;
+    int searching = game.value(QStringLiteral("searching")).toInt();
+    int here = online_.value(QStringLiteral("queues")).toObject().value(queue).toInt();
+    if (mine) {
+        searching = qMax(0, searching - 1);
+        here = qMax(0, here - 1);
+    }
+    const QString queueText = QStringLiteral("%1 %2%3").arg(ranked_ ? tr("Ranked") : tr("Kasual"), mode_->currentText(),
+                                                           !ranked_ && !traps ? tr(" without death traps") : QString());
+    QString search;
+    if (searching == 0) search = mine ? tr("only you searching") : tr("nobody searching");
+    else if (here == searching) search = (mine ? tr("you and %1 more searching for %2") : tr("%1 searching for %2")).arg(searching).arg(queueText);
+    else if (here == 0) search = (mine ? tr("you and %1 more searching, none for %2") : tr("%1 searching, none for %2")).arg(searching).arg(queueText);
+    else search = (mine ? tr("you and %1 more searching, %2 of them for %3") : tr("%1 searching, %2 of them for %3"))
+                      .arg(searching).arg(here).arg(queueText);
+    playersNow_->setText(tr("%1 playing %2 right now").arg(game.value(QStringLiteral("playing")).toInt()).arg(g->shortName));
+    playersInfo_->setText(tr("%1\n%2 in matches  ·  %3 in lobbies")
+                              .arg(search)
+                              .arg(game.value(QStringLiteral("matches")).toInt())
+                              .arg(game.value(QStringLiteral("lobbies")).toInt()));
 }
 
 void QueuePage::onSeries(const QJsonObject& s) {

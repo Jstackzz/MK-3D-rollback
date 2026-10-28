@@ -9,6 +9,7 @@
 #include <QStandardPaths>
 
 #include "GameData.h"
+#include "WinUtil.h"
 
 namespace {
 QString g_config;
@@ -70,6 +71,8 @@ QString packagedGameFolder(const QString& gameId) {
 
 QString toolchainDir() { return QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("toolchain")); }
 
+QString displayFile() { return QDir(g_dataDir).filePath(QStringLiteral("display.txt")); }
+
 }  // namespace paths
 
 namespace cfg {
@@ -81,6 +84,7 @@ QVariant get(const QString& key, const QVariant& fallback) {
 void set(const QString& key, const QVariant& value) {
     g_settings->setValue(key, value);
     g_settings->sync();
+    if (key.startsWith(QLatin1String("display/"))) writeDisplayFile();  // a running game takes it from there
 }
 
 QString serverAddress() { return get(QStringLiteral("server/address"), QStringLiteral("127.0.0.1:7777")).toString(); }
@@ -124,9 +128,23 @@ int gamePort() { return get(QStringLiteral("online/game_port"), 7001).toInt(); }
 QString displayMode() { return get(QStringLiteral("display/mode"), QStringLiteral("borderless")).toString(); }
 QString resolution() { return get(QStringLiteral("display/resolution"), QStringLiteral("desktop")).toString(); }
 bool vsync() { return get(QStringLiteral("display/vsync"), true).toBool(); }
+bool adaptiveSync() { return get(QStringLiteral("display/adaptive_sync"), false).toBool(); }
 bool stretch4x3() { return get(QStringLiteral("display/stretch_4x3"), true).toBool(); }
 int brightness() { return qBound(50, get(QStringLiteral("display/brightness"), 100).toInt(), 200); }
 bool frameData() { return get(QStringLiteral("display/frame_data"), true).toBool(); }
+
+// key=value lines, the keys as the games' MK3D_ variables name them (recomp/common link.cpp, docs/PROTOCOL.md 3.1)
+void writeDisplayFile() {
+    const QString text = QStringLiteral("mode=%1\nresolution=%2\nvsync=%3\nadaptive_sync=%4\nstretch_4x3=%5\n"
+                                        "brightness=%6\nframe_data=%7\n")
+                             .arg(displayMode(), resolution())
+                             .arg(vsync() ? 1 : 0)
+                             .arg(adaptiveSync() ? 1 : 0)
+                             .arg(stretch4x3() ? 1 : 0)
+                             .arg(brightness())
+                             .arg(frameData() ? 1 : 0);
+    winutil::writeFileAtomic(paths::displayFile(), text.toLatin1());
+}
 bool udpLoopback() { return get(QStringLiteral("dev/udp_loopback"), false).toBool(); }
 bool udpBlocked() { return get(QStringLiteral("dev/udp_blocked"), false).toBool(); }
 bool upnp() { return get(QStringLiteral("online/upnp"), true).toBool(); }

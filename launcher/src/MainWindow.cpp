@@ -854,6 +854,14 @@ void MainWindow::cliLobbyMessage(const QJsonObject& msg) {
         cliLobbyDone_++;
         applog::write(QStringLiteral("cli: lobby match %1 of %2 over").arg(cliLobbyDone_).arg(opts_.lobbyMatches));
     }
+    // --leave-lobby: out as soon as the last match is over, while the game may still play its end
+    if (opts_.leaveLobby && cliLobbyDone_ >= opts_.lobbyMatches && !cliLobbyLeft_) {
+        cliLobbyLeft_ = true;
+        applog::write(QStringLiteral("cli: leaving lobby %1").arg(lobby.value(QStringLiteral("id")).toString()));
+        controller_->stopWatching();
+        server_->send({{QStringLiteral("type"), QStringLiteral("lobby_leave")}});
+        return;
+    }
     if (members.size() < 2 || cliLobbyDone_ >= opts_.lobbyMatches) return;
     if (controller_->phase() != MatchController::Phase::Idle) return;  // the game still plays the last match's end
     bool all_ready = true, me_ready = false;

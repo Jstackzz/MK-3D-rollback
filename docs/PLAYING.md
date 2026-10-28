@@ -81,7 +81,9 @@ whether to trust it: compare it with your host's.
   it to choose your fighter in the launcher instead. Puzzle Kombat's fighter is
   picked the same way, and Chess Kombat's team (leader, champion, sorcerer,
   shifter, grunt) always on the game's own select screen. Your record (wins, losses,
-  and Elo in Ranked) is on the right of the page. When a match is found, its
+  and Elo in Ranked) is on the right of the page, and above it how many play the
+  game right now: searching (and how many of them in the mode you picked, the
+  ones you can meet), in matches and in lobbies. When a match is found, its
   ACCEPT window comes up over the game; once you accept, you are back in the
   game.
 - After a Kasual match, once the game has played its ending, a window comes up
@@ -107,7 +109,9 @@ whether to trust it: compare it with your host's.
   Ready highlighted: press A on a controller (or START anywhere on the Lobby
   page) to ready up for the next one.
   If your connection drops, sign back in within a minute (the launcher does it
-  by itself) and you are put back in your lobby.
+  by itself) and you are put back in your lobby. Leave closes the game the
+  lobby started (once a match it is playing is over), so there is nothing left
+  to close by hand; a dropped connection keeps it.
 - Watching a lobby: select it in the list and press Watch selected (or join it,
   then press Watch). Each of its matches plays in your own game, a moment
   behind the players, select screen and ending included; a match already under
@@ -262,12 +266,21 @@ Settings
 The Settings page has the server address, region, maximum ping, input delay (1
 frame unless you change it: rollback covers the rest of a match's ping), the
 game's UDP port, and the display: borderless (fills the screen), fullscreen or
-a window, the resolution (Desktop is your monitor's own), v-sync, brightness
-(100 % is the picture as the game draws it; more lifts the dark tones, blacks
-and whites stay), and whether Deadly Alliance (which has no widescreen mode) is
-stretched to fill a widescreen monitor, as it is unless you untick it, or keeps
-its original 4:3 shape with black bars at the sides. A game takes them when it
-starts.
+a window; the resolution, your monitor's own unless you pick another of its
+sizes from the list (a window at your monitor's resolution is as large as fits
+on the screen); v-sync; brightness (100 % is the picture as the game draws it;
+more lifts the dark tones, blacks and whites stay); and whether Deadly Alliance
+(which has no widescreen mode) is stretched to fill a widescreen monitor, as it
+is unless you untick it, or keeps its original 4:3 shape with black bars at the
+sides. A game that is running takes a change at once, its window's mode and
+size the next time you switch to it.
+
+V-sync has three choices. On, the default: every frame waits for your monitor,
+so the picture never tears, even when your graphics driver is set to force
+v-sync off. On, G-SYNC or FreeSync monitor: a monitor with a variable refresh
+rate follows the game's 60 frames a second, the smoothest there is (G-SYNC or
+FreeSync has to be on in your graphics driver). Off: each frame is shown at
+once and may tear.
 
 
 When something goes wrong
@@ -308,6 +321,16 @@ When something goes wrong
   then when that connection loses a packet. When a firewall on your PC is the
   cause, allowing the launcher and the games through it brings the usual way
   back.
+- The picture tears (a line across it, the parts above and below it from
+  different moments): choose V-sync On in Settings, which never tears whatever
+  your graphics driver says. With On, G-SYNC or FreeSync monitor, tearing means
+  the monitor is not following the game: turn G-SYNC or FreeSync on in your
+  graphics driver (and leave its v-sync to the application, AMD's Enhanced Sync
+  off), or choose On.
+- Movement looks uneven on a 144 Hz or 165 Hz monitor: the games run at 60
+  frames a second, which such a monitor cannot show evenly. Use its G-SYNC or
+  FreeSync (V-sync: On, G-SYNC or FreeSync monitor), or set it to 120 Hz or
+  60 Hz in Windows' display settings.
 - Logs: mk3d-launcher.log and the sessions folder beside the launcher: one
   folder each time the launcher starts a game, with the game's own game.log and,
   for each online match, a net-<match>.log with every frame's inputs. When a

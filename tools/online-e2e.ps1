@@ -44,6 +44,7 @@ param(
     [switch]$MixedPicks,         # with -PickInGame: only A picks in the game, B's launcher picks CharB
     [string]$PickButtonA = 'A',  # with -PickInGame: the button A's player confirms the pick with (another one can
                                  # pick an alternate costume)
+    [switch]$LeaveLobbyA,        # lobby: A leaves it once its matches are played (--leave-lobby); its game should close
     [switch]$Watch,              # lobby: C watches it (a spectator)
     [int]$WatchDelay = 0,        # seconds after B before C starts (a spectator who comes in late)
     [string]$DeathTraps = '',    # on / off: the death traps the host's lobby (or both searches: a casual search
@@ -133,6 +134,7 @@ $queueArgs = @('--queue', $Queue, '--rematches', "$Rematches")
 if ($RematchChoice) { $queueArgs += @('--rematch-choice', ($RematchChoice -join ',')) }  # one argument, no spaces
 $how = if ($Queue -eq 'lobby') { @('--lobby', 'host', '--lobby-name', "e2e$stamp", '--lobby-matches', "$Matches") } else { $queueArgs }
 if ($StandbyA) { $how += @('--solo', '--leave-series') }
+if ($LeaveLobbyA -and $Queue -eq 'lobby') { $how += @('--leave-lobby') }
 if ($DeathTraps) { $how += @('--death-traps', $DeathTraps) }
 if ($PracticeA) { $how += @('--leave-series') }
 $onlyA = @($EnvA -split ';' | Where-Object { $_ -like '*=*' })  # not -match: it would set $Matches, a parameter here
@@ -230,6 +232,12 @@ Get-Content "$work\server\err.txt", "$work\server\out.txt" -ErrorAction Silently
 # only what this run started: the two launchers and the games they started
 $ls = @($la, $lb) + @($lc | Where-Object { $_ })
 $games = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.ParentProcessId -in @($ls | ForEach-Object { $_.Id }) } | ForEach-Object { $_.ProcessId })
+if ($LeaveLobbyA) {
+    "--- A left the lobby"
+    Get-Content "$work\a\mk3d-launcher.log" -ErrorAction SilentlyContinue | Select-String -Pattern 'leaving lobby|Left the lobby' | ForEach-Object { "[a] $($_.Line)" }
+    $gamesA = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.ParentProcessId -eq $la.Id })
+    "A's games still running: $($gamesA.Count)$(if ($gamesA) { ' (' + (($gamesA | ForEach-Object { $_.Name }) -join ' ') + ')' })"
+}
 foreach ($p in $ls) { if (-not $p.HasExited) { $p.CloseMainWindow() | Out-Null } }
 Start-Sleep -Seconds 4
 foreach ($id in @($ls | ForEach-Object { $_.Id }) + $games) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }

@@ -28,13 +28,16 @@
 #include <filesystem>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <thread>
+#include <utility>
 
 #include "app/app.h"
 #include "core/log.h"
 #include "cpu/x86_ops.h"
+#include "mk3d/framedata.h"
 #include "mk3d/game.h"
 #include "mk3d/linkgame.h"
 #include "mk3d/netplay.h"
@@ -348,6 +351,146 @@ bool SuppressPhysicalPads() {
     return !(g_in_match && g_fighting && (!g_reported || InSync())) || game::AutopilotActive();
 }
 
+namespace {
+
+// The display as the launcher's Settings have it: from the environment at start, from its display file while the game
+// runs. A field the launcher did not give stays empty.
+struct Display {
+    std::optional<app::DisplayMode> mode;
+    std::optional<std::pair<uint32_t, uint32_t>> size;  // 0x0: the monitor's own
+    std::optional<bool> vsync, adaptive_sync, stretch_4x3, frame_data;
+    std::optional<uint32_t> brightness;  // percent, 100 as the game draws it
+    bool Any() const { return mode || size || vsync || adaptive_sync || stretch_4x3 || frame_data || brightness; }
+};
+
+// one setting by its display file key (the launcher's names, as in its settings file)
+void Take(Display& d, const std::string& key, const std::string& v) {
+    if (key == "mode") {
+        if (v == "windowed") d.mode = app::DisplayMode::Windowed;
+        else if (v == "borderless") d.mode = app::DisplayMode::Borderless;
+        else if (v == "fullscreen") d.mode = app::DisplayMode::Fullscreen;
+        else LOGR("display: %s is no display mode", v.c_str());
+    } else if (key == "resolution") {
+        char* end = nullptr;
+        const unsigned long w = std::strtoul(v.c_str(), &end, 10);
+        const unsigned long h = (*end == 'x' || *end == 'X') ? std::strtoul(end + 1, &end, 10) : 0;
+        if (v == "desktop") d.size = std::pair<uint32_t, uint32_t>(0, 0);
+        else if (!*end && w >= 320 && h >= 240 && w <= 16384 && h <= 16384) d.size = std::pair(uint32_t(w), uint32_t(h));
+        else LOGR("display: %s is no resolution", v.c_str());
+    } else if (key == "vsync") {
+        d.vsync = std::atoi(v.c_str()) != 0;
+    } else if (key == "adaptive_sync") {
+        d.adaptive_sync = std::atoi(v.c_str()) != 0;
+    } else if (key == "stretch_4x3") {  // a 4:3 game (Deadly Alliance): fill the screen or not
+        d.stretch_4x3 = std::atoi(v.c_str()) != 0;
+    } else if (key == "brightness") {
+        d.brightness = uint32_t(std::clamp(std::atoi(v.c_str()), 50, 200));
+    } else if (key == "frame_data") {
+        d.frame_data = std::atoi(v.c_str()) != 0;
+    }
+}
+
+// key=value lines; the launcher writes the file whole and moves it over the last one, so it is never half written (and
+// it is read sharing everything, so that move never fails because of this read: docs/PROTOCOL.md 3.2)
+Display ReadDisplayFile(const std::wstring& path) {
+    Display d;
+    HANDLE f = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                           OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (f == INVALID_HANDLE_VALUE) return d;
+    char buf[1024];
+    DWORD n = 0;
+    const bool read = ReadFile(f, buf, sizeof buf - 1, &n, nullptr);
+    CloseHandle(f);
+    if (!read) return d;
+    std::istringstream text(std::string(buf, n));
+    for (std::string line; std::getline(text, line);) {
+        while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) line.pop_back();
+        const size_t eq = line.find('=');
+        if (eq != std::string::npos) Take(d, line.substr(0, eq), line.substr(eq + 1));
+    }
+    return d;
+}
+
+// A window's size: as asked when it fits on its monitor's work area with its frame, else the largest of the same shape
+// that does (the monitor's own size, 0x0, never fits: a window as large as fits on it then)
+std::pair<uint32_t, uint32_t> FitWindow(uint32_t w, uint32_t h) {
+    if (!w || !h) {
+        const app::Mode desk = app::Desktop();
+        w = desk.width;
+        h = desk.height;
+    }
+    MONITORINFO mi{};
+    mi.cbSize = sizeof(mi);
+    if (!GetMonitorInfoW(MonitorFromWindow(static_cast<HWND>(app::Window()), MONITOR_DEFAULTTOPRIMARY), &mi))
+        return {w, h};
+    RECT frame{0, 0, 0, 0};
+    AdjustWindowRect(&frame, WS_OVERLAPPEDWINDOW, FALSE);  // as the window gets it (runtime app/main.cpp ApplyNow)
+    const long room_w = (mi.rcWork.right - mi.rcWork.left) - (frame.right - frame.left);
+    const long room_h = (mi.rcWork.bottom - mi.rcWork.top) - (frame.bottom - frame.top);
+    if (room_w < 320 || room_h < 240 || (long(w) <= room_w && long(h) <= room_h)) return {w, h};
+    const double scale = std::min(double(room_w) / w, double(room_h) / h);
+    return {std::max(320u, uint32_t(w * scale)), std::max(240u, uint32_t(h * scale))};
+}
+
+const char* ModeName(app::DisplayMode m) {
+    return m == app::DisplayMode::Windowed ? "windowed" : m == app::DisplayMode::Fullscreen ? "fullscreen" : "borderless";
+}
+
+// The window's mode and size into the settings; the window applies them itself (at start, or app::ApplyDisplay)
+void SetWindow(app::DisplayMode mode, std::pair<uint32_t, uint32_t> size) {
+    app::Settings& s = app::Get();
+    if (mode == app::DisplayMode::Windowed) size = FitWindow(size.first, size.second);
+    s.display_mode = mode;
+    s.width = size.first;
+    s.height = size.second;
+}
+
+// The launcher's Settings while the game runs (MK3D_DISPLAY_FILE, written again at each change): vsync, brightness,
+// the 4:3 stretch and frame data change at once; the window's mode and size the next time the game is in front
+// (app::ApplyDisplayWhenActive), so a change made in the launcher never pulls the game over it, nor switches the
+// display's mode behind it. `last`: what the game took at start.
+void WatchDisplayFile(std::wstring path, Display last) {
+    std::thread([path = std::move(path), last]() mutable {
+        FILETIME seen{};
+        for (;;) {
+            WIN32_FILE_ATTRIBUTE_DATA a{};
+            if (GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &a) &&
+                CompareFileTime(&a.ftLastWriteTime, &seen) != 0) {
+                seen = a.ftLastWriteTime;
+                const Display d = ReadDisplayFile(path);
+                app::Settings& s = app::Get();
+                if (d.vsync && d.vsync != last.vsync) {
+                    s.vsync = *d.vsync;
+                    LOGR("display: vsync %s, from the launcher", s.vsync ? "on" : "off");
+                }
+                if (d.adaptive_sync && d.adaptive_sync != last.adaptive_sync) {
+                    s.adaptive_sync = *d.adaptive_sync;
+                    LOGR("display: G-SYNC or FreeSync %s, from the launcher", s.adaptive_sync ? "on" : "off");
+                }
+                if (d.brightness && d.brightness != last.brightness) s.brightness = *d.brightness;
+                if (d.stretch_4x3 && d.stretch_4x3 != last.stretch_4x3) s.stretch_4x3 = *d.stretch_4x3;
+                if (d.frame_data && d.frame_data != last.frame_data) framedata::SetShown(*d.frame_data);
+                if ((d.mode && d.mode != last.mode) || (d.size && d.size != last.size)) {
+                    SetWindow(d.mode.value_or(last.mode.value_or(s.display_mode)),
+                              d.size.value_or(last.size.value_or(std::pair(s.width, s.height))));
+                    LOGR("display: %s %ux%u, from the launcher", ModeName(s.display_mode), s.width, s.height);
+                    app::ApplyDisplayWhenActive();
+                }
+                if (d.vsync) last.vsync = d.vsync;
+                if (d.adaptive_sync) last.adaptive_sync = d.adaptive_sync;
+                if (d.brightness) last.brightness = d.brightness;
+                if (d.stretch_4x3) last.stretch_4x3 = d.stretch_4x3;
+                if (d.frame_data) last.frame_data = d.frame_data;
+                if (d.mode) last.mode = d.mode;
+                if (d.size) last.size = d.size;
+            }
+            Sleep(500);
+        }
+    }).detach();
+}
+
+}  // namespace
+
 void ApplyLauncherDisplay() {
     // a game the launcher started logs into its session folder (MK3D_LOG), beside the session's other files, not into
     // the logs folder that two games of one PC would write into at once; a relaunch into another image carries on
@@ -355,40 +498,20 @@ void ApplyLauncherDisplay() {
         const std::filesystem::path p(log);
         logx::Init(p.parent_path().string(), p.stem().string(), std::wcsstr(GetCommandLineW(), L"--relaunched") != nullptr);
     }
-    const char* mode = std::getenv("MK3D_DISPLAY");
-    const char* res = std::getenv("MK3D_RESOLUTION");
-    const char* vsync = std::getenv("MK3D_VSYNC");
-    const char* stretch = std::getenv("MK3D_STRETCH_4X3");  // a 4:3 game (Deadly Alliance): fill the screen or not
-    const char* bright = std::getenv("MK3D_BRIGHTNESS");    // percent, 100 as the game draws it
-    if (!mode && !res && !vsync && !stretch && !bright) return;  // started by hand: the settings file alone
+    Display d;
+    for (const auto& [key, var] : {std::pair("mode", "MK3D_DISPLAY"), std::pair("resolution", "MK3D_RESOLUTION"),
+                                   std::pair("vsync", "MK3D_VSYNC"), std::pair("adaptive_sync", "MK3D_ADAPTIVE_SYNC"),
+                                   std::pair("stretch_4x3", "MK3D_STRETCH_4X3"), std::pair("brightness", "MK3D_BRIGHTNESS")})
+        if (const char* v = std::getenv(var)) Take(d, key, v);
+    if (!d.Any()) return;  // started by hand: the settings file alone
     app::Settings& s = app::Get();
-    if (mode) {
-        if (!std::strcmp(mode, "windowed")) s.display_mode = app::DisplayMode::Windowed;
-        else if (!std::strcmp(mode, "borderless")) s.display_mode = app::DisplayMode::Borderless;
-        else if (!std::strcmp(mode, "fullscreen")) s.display_mode = app::DisplayMode::Fullscreen;
-        else LOGR("link: MK3D_DISPLAY=%s is no display mode", mode);
-    }
-    if (res && !std::strcmp(res, "desktop")) {
-        s.width = s.height = 0;
-    } else if (res) {
-        char* end = nullptr;
-        const unsigned long w = std::strtoul(res, &end, 10);
-        const unsigned long h = (*end == 'x' || *end == 'X') ? std::strtoul(end + 1, &end, 10) : 0;
-        if (!*end && w >= 320 && h >= 240 && w <= 16384 && h <= 16384) {
-            s.width = uint32_t(w);
-            s.height = uint32_t(h);
-        } else {
-            LOGR("link: MK3D_RESOLUTION=%s is no resolution", res);
-        }
-    }
-    // a window the desktop's size would not fit on it with its frame
-    if (s.display_mode == app::DisplayMode::Windowed && (!s.width || !s.height)) {
-        s.width = 1280;
-        s.height = 720;
-    }
-    if (vsync) s.vsync = std::atoi(vsync) != 0;
-    if (stretch) s.stretch_4x3 = std::atoi(stretch) != 0;
-    if (bright) s.brightness = uint32_t(std::clamp(std::atoi(bright), 50, 200));
+    SetWindow(d.mode.value_or(s.display_mode), d.size.value_or(std::pair(s.width, s.height)));
+    if (d.vsync) s.vsync = *d.vsync;
+    if (d.adaptive_sync) s.adaptive_sync = *d.adaptive_sync;
+    if (d.stretch_4x3) s.stretch_4x3 = *d.stretch_4x3;
+    if (d.brightness) s.brightness = *d.brightness;
+    if (const char* v = std::getenv("MK3D_FRAMEDATA")) d.frame_data = std::atoi(v) != 0;  // framedata.cpp took it
+    if (const wchar_t* file = _wgetenv(L"MK3D_DISPLAY_FILE"); file && *file) WatchDisplayFile(file, d);
 }
 
 }  // namespace mk3d::link

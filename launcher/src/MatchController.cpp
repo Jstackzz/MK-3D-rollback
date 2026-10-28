@@ -247,6 +247,7 @@ void MatchController::setPhase(Phase p, const QString& text) {
     maybeBackToSolo();
     if (p == Phase::Searching) maybeStartPractice();
     if (p == Phase::Idle) startWatch();  // a lobby match waiting to be watched
+    maybeCloseIdleGame();
 }
 
 void MatchController::freezeSolo() {
@@ -395,6 +396,7 @@ QString MatchController::opponentName() const {
 }
 
 GameProcess* MatchController::ensureGame(const QString& gameId, QString* error) {
+    closeWhenIdle_ = false;  // wanted again before a lobby left could close it
     // one game runs at a time: while single player runs, only an accepted match (which freezes it) brings this one
     if (solo_ && !soloFrozen_) {
         if (error) *error = tr("Close your single-player game first.");
@@ -1211,6 +1213,25 @@ void MatchController::stopGame() {
     stopSolo();
     thawGame();
     if (game_) game_->quit();
+}
+
+void MatchController::closeGameWhenIdle() {
+    closeWhenIdle_ = true;
+    maybeCloseIdleGame();
+}
+
+void MatchController::maybeCloseIdleGame() {
+    if (!closeWhenIdle_ || phase_ != Phase::Idle || !series_.isEmpty() || !watchQueue_.isEmpty()) return;
+    closeWhenIdle_ = false;
+    if (!game_ || !game_->isRunning()) return;
+    log(tr("Left the lobby: its game closes"));
+    thawGame();  // a frozen game would not see its quit
+    GameProcess* g = game_;
+    game_ = nullptr;
+    disconnect(g, nullptr, this, nullptr);  // its exit is no match's business
+    g->quit();
+    QTimer::singleShot(6000, g, &QObject::deleteLater);
+    emit gameStatusChanged(gameStatus());
 }
 
 void MatchController::shutdown() {

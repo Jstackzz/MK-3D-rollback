@@ -15,7 +15,6 @@
 #include <QMessageBox>
 #include <QProgressBar>
 #include <QPushButton>
-#include <QRegularExpression>
 #include <QScrollArea>
 #include <QSpinBox>
 #include <QStorageInfo>
@@ -27,6 +26,7 @@
 #include "GameProcess.h"
 #include "ServerClient.h"
 #include "Upnp.h"
+#include "WinUtil.h"
 
 namespace {
 QString native(const QString& p) { return QDir::toNativeSeparators(p); }
@@ -44,17 +44,6 @@ QWidget* pathRow(QLineEdit* edit, QPushButton* browse) {
     h->addWidget(edit, 1);
     h->addWidget(browse);
     return w;
-}
-
-// the resolution box's text as the games read MK3D_RESOLUTION: "desktop" or WIDTHxHEIGHT; empty while it is neither
-QString gameResolution(const QString& text) {
-    const QString t = text.trimmed();
-    if (t.isEmpty() || t.compare(QLatin1String("desktop"), Qt::CaseInsensitive) == 0) return QStringLiteral("desktop");
-    static const QRegularExpression size(QStringLiteral("^(\\d{3,5})\\s*[xX\\x{00D7}*]\\s*(\\d{3,5})$"));
-    const QRegularExpressionMatch m = size.match(t);
-    const int w = m.captured(1).toInt(), h = m.captured(2).toInt();
-    if (!m.hasMatch() || w < 320 || h < 240 || w > 16384 || h > 16384) return {};
-    return QStringLiteral("%1x%2").arg(w).arg(h);
 }
 }  // namespace
 
@@ -427,21 +416,40 @@ SettingsPage::SettingsPage(ServerClient* server, QWidget* parent) : Page(parent)
     mode->addItem(tr("Borderless"), QStringLiteral("borderless"));
     mode->addItem(tr("Fullscreen"), QStringLiteral("fullscreen"));
     mode->setCurrentIndex(qMax(0, mode->findData(cfg::displayMode())));
+    // the main monitor's own resolution first, the default ("desktop": it follows the monitor), then every other size
+    // its modes offer, largest first; a size typed in with an older launcher stays on the list
     auto* res = new QComboBox;
-    res->setEditable(true);
-    res->addItem(tr("Desktop"), QStringLiteral("desktop"));
-    for (const char* size : {"1280x720", "1600x900", "1920x1080", "2560x1440", "3840x2160"})
-        res->addItem(QLatin1String(size), QLatin1String(size));
-    if (const int at = res->findData(cfg::resolution()); at >= 0) res->setCurrentIndex(at);
-    else res->setCurrentText(cfg::resolution());
-    auto* vsync = new QCheckBox(tr("V-sync"));
-    vsync->setChecked(cfg::vsync());
+    const QSize desk = winutil::desktopSize();
+    const QString deskText = QStringLiteral("%1x%2").arg(desk.width()).arg(desk.height());
+    res->addItem(desk.isValid() ? tr("%1 (your monitor)").arg(deskText) : tr("Your monitor's"), QStringLiteral("desktop"));
+    for (const QSize& size : winutil::displaySizes()) {
+        const QString text = QStringLiteral("%1x%2").arg(size.width()).arg(size.height());
+        if (size != desk) res->addItem(text, text);
+    }
+    const QString savedRes = cfg::resolution();
+    int resAt = savedRes == deskText ? 0 : res->findData(savedRes);
+    if (resAt < 0) {
+        res->addItem(savedRes, savedRes);
+        resAt = res->count() - 1;
+    }
+    res->setCurrentIndex(resAt);
+    res->setMaxVisibleItems(16);
+    auto* vsync = new QComboBox;
+    vsync->addItem(tr("On"), QStringLiteral("on"));
+    vsync->addItem(tr("On, G-SYNC or FreeSync monitor"), QStringLiteral("adaptive"));
+    vsync->addItem(tr("Off"), QStringLiteral("off"));
+    vsync->setCurrentIndex(!cfg::vsync() ? 2 : cfg::adaptiveSync() ? 1 : 0);
+    vsync->setToolTip(tr("On: every frame waits for your monitor, so the picture never tears, even when a graphics "
+                         "driver is set to force v-sync off.\nOn, G-SYNC or FreeSync monitor: the monitor follows the "
+                         "game's 60 frames a second instead, as smooth as it gets (turn G-SYNC or FreeSync on in your "
+                         "graphics driver).\nOff: each frame is shown at once and may tear."));
     auto* stretch = new QCheckBox(tr("Stretch Deadly Alliance to fill the screen"));
     stretch->setChecked(cfg::stretch4x3());
     stretch->setToolTip(tr("Deadly Alliance has no widescreen mode. Ticked, it fills a widescreen monitor, a little "
                            "wider than drawn; unticked, it keeps its original 4:3 shape with black bars at the sides."));
     df->addRow(tr("Window"), mode);
     df->addRow(tr("Resolution"), res);
+    df->addRow(tr("V-sync"), vsync);
     auto* brightness = new QSpinBox;
     brightness->setRange(70, 160);
     brightness->setSingleStep(5);
@@ -455,11 +463,11 @@ SettingsPage::SettingsPage(ServerClient* server, QWidget* parent) : Page(parent)
     frameData->setToolTip(tr("In practice, shows how many frames player 1's last attack takes to hit, and how far ahead "
                              "or behind player 1 is after it hits or is blocked. F7 in the game shows or hides it; F8 "
                              "makes the dummy block or crouch-block."));
-    df->addRow(QString(), vsync);
     df->addRow(QString(), stretch);
     df->addRow(QString(), frameData);
-    auto* displayNote = ui::label(tr("A game takes these when it starts. Desktop is your monitor's own resolution (a "
-                                     "window opens at 1280x720 then); type any other size as 1600x1200."), "Muted");
+    auto* displayNote = ui::label(tr("A game that is running takes these too, its window the next time you switch to "
+                                     "it. Windowed at your monitor's resolution, the window is as large as fits on "
+                                     "your screen."), "Muted");
     displayNote->setWordWrap(true);
     df->addRow(QString(), displayNote);
     grid->addWidget(displayBox, 1, 1);
@@ -538,10 +546,14 @@ SettingsPage::SettingsPage(ServerClient* server, QWidget* parent) : Page(parent)
     connect(strict, &QCheckBox::toggled, this, [](bool on) { cfg::set(QStringLiteral("online/strict"), on); });
     connect(hideIp, &QCheckBox::toggled, this, [](bool on) { cfg::set(QStringLiteral("online/hide_ip"), on); });
     connect(mode, &QComboBox::currentIndexChanged, this, [mode] { cfg::set(QStringLiteral("display/mode"), mode->currentData()); });
-    connect(res, &QComboBox::currentTextChanged, this, [](const QString& t) {
-        if (const QString size = gameResolution(t); !size.isEmpty()) cfg::set(QStringLiteral("display/resolution"), size);
+    connect(res, &QComboBox::currentIndexChanged, this, [res] {
+        cfg::set(QStringLiteral("display/resolution"), res->currentData());
     });
-    connect(vsync, &QCheckBox::toggled, this, [](bool on) { cfg::set(QStringLiteral("display/vsync"), on); });
+    connect(vsync, &QComboBox::currentIndexChanged, this, [vsync] {
+        const QString v = vsync->currentData().toString();
+        cfg::set(QStringLiteral("display/adaptive_sync"), v == QLatin1String("adaptive"));
+        cfg::set(QStringLiteral("display/vsync"), v != QLatin1String("off"));
+    });
     connect(stretch, &QCheckBox::toggled, this, [](bool on) { cfg::set(QStringLiteral("display/stretch_4x3"), on); });
     connect(brightness, &QSpinBox::valueChanged, this, [](int v) { cfg::set(QStringLiteral("display/brightness"), v); });
     connect(frameData, &QCheckBox::toggled, this, [](bool on) { cfg::set(QStringLiteral("display/frame_data"), on); });

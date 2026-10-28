@@ -349,7 +349,10 @@ void LobbyPage::onMessage(const QJsonObject& msg) {
     } else if (type == QLatin1String("lobby")) {
         showLobby(msg.value(QStringLiteral("lobby")).toObject());
     } else if (type == QLatin1String("lobby_left")) {
+        // the player left (the server says so only then; a dropped connection keeps the place, and the game): the
+        // lobby's game is not needed any more
         leftLobby();
+        controller_->closeGameWhenIdle();
         refresh();
     } else if (type == QLatin1String("lobby_chat")) {
         if (s(msg, "lobby") == s(lobby_, "id"))

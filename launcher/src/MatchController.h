@@ -89,6 +89,9 @@ public:
                         QString* error);
     void stopLocalTest();
     void stopGame();
+    // a lobby left: its game is closed once nothing needs it any more (a lobby match it plays or watches ends first),
+    // so the player need not close it; a search, a lobby's Ready or a match to watch wanting a game before then keeps it
+    void closeGameWhenIdle();
     void shutdown();
     // An update leaves each game built before with code for its old executable: it builds that again now, one game
     // at a time (the game's --prepare, behind its own progress window), so the next match or single player finds it
@@ -148,6 +151,7 @@ private:
     void thawGame();
     void maybeBackToSolo();    // standby: nothing more to play online, single player again
     void maybeStartPractice();  // a search waits with the match's game at its hold point: practice meanwhile
+    void maybeCloseIdleGame();  // closeGameWhenIdle, once idle
     void openFeed(const QJsonObject& go);  // a lobby match: what its spectators need, from the game to the server
     // no UDP from here reaches the server: the match goes through its connection (docs/PROTOCOL.md 2.4.1)
     void requestTunnel(const QString& match);
@@ -167,6 +171,7 @@ private:
     bool soloFrozen_ = false, gameFrozen_ = false;
     QList<quintptr> soloHidden_, gameHidden_;  // the windows freezing hid, shown again by thawing
     bool showWhenReady_ = false;  // standby: the match's game started on accepting; to the front once it is up
+    bool closeWhenIdle_ = false;  // a lobby was left: game_ goes once idle (closeGameWhenIdle)
     GameProcess* localA_ = nullptr;
     GameProcess* localB_ = nullptr;
     Phase phase_ = Phase::Idle;

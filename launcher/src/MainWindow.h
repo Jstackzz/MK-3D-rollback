@@ -41,6 +41,7 @@ struct LaunchOptions {
     QString lobby;           // "host": create a lobby and start it once both are ready; "join": join it by name
     QString lobbyName;
     int lobbyMatches = 1;    // matches to play there, one after the other
+    bool leaveLobby = false; // once they are played, leave the lobby (its game closes once idle)
     int rematches = 0;       // --queue casual: rematches to choose after the first match
     QStringList rematchChoices;  // what each of them chooses, "rematch" or "select" (the last one repeats)
     bool leaveSeries = false;    // once those are chosen, leave the series at once instead of letting it run out
@@ -139,7 +140,7 @@ private:
     bool cliTriedRegister_ = false;
     bool cliQueued_ = false;
     int cliRematches_ = 0;  // rematches chosen
-    bool cliLobbyBegun_ = false, cliLobbyJoined_ = false, cliLobbyInMatch_ = false;
+    bool cliLobbyBegun_ = false, cliLobbyJoined_ = false, cliLobbyInMatch_ = false, cliLobbyLeft_ = false;
     int cliLobbyDone_ = 0, cliLobbyReadyFor_ = -1, cliLobbyStarts_ = 0;  // matches over, ready sent for, starts sent
     QTimer* cliLobbyPoll_ = nullptr;
     QJsonObject cliLastLobby_;  // the lobby's last state, looked at again once the controller is idle

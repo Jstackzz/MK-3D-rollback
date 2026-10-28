@@ -165,13 +165,20 @@ ranked match wins/losses, and casual wins/losses. A missing entry means "never p
 ```json
 C: {"type":"online"}
 S: {"type":"online","count":12,"connected":14,"queued":3,"playing":4,
-    "queues":{"mkd/kombat/casual":2,"mkd/kombat/ranked":1}}
+    "queues":{"mkd/kombat/casual":2,"mkd/kombat/ranked":1},
+    "games":{"mkd":{"playing":9,"searching":3,"matches":4,"lobbies":3},
+             "mka":{"playing":0,"searching":0,"matches":0,"lobbies":0},"mkda":{...}}}
 S: {"type":"notice","text":"Server restarts in 10 minutes.","level":"warn"}
 C: {"type":"admin_notice","text":"...","level":"info"}      (admins only, server --admins)
 ```
 
 `count` = logged-in accounts, `connected` = open connections, `playing` =
-players in matches past the accept step. The server pushes `online` to every
+players in matches past the accept step. `queues` counts the searches in each
+queue (`<game>/<mode>/<casual|ranked>`, `/no-traps` after a Kasual search
+without death traps). `games` (0.1.13) counts each game's players: `searching`,
+in its `matches` (from `match_found` on, and between two matches of a series),
+in its `lobbies` (spectators too), and `playing`, any of those, each player
+once; the matchmaking pages show them. The server pushes `online` to every
 connection when the numbers change, at most once per 2 s. `notice` is pushed
 to everyone; `welcome.motd` carries the message of the day. `level` is
 `info` or `warn`.
@@ -757,15 +764,24 @@ environment variables and two small text files in a per-session folder.
 | `MK3D_INSTANCE` | `1` normally; `1` and `2` for the two instances of a local test |
 | `MK3D_LOG` | `<session>\game.log`: the game writes its log there (each game's `GameInfo::init`, `mk3d::link::ApplyLauncherDisplay`) instead of its `logs` folder |
 | `MK3D_DISPLAY` | `windowed`, `borderless` or `fullscreen` |
-| `MK3D_RESOLUTION` | `desktop` (the monitor's own) or e.g. `1920x1080`; a window at `desktop` opens at 1280x720 |
+| `MK3D_RESOLUTION` | `desktop` (the monitor's own) or e.g. `1920x1080`; a window at `desktop`, or one too large for the screen, is as large as fits on it with its frame (the same shape) |
 | `MK3D_VSYNC` | `0` or `1` |
+| `MK3D_ADAPTIVE_SYNC` | `0` or `1`: with v-sync, a G-SYNC or FreeSync monitor: the swap chain allows tearing, which such a monitor needs to follow the game (and which a driver set to force v-sync off uses too); `0`: nothing makes a frame tear while v-sync is on (runtime patch 0028) |
+| `MK3D_DISPLAY_FILE` | the launcher's `display.txt` (beside its settings file): the display settings again, as `key=value` lines (`mode`, `resolution`, `vsync`, `adaptive_sync`, `stretch_4x3`, `brightness`, `frame_data`), replaced whole (3.2) at every change; see below |
 | `XBE_CONTROLS` | the launcher's `controls.toml`: what keys and controller buttons press (runtime patch 0016) |
 | `MK3D_TRAINING` | `1`, a plain game (no `MK3D_NET`) for practice while a search waits: the autopilot goes to practice's character select and hands it to the player (port 0 picks both fighters; only player 1 takes part) |
 | `<GAME>_NET_LOG` | with `MK3D_NET=1`, unless already set: `<session>\net-{match}.log`, every online match's frames (both players' inputs, the state checks; `{match}` becomes the match id) |
 
-The three display variables (Settings, *Display*) override what the game's
+The display variables (Settings, *Display*) override what the game's
 `settings.toml` says (`mk3d::link::ApplyLauncherDisplay`, the games'
-`GameInfo::init`); a game started by hand keeps its `settings.toml` alone.
+`GameInfo::init`); a game started by hand keeps its `settings.toml` alone. A
+game started with `MK3D_DISPLAY_FILE` reads that file again whenever it changes
+(every 0.5 s it looks), so a game that stays up between matches follows the
+Settings page: v-sync, *G-SYNC or FreeSync*, brightness, the 4:3 stretch and
+frame data at once (a v-sync choice that changes whether frames may tear makes
+a new swap chain), the window's mode and size the next time the game's window
+is the foreground window, so a change made in the launcher never pulls the game
+over it or switches the display's mode behind it.
 
 With `MK3D_NET=1` a game reports a controller on port 2 whether one is plugged
 in or not (each game's `pads.cpp`): the autopilot picks player 2 there, and

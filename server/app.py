@@ -1005,7 +1005,31 @@ class Server:
         queues = collections.Counter(e.queue_name for e in self.queue.values())
         playing = sum(len(m.players) for m in self.matches.values() if m.state != "found")
         return {"type": "online", "count": len(self.by_account), "connected": len(self.sessions),
-                "queued": len(self.queue), "playing": playing, "queues": dict(sorted(queues.items()))}
+                "queued": len(self.queue), "playing": playing, "queues": dict(sorted(queues.items())),
+                "games": self._game_counts()}
+
+    def _game_counts(self) -> dict[str, dict[str, int]]:
+        """Each game's players: searching, in its matches (a series between two matches too), in its lobbies
+        (spectators too), and `playing`, any of those, each player once."""
+        who: dict[str, dict[str, set[int]]] = {
+            g: {"searching": set(), "matches": set(), "lobbies": set()} for g in P.GAMES}
+
+        def add(game: str, kind: str, accounts: Any) -> None:
+            if game in who:
+                who[game][kind].update(a for a in accounts if a is not None)
+
+        for e in self.queue.values():
+            add(e.game, "searching", (e.account_id,))
+        for m in self.matches.values():
+            if m.state not in ("cancelled", "done"):
+                add(m.game, "matches", (p.account_id for p in m.players))
+        for series in self.series.values():
+            if series.state != "over":
+                add(series.game, "matches", (p.account_id for p in series.players))
+        for lobby in self.lobbies.values():
+            add(lobby.game, "lobbies", (mem.session.account_id for mem in lobby.members))
+        return {g: {"playing": len(set().union(*kinds.values())), **{k: len(v) for k, v in kinds.items()}}
+                for g, kinds in who.items()}
 
     def _mark_online(self) -> None:
         self._online_dirty = True
@@ -1736,6 +1760,7 @@ class Server:
         now = now or time.time()
         series.state = "over"
         self.series.pop(series.id, None)
+        self._mark_online()
         for p in series.players:
             if self.series_of.get(p.account_id) is series:
                 del self.series_of[p.account_id]
@@ -1817,6 +1842,7 @@ class Server:
                 return code
 
     def _broadcast_lobby(self, lobby: Lobby, reply_to: tuple[Session, dict[str, Any]] | None = None) -> None:
+        self._mark_online()  # the players per game count its members
         self._lobby_countdown(lobby)
         state = lobby.full_state()
         for member in lobby.members:
@@ -2046,6 +2072,7 @@ class Server:
         if lobby is None:
             return
         s.lobby = None
+        self._mark_online()
         member = lobby.member(s)
         if member is not None:
             lobby.members.remove(member)

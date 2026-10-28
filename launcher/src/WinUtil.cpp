@@ -213,6 +213,38 @@ bool thawProcess(qint64 pid, const QList<quintptr>& hidden) {
     return ok;
 }
 
+static std::wstring mainMonitor() {
+    MONITORINFOEXW mi{};
+    mi.cbSize = sizeof(mi);
+    if (!GetMonitorInfoW(MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY), &mi)) return {};
+    return mi.szDevice;
+}
+
+QSize desktopSize() {
+    const std::wstring device = mainMonitor();
+    DEVMODEW dm{};
+    dm.dmSize = sizeof(dm);
+    if (device.empty() || !EnumDisplaySettingsW(device.c_str(), ENUM_REGISTRY_SETTINGS, &dm)) return {};
+    return QSize(int(dm.dmPelsWidth), int(dm.dmPelsHeight));
+}
+
+QList<QSize> displaySizes() {
+    const std::wstring device = mainMonitor();
+    QList<QSize> sizes;
+    DEVMODEW dm{};
+    dm.dmSize = sizeof(dm);
+    for (DWORD i = 0; !device.empty() && EnumDisplaySettingsW(device.c_str(), i, &dm); i++) {
+        const QSize s(int(dm.dmPelsWidth), int(dm.dmPelsHeight));
+        if (s.width() >= 640 && s.height() >= 480 && !sizes.contains(s)) sizes.append(s);
+    }
+    std::sort(sizes.begin(), sizes.end(), [](const QSize& a, const QSize& b) {
+        return qint64(a.width()) * a.height() != qint64(b.width()) * b.height()
+                   ? qint64(a.width()) * a.height() > qint64(b.width()) * b.height()
+                   : a.width() > b.width();
+    });
+    return sizes;
+}
+
 int smartAppControl() {
     if (qEnvironmentVariableIsSet("MK3D_SMART_APP_CONTROL")) return qEnvironmentVariableIntValue("MK3D_SMART_APP_CONTROL");
     DWORD value = 0, size = sizeof value;

@@ -54,6 +54,9 @@ int main(int argc, char* argv[]) {
     const QCommandLineOption lobbyMatchesOpt(QStringLiteral("lobby-matches"),
                                              QStringLiteral("Development: matches to play in the --lobby (default 1)."),
                                              QStringLiteral("n"));
+    const QCommandLineOption leaveLobbyOpt(
+        QStringLiteral("leave-lobby"),
+        QStringLiteral("Development: once the --lobby-matches are played, leave the lobby (its game then closes)."));
     const QCommandLineOption rematchesOpt(
         QStringLiteral("rematches"),
         QStringLiteral("Development: after a --queue casual match, choose a rematch this many times (a ranked set "
@@ -86,7 +89,8 @@ int main(int argc, char* argv[]) {
                                            QStringLiteral("Development: install an update offered at once, without asking."));
     for (const auto* o : {&configOpt, &serverOpt, &fpOpt, &userOpt, &pwEnvOpt, &regOpt, &queueOpt, &gameOpt, &modeOpt,
                           &charOpt, &pageOpt, &acceptOpt, &localTestOpt, &extractOpt, &lobbyOpt, &lobbyNameOpt,
-                          &lobbyMatchesOpt, &upnpProbeOpt, &rematchesOpt, &rematchChoiceOpt, &leaveSeriesOpt, &soloOpt,
+                          &lobbyMatchesOpt, &leaveLobbyOpt, &upnpProbeOpt, &rematchesOpt, &rematchChoiceOpt,
+                          &leaveSeriesOpt, &soloOpt,
                           &practiceOpt, &deathTrapsOpt, &updatedOpt, &autoUpdateOpt})
         cli.addOption(*o);
     cli.process(app);
@@ -135,6 +139,7 @@ int main(int argc, char* argv[]) {
     opts.lobby = cli.value(lobbyOpt);
     opts.lobbyName = cli.value(lobbyNameOpt);
     opts.lobbyMatches = cli.isSet(lobbyMatchesOpt) ? std::max(1, cli.value(lobbyMatchesOpt).toInt()) : 1;
+    opts.leaveLobby = cli.isSet(leaveLobbyOpt);
     opts.rematches = cli.isSet(rematchesOpt) ? std::max(0, cli.value(rematchesOpt).toInt()) : 0;
     opts.rematchChoices = cli.value(rematchChoiceOpt).split(QLatin1Char(','), Qt::SkipEmptyParts);
     opts.leaveSeries = cli.isSet(leaveSeriesOpt);
