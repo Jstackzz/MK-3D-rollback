@@ -52,6 +52,7 @@ bool UdpRendezvous::open(quint16 port, const QHostAddress& bind, QString* error)
     }
     port_ = port;
     bind_ = bind;
+    blocked_ = cfg::udpBlocked();
     connect(sock_, &QUdpSocket::readyRead, this, &UdpRendezvous::onReadyRead);
     applog::write(QStringLiteral("udp: bound %1:%2").arg(bind.toString()).arg(port));
     return true;
@@ -75,6 +76,7 @@ bool UdpRendezvous::isOpen() const { return sock_ != nullptr; }
 
 void UdpRendezvous::sendJson(const QJsonObject& obj, const QHostAddress& addr, quint16 port) {
     if (!sock_ || addr.isNull() || port == 0) return;
+    if (blocked_ && addr == server_ && port == serverPort_) return;  // a test's PC whose UDP never gets there
     sock_->writeDatagram(QJsonDocument(obj).toJson(QJsonDocument::Compact), addr, port);
 }
 
@@ -134,6 +136,15 @@ void UdpRendezvous::startRelayPunch(const QString& match, const QString& key, in
     key_ = key;
     side_ = side;
     candidates_ = {Candidate{QStringLiteral("relay"), server_, serverPort_}};
+    beginPunch(timeoutMs);
+}
+
+void UdpRendezvous::startTunnelPunch(const QString& match, const QString& key, int side, int timeoutMs,
+                                     const QHostAddress& addr, quint16 port) {
+    match_ = match;
+    key_ = key;
+    side_ = side;
+    candidates_ = {Candidate{QStringLiteral("tunnel"), addr, port}};
     beginPunch(timeoutMs);
 }
 

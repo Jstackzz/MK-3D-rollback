@@ -13,6 +13,7 @@ executable (`src/mk3d/*.cpp`, added by the game's `CMakeLists.txt`) and lives in
 | `mk3d/link.h/.cpp` | the launcher protocol (`docs/PROTOCOL.md` section 3): cmd.txt / status.txt, start, park, rematch, results |
 | `mk3d/synctest.cpp` | `<prefix>_SYNCTEST=1`: from a match's first frame, every frame is run, rolled back and run again; both runs must write the same |
 | `mk3d/monitor.cpp` | `<prefix>_MONITOR=<port>`: the debug monitor (`tools/py/mkdbg.py`): read and write memory, dump, pause and step, hold pad buttons, call game functions |
+| `mk3d/framedata.h/.cpp` | frame data in practice: player 1's last attack (startup, active, recovery, on hit / on block) as an ImGui panel, F7 / `MK3D_FRAMEDATA`; F8 makes the dummy block; never online |
 | `mk3d/game.cpp` | `Env()`: environment variables under the game's prefix |
 
 ## What a game provides
@@ -23,6 +24,7 @@ executable (`src/mk3d/*.cpp`, added by the game's `CMakeLists.txt`) and lives in
 | `mk3d/tasks.h` | `task_fibers.cpp` | the engine's tasks on `sfiber`: `Save`, `Load`, `Alive` (rollback snapshots them every frame) |
 | `mk3d/netgame.h` | `netgame.cpp` | the per-port input blocks, the meeting point's words and agreement (frame counters, a side mode's setup), reseeding the engine's random generator, the match's start and end, the state hash, the values the launcher reports, state switches, the loader, the per-site random streams, log fields and diagnostic blocks |
 | `mk3d/linkgame.h` | `linkgame.cpp` | the autopilot's front end driving (hold point, start, rematch, park), matches started, and a match's result per mode |
+| `mk3d/framedata.h` | `framedata.cpp`, `game_info.cpp` | where the fighters are and the game's own rule for starting a move (an `Adapter`), its hit test calling `ActiveCheck`, its "is this action held" function asking `DummyHolds`; `GameInfo` `.window`, `.ui`, `.message` |
 
 Fixed byte ranges another thread owns (a graphics device's vertical blank fields) are named once with
 `rb::AddFixedVolatile` (Deception: `src/game/game.cpp`). A game's rand hook calls `net::CountRand`.

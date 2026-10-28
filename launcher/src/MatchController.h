@@ -14,6 +14,7 @@ class ServerClient;
 class UdpRendezvous;
 class GameProcess;
 class FeedLink;
+class TunnelBridge;
 
 struct QueueRequest {
     QString game;
@@ -123,6 +124,8 @@ private:
     void onLocalStatus();
     GameProcess* ensureGame(const QString& gameId, QString* error);
     bool codeReady(const QString& gameId, QString* error) const;  // not waiting for prepareStaleCode
+    // a game that crashes is reported to the server: what it was doing (`during`, else the phase), where it crashed
+    void watchForCrash(GameProcess* g, const QString& during = QString());
     void prepareNext();
     QString startLine(const QJsonObject& go) const;
     void tryStart();
@@ -146,6 +149,9 @@ private:
     void maybeBackToSolo();    // standby: nothing more to play online, single player again
     void maybeStartPractice();  // a search waits with the match's game at its hold point: practice meanwhile
     void openFeed(const QJsonObject& go);  // a lobby match: what its spectators need, from the game to the server
+    // no UDP from here reaches the server: the match goes through its connection (docs/PROTOCOL.md 2.4.1)
+    void requestTunnel(const QString& match);
+    void closeTunnel();
     void closeFeed();
     void closeWatchFeed();
     void startWatch();
@@ -178,6 +184,9 @@ private:
     bool watchInMatch_ = false;  // the watching game plays the watched match (it was at its meeting point)
     QString localStartA_, localStartB_, localResultA_, localResultB_;
     FeedLink* feed_ = nullptr;       // this player's lobby match's feed
+    TunnelBridge* tunnel_ = nullptr;  // the match's stand-in for the relay, until the game is back at its hold point
+    QString tunnelAsked_;            // the match the tunnel was asked for
+    bool udpBlocked_ = false;        // the last hello to the server's UDP port got no answer
     FeedLink* watchFeed_ = nullptr;  // the watched match's, to the game, until it is back at its hold point (it plays
     QString watchFeedMatch_;         // the match's end after its result, from the rest of the feed)
     QJsonObject watch_;              // the lobby match being watched (its spectate message), {} when none

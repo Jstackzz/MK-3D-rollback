@@ -31,6 +31,8 @@ param(
                                  # pick again), e.g. select,rematch, the last one repeating; default rematch
     [switch]$Relay,              # the server relays every match (--relay-only): the relay path, on one PC
     [switch]$HideIpA,            # A hides its IP address (Settings): its matches go through the server's relay
+    [switch]$NoUdpA,             # nothing of A's reaches the server's UDP port (as behind a firewall or a VPN that
+                                 # blocks it): A's matches go through its server connection ([dev] udp_blocked)
     [switch]$StandbyA,           # A plays single player while it searches (--solo): the match freezes it, then A
                                  # leaves the series (--leave-series) and single player runs on
     [switch]$PracticeA,          # A practises while it searches (practice while you wait): the match freezes the
@@ -50,6 +52,7 @@ param(
                                  # match ends for both at once: a Kasual series without a rematch, a ranked set lost)
     [int]$QuitABeforeFight = 0,  # seconds after the server starts A's match (-QuitAMatch) before A's game is closed: still at
                                  # its select screen, the players' games never meet (a spectator must not wait for it)
+    [int]$CrashA = 0,            # seconds into A's first match before A's game crashes (an access violation in it)
     [int]$QuitAMatch = 1,        # which of the lobby's matches -QuitABeforeFight ends (2: after one the spectator watched)
     [int]$ServerPortC = 0,       # the spectator C's launcher connects to the server through this port (a proxy that can
                                  # cut its connection: a dropped connection while watching); 0: the server's own
@@ -99,6 +102,7 @@ resolution=960x720
 
 [dev]
 udp_loopback=true
+udp_blocked=$(if ($NoUdpA -and $p[0] -eq 'a') { 'true' } else { 'false' })
 "@
     Set-Content -Path "$work\$($p[0])\mk3d-launcher.ini" -Value $ini -Encoding ascii
 }
@@ -175,6 +179,20 @@ while (((Get-Date) - $t0).TotalSeconds -lt $Seconds) {
         foreach ($g in $gameA) { Stop-Process -Id $g.ProcessId -Force -ErrorAction SilentlyContinue }
         "{0,6:N1}s A's game closed (pid {1}), as Alt+F4 would" -f ((Get-Date) - $t0).TotalSeconds, (($gameA | ForEach-Object { $_.ProcessId }) -join ' ')
     }
+    if ($CrashA -gt 0 -and $inMatchA -and -not $quit -and ((Get-Date) - $inMatchA).TotalSeconds -ge $CrashA) {
+        # a thread started at address 0 in A's game: an access violation its crash handler takes, as a real crash
+        $quit = $true
+        Add-Type -Namespace E2e -Name Crash -MemberDefinition @'
+[DllImport("kernel32.dll")] public static extern IntPtr OpenProcess(uint access, bool inherit, int pid);
+[DllImport("kernel32.dll")] public static extern IntPtr CreateRemoteThread(IntPtr p, IntPtr a, UIntPtr s, IntPtr start, IntPtr arg, uint flags, IntPtr id);
+'@ -ErrorAction SilentlyContinue
+        $gameA = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.ParentProcessId -eq $la.Id })
+        foreach ($g in $gameA) {
+            $h = [E2e.Crash]::OpenProcess(0x1F0FFF, $false, $g.ProcessId)
+            [void][E2e.Crash]::CreateRemoteThread($h, [IntPtr]::Zero, [UIntPtr]::Zero, [IntPtr]::Zero, [IntPtr]::Zero, 0, [IntPtr]::Zero)
+        }
+        "{0,6:N1}s A's game made to crash (pid {1})" -f ((Get-Date) - $t0).TotalSeconds, (($gameA | ForEach-Object { $_.ProcessId }) -join ' ')
+    }
     # the server's RESULT lines count the matches done (a game's result status can last less than a poll); a ranked
     # set is done when the server closes it
     $serverLog = @(Get-Content "$work\server\err.txt", "$work\server\out.txt" -ErrorAction SilentlyContinue)
@@ -188,7 +206,7 @@ while (((Get-Date) - $t0).TotalSeconds -lt $Seconds) {
     $done = @($serverLog | Select-String -Pattern 'RESULT match=').Count
     $finished = if ($Queue -eq 'ranked') { @($serverLog | Select-String -Pattern 'SET \S+ over').Count -ge 1 }
                 else { $results -ge 2 * $Matches -or $done -ge $Matches }
-    if ($QuitA -gt 0) { $finished = @($serverLog | Select-String -Pattern 'ABANDONED match=').Count -ge 1 }
+    if ($QuitA -gt 0 -or $CrashA -gt 0) { $finished = @($serverLog | Select-String -Pattern 'ABANDONED match=').Count -ge 1 }
     if ($QuitABeforeFight -gt 0) { $finished = $done -ge ($Matches - 1) -and $quit }  # the first one never plays
     if ($Watch) { $finished = $finished -and $watched -ge $(if ($QuitABeforeFight -gt 0) { $Matches - 1 } else { $Matches }) }  # the spectator runs behind
     if ($finished) { Start-Sleep -Seconds 12; break }

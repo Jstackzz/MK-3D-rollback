@@ -143,6 +143,15 @@ std::map<uint32_t, std::pair<uint32_t, uint32_t>> g_rand_at;  // the rand counte
 // start, every frame waits for the other player's real input instead of predicting it, until kLoadQuiet frames
 // passed without a file read. Reads alone (music streams through the main thread while recording) start nothing.
 constexpr uint32_t kLoadQuiet = 60;
+// A match's opening two seconds: its load (then kLoadQuiet frames without a read; a late read, the announcer's say,
+// starts them again) and the first round's intro, where nobody can move yet. Both games play them with no input on either side, known before they run, so neither waits on
+// the other's real input there: the load's wait for it cost a frame per one-way trip, about a second of slow motion
+// per 100 ms of ping at every match start (twice that at one frame of delay). <prefix>_NET_NO_INTRO=1 (tests, both
+// games) waits as before.
+constexpr uint32_t kIntroFrames = 120;
+uint32_t g_intro = kIntroFrames;
+Clock::time_point g_sync_t0, g_second_t0;  // the match's first frame, the last whole second's first (first runs)
+uint32_t g_second_stalls = 0, g_second_rollbacks = 0;
 bool g_loading = false;
 uint32_t g_quiet = 0;              // frames in a row without a file read while loading
 uint64_t g_reads_seen = 0;
@@ -972,6 +981,11 @@ void StartSync(X86Context& ctx) {
     Unsettle();
     g_loading = true;  // the match's own start loads
     g_quiet = 0;
+    // the opening's inputs are known on both sides (no input): the other player's are here before they run
+    g_intro = Env("NET_NO_INTRO") ? 0 : kIntroFrames;
+    for (uint32_t f = 0; f < g_intro; f++) g_theirs[f] = Input{};
+    g_sync_t0 = g_second_t0 = Clock::now();
+    g_second_stalls = g_second_rollbacks = 0;
     g_reads_seen = kernel::RecordedFileReads();
     g_switches_seen = game::StateSwitches();
     {
@@ -1193,6 +1207,29 @@ void NoteLoading(bool replay) {
     }
 }
 
+// how long the opening took, and any second of play that took much longer than one (a frame run for the first time:
+// the log says where a match went slow, its waits and rollbacks then)
+void NoteTiming(uint32_t next) {
+    const auto now = Clock::now();
+    if (next == g_intro && g_intro) {
+        LOGR("netplay: the opening %u frames took %.1f s", g_intro,
+             std::chrono::duration<double>(now - g_sync_t0).count());
+    }
+    if (next == 0 || next % 60 != 0) return;
+    Stats s;
+    {
+        std::lock_guard<std::mutex> lock(g_stats_lock);
+        s = g_stats;
+    }
+    const double took = std::chrono::duration<double>(now - g_second_t0).count();
+    if (took > 1.5)
+        LOGR("netplay: frames %u-%u took %.1f s (%u waits, %u rollbacks)", next - 60, next - 1, took,
+             s.stalls - g_second_stalls, s.rollbacks - g_second_rollbacks);
+    g_second_t0 = now;
+    g_second_stalls = s.stalls;
+    g_second_rollbacks = s.rollbacks;
+}
+
 // waits until frame `next` can run on real inputs only: the other player's input for it is here and every frame
 // before rests on real inputs; returns early when a frame before turns out mispredicted (the caller runs it again
 // first, with the real inputs). False when the other game is gone.
@@ -1232,6 +1269,7 @@ void RollbackFrameStart(X86Context& ctx) {
         g_stats.replay_ms += ms;
     }
     if (!g_replaying) {
+        NoteTiming(next);
         // the match in sync is over when the game says so at a frame both agree on (the next fight of a match, a
         // rematch, stays in sync: both games set it up in the same frame)
         if (g_confirmed + 1 >= next && game::MatchOver()) {
@@ -1360,7 +1398,9 @@ void LogFrame(const Input& mine, const Input& theirs, bool predicted) {
 // after the pad update in a match with rollback
 void RollbackPads() {
     if (!g_replaying) {
-        g_mine[g_frame + uint32_t(g_cfg.delay)] = ReadLocal();
+        const uint32_t f = g_frame + uint32_t(g_cfg.delay);
+        const Input in = ReadLocal();
+        g_mine[f] = f < g_intro ? Input{} : in;  // the opening: no input (StartSync)
         SendInputs();
         FeedOwn(false);
         WatchFocus();
@@ -1407,8 +1447,10 @@ void RollbackPads() {
 // --- lockstep (version 1)
 
 void LockstepPads() {
-    // this frame's local input is used delay frames from now
-    g_mine[g_frame + uint32_t(g_cfg.delay)] = ReadLocal();
+    // this frame's local input is used delay frames from now (the opening's: no input, StartSync)
+    const uint32_t f = g_frame + uint32_t(g_cfg.delay);
+    const Input in = ReadLocal();
+    g_mine[f] = f < g_intro ? Input{} : in;
     SendInputs();
     FeedOwn(false);
     WatchFocus();

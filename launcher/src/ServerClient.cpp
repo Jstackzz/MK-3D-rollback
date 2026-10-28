@@ -133,6 +133,8 @@ QString ServerClient::linkType() const {
 }
 
 void ServerClient::onConnected() {
+    // no waiting to fill a segment: a tunnelled match's packets each go at once (docs/PROTOCOL.md 2.4.1)
+    sock_->setSocketOption(QAbstractSocket::LowDelayOption, 1);
     if (plain_) sendHello();  // TLS waits for encrypted()
 }
 
@@ -186,6 +188,11 @@ int ServerClient::send(QJsonObject msg) {
     return id;
 }
 
+void ServerClient::sendTunnel(const QByteArray& packet) {
+    if (sock_->state() != QAbstractSocket::ConnectedState || !isLoggedIn()) return;
+    sock_->write("{\"type\":\"tunnel\",\"data\":\"" + packet.toBase64() + "\"}\n");
+}
+
 int ServerClient::login(const QString& name, const QString& password) {
     return send({{QStringLiteral("type"), QStringLiteral("login")}, {QStringLiteral("name"), name},
                  {QStringLiteral("password"), password}});
@@ -221,6 +228,10 @@ void ServerClient::onReadyRead() {
 
 void ServerClient::handle(const QJsonObject& msg) {
     const QString type = msg.value(QStringLiteral("type")).toString();
+    if (type == QLatin1String("tunnel")) {  // many a second, for the match's bridge only
+        emit tunnelData(QByteArray::fromBase64(msg.value(QStringLiteral("data")).toString().toLatin1()));
+        return;
+    }
     if (type == QLatin1String("welcome")) {
         welcome_ = msg;
         setState(State::Online);

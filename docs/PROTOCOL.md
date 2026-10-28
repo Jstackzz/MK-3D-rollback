@@ -291,8 +291,11 @@ S: {"type":"queue_left","reason":"left"}
    otherwise). A match with a player who hides their address (`relay` in
    `queue_join` or `lobby_ready`), or every match on a server run with
    `--relay-only`, skips this step: both get the relay's `match_peer` (step 5)
-   at once and never learn each other's address. If an endpoint is still
-   missing 10 s after acceptance the match is cancelled (`no_udp`).
+   at once and never learn each other's address. So does a match with a player
+   whose hellos got no answer and who asked for the tunnel instead
+   (`udp_tunnel`, section 2.4.1): that stands for their endpoint. If an
+   endpoint is still missing 10 s after acceptance the match is cancelled
+   (`no_udp`).
 4. **Punch and measure** (section 2.3), then:
    ```json
    C: {"type":"ping_report","match":"5f2c9a01d4e3","ok":true,"rtt_ms":38,
@@ -571,6 +574,22 @@ not reached `playing` (`peer_left` for the other side, who is requeued when
 the match came from the queue), and keeps `playing` matches open for the
 other side's result report.
 
+### 1.13 Crash reports (0.1.12)
+
+```json
+C: {"type":"crash_report","game":"mka","code":"C0000005",
+    "where":"MKA.exe+1A2B3C on a game thread","during":"Playing"}
+S: {"type":"crash_ack"}
+```
+
+A launcher whose game crashed says so: the game, the exit code (hex), where
+(the game log's crash line after its code: a module and an offset, and the
+thread) and what was going on (the match phase, `single player`, `practice`,
+`preparing`, `local test`). The server logs it with the player's name
+(`CRASH <name> <game> (launcher <version>) during <what>: <code> <where>`) and
+keeps nothing; plain printable text only (`bad_request`), at most 20 a session
+(more are dropped without a word).
+
 ---
 
 ## 2. NAT traversal: UDP rendezvous
@@ -605,7 +624,8 @@ S->L: {"type":"hello_ack","public":"203.0.113.7:7001","t":123456}
   endpoint** and the `lan` field as its **LAN endpoint**.
 - Clients send a hello when they join a queue, every 15 s while queued (keeps
   the NAT mapping and the round-trip figure fresh), and every 250 ms after
-  `match_found` until `hello_ack` arrives (giving up after 10 s).
+  `match_found` until `hello_ack` arrives (giving up after 4 s: then the
+  match goes through the tunnel, 2.4.1).
 - The launcher binds the game port on all interfaces, so a player across the
   internet reaches it even when the server runs on the same PC; one-PC tests
   set `[dev] udp_loopback=true` to stay on 127.0.0.1.
@@ -665,6 +685,43 @@ so the router keeps the mapping the hellos opened.
   bytes is dropped.
 - The route ends 15 s after the match is done or cancelled.
 - The server logs each relayed match and the packets that went each way.
+
+### 2.4.1 Tunnel (0.1.12)
+
+A PC whose UDP never reaches the server (a firewall, a VPN or a network that
+blocks it: its hellos get no `hello_ack`) plays through the relay over its TCP
+connection instead:
+
+```json
+C: {"type":"udp_tunnel","match":"5f2c9a01d4e3"}
+S: {"type":"match_peer","match":"5f2c9a01d4e3","side":1,"key":"<32 hex>","punch_timeout":10,
+    "same_nat":false,"relay":true,"tunnel":true,"peer":{"public":"","lan":""},"opponent":{...}}
+C: {"type":"tunnel","data":"<base64 of one datagram>"}
+S: {"type":"tunnel","data":"<base64 of one datagram>"}
+```
+
+- The launcher asks when the match's hellos got no answer within 4 s, or at
+  once while its last hello went unanswered (a search's, a match's); a hello
+  answered again ends that. Only before `match_peer`: later the server keeps
+  the way it chose. The match then goes through the relay (2.4) with this
+  player's end on the connection: their `match_peer` says `"tunnel":true`
+  (the other player's `false`, a plain relayed match for them).
+- The launcher opens a UDP port on 127.0.0.1 that stands in for the relay
+  (`launcher/src/TunnelBridge.cpp`): every datagram the game port sends to it
+  goes to the server as `tunnel`, and every `tunnel` from the server goes to
+  the game port from it. The launcher punches and pings it as the relay's
+  endpoint (`via:"tunnel"`, `remote` = that port), so `match_go` gives the
+  game that port as its peer, and the game, at a loopback peer, binds
+  127.0.0.1.
+- The server treats a `tunnel` as a datagram from that player's end of the
+  relay: the same route, rate and size limits; what goes to a tunnelled player
+  goes as `tunnel` on their connection (by account: a connection that drops
+  and comes back gets the rest). `tunnel` is never answered: one without a
+  route (the match is over) or with bad data is dropped.
+- TCP carries every packet in order, so a lost segment holds the ones after it
+  until it is sent again: a tunnelled match has the odd hitch where UDP would
+  just lose a packet, and rollback hides most of it. The launcher's connection
+  sends at once (`TCP_NODELAY`).
 
 ### 2.5 Port mapping
 

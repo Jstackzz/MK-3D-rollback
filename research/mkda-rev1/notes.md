@@ -404,6 +404,40 @@ sources and include directory.
 - The two games may leave a finished match one frame apart (the core leaves at the first agreed frame top that
   shows it over); that is after the result, and the next match's meeting point agrees again.
 
+## Frame data in practice (2026-10-28)
+
+Practice shows player 1's last attack (`recomp/common/src/mk3d/framedata.cpp`, this game's side
+`src/game/framedata.cpp`). Deadly Alliance has the rules of Deception (research/mkd/notes.md, "Frame data in
+practice") with its own offsets, but no attack phase field. Found with the debug monitor stepping a versus fight and
+both players pressing a new button every frame for the ground truth:
+
+- Fighter objects (static, 0xE2C bytes) P1 0x2E88D8, P2 0x2E9704 (pointers 0x2EA540 / 0x2EA544), their tasks
+  [0x2EA530] / [0x2EA534] (+0x30 the task's function). Game frame counter 0x42A8A0, game mode 0x42A89C (6 practice),
+  the fighter whose task runs 0x320A18.
+- Fighter fields (Deception's in brackets): +0x154 strike contact 0 none / 1 hit / 2 blocked, reset at every strike
+  [0x1BC], +0x160 no blocking until, +0x164 stance wait until [0x1D4], +0x168 no new move until [0x1D8], +0x194 state
+  [0x214], +0x19C controls: the player number its actions are read for [0x21C], +0x20C CPU flag [0x294], +0x9F8 the
+  move script's current command (a strike's stays the same for its whole window), +0xDFC strike kind (0xF neutral),
+  +0xE18 block-hold entries [0x6AC].
+- Move gate sub_000EA250 (Deception's rule, and player state 3 or 4: practice's dummy has 0, so the panel leaves that
+  term out); strike sub_00054900 (and sub_00054CF0, sub_00055000, moves' own loops), its hit test sub_000547B0 (from
+  the frame after the strike starts); block held sub_00057E20 -> sub_00075B50(player, action) (action 1 block, 0xE
+  down); block hold sub_000E7480, crouching hold sub_000E7B70 (state 0x900); neutral sub_00053070 -> sub_000BFB00
+  (reset sub_00050E40, waits for +0x164) -> stance sub_000BFCC0.
+- Practice: no port drives the dummy (P2 port -1, player state 0); the pause menu is CONTINUE, MOVELIST/PROFILE, PLAYER
+  SELECT, MAIN MENU, with no dummy settings.
+
+Scorpion against Scorpion (move frames, the press is frame 1; "mashed": checked in versus against both players
+pressing every frame, the rest from the practice panel):
+
+| move | startup | active | player 1 can act | on hit | on block | crouch block |
+|---|---|---|---|---|---|---|
+| X | 12 | 6 | 37 (mashed) | +9 hitting on frame 12 (mashed), +12 on frame 15 | -21 hitting on frame 12 (mashed), -19 on frame 14 | whiffs over it |
+| Y | 16 | 2 | 30 | +7 | -10 | |
+| B | 14 | 7 | 38 | +10 | -20 | |
+| crouching A (a low) | 19 | 2 | 50 | +34 | | -18 (mashed) |
+| A, 2 hits | 12, again 25 | 6 (7) 5 | 51 (mashed) | +5 (mashed) | -22 | |
+
 ## Tools
 
 `tools/ghidra-import.ps1` takes `-Research research\mkda-rev1` (new optional parameter; the default stays

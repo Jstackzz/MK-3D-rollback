@@ -450,8 +450,14 @@ SettingsPage::SettingsPage(ServerClient* server, QWidget* parent) : Page(parent)
     brightness->setToolTip(tr("Lifts (or lowers) the games' mid-tones; blacks and whites stay as they are. 100 % is "
                               "the picture as the game draws it."));
     df->addRow(tr("Brightness"), brightness);
+    auto* frameData = new QCheckBox(tr("Frame data in practice"));
+    frameData->setChecked(cfg::frameData());
+    frameData->setToolTip(tr("In practice, shows how many frames player 1's last attack takes to hit, and how far ahead "
+                             "or behind player 1 is after it hits or is blocked. F7 in the game shows or hides it; F8 "
+                             "makes the dummy block or crouch-block."));
     df->addRow(QString(), vsync);
     df->addRow(QString(), stretch);
+    df->addRow(QString(), frameData);
     auto* displayNote = ui::label(tr("A game takes these when it starts. Desktop is your monitor's own resolution (a "
                                      "window opens at 1280x720 then); type any other size as 1600x1200."), "Muted");
     displayNote->setWordWrap(true);
@@ -538,6 +544,7 @@ SettingsPage::SettingsPage(ServerClient* server, QWidget* parent) : Page(parent)
     connect(vsync, &QCheckBox::toggled, this, [](bool on) { cfg::set(QStringLiteral("display/vsync"), on); });
     connect(stretch, &QCheckBox::toggled, this, [](bool on) { cfg::set(QStringLiteral("display/stretch_4x3"), on); });
     connect(brightness, &QSpinBox::valueChanged, this, [](int v) { cfg::set(QStringLiteral("display/brightness"), v); });
+    connect(frameData, &QCheckBox::toggled, this, [](bool on) { cfg::set(QStringLiteral("display/frame_data"), on); });
     connect(python, &QLineEdit::editingFinished, this, [python] { cfg::set(QStringLiteral("tools/python"), python->text().trimmed()); });
     connect(repo, &QLineEdit::editingFinished, this, [repo] {
         cfg::set(QStringLiteral("tools/repo_root"), QDir::fromNativeSeparators(repo->text().trimmed()));

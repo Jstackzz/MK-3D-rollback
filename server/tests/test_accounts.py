@@ -158,3 +158,21 @@ async def test_bad_input_is_answered(server, connect):
     conn.writer.write(b"{not json}\n")
     err = await conn.expect("error", code="bad_json")
     assert err["code"] == "bad_json"
+
+
+async def test_a_crash_report_is_logged_with_the_player(server, connect, caplog):
+    """A launcher whose game crashed says where; the server logs it with the player (nothing kept), refuses what is
+    not plain text, and stops listening after a session's share."""
+    c = await connect("Raiden")
+    with caplog.at_level("INFO", logger="mk3d.server"):
+        ack = await c.request({"type": "crash_report", "game": "mka", "code": "C0000005",
+                               "where": "MKA.exe+1A2B3C on a game thread", "during": "Playing"})
+    assert ack["type"] == "crash_ack"
+    assert any("CRASH Raiden mka" in r.getMessage() and "C0000005 MKA.exe+1A2B3C" in r.getMessage()
+               for r in caplog.records)
+    with pytest.raises(ServerError) as exc:
+        await c.request({"type": "crash_report", "game": "mka", "code": "C0000005", "where": "bad\x07line"})
+    assert exc.value.code == "bad_request"
+    with pytest.raises(ServerError) as exc:
+        await c.request({"type": "crash_report", "game": "nope", "code": "C0000005"})
+    assert exc.value.code == "bad_request"

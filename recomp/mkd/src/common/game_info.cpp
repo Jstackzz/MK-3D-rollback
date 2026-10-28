@@ -1,5 +1,6 @@
 #include "app/app.h"
 #include "game/pads.h"
+#include "mk3d/framedata.h"
 #include "mk3d/link.h"
 
 // what the runtime asks of the game; strings must be set, hooks may stay null
@@ -17,9 +18,9 @@ const app::GameInfo app::kGame = {
     .save = nullptr,                       // writes more into it
     .init = mk3d::link::ApplyLauncherDisplay,  // after the settings load, before the window and boot
     .loaded = nullptr,                     // image in memory, before its entry point runs
-    .window = nullptr,                     // the game window is up
-    .message = nullptr,                    // window messages first; true takes one
-    .ui = nullptr,                         // ImGui drawing each frame
+    .window = mk3d::framedata::Window,     // the game window is up
+    .message = mk3d::framedata::Message,   // window messages first; true takes one
+    .ui = mk3d::framedata::Ui,             // ImGui drawing each frame
     .pad = mkd::PadHook,                   // scripted test input now, netplay input later
     .rumble = nullptr,                     // changes a rumble before it is set
 };

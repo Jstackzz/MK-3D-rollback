@@ -533,6 +533,61 @@ loading frame again). Regression after the change: Deception's sync test (1200 f
 battle netplay (16200 frames equal), Deadly Alliance's sync test (900 frames, 0) and versus netplay (3415 frames
 equal), Armageddon's versus netplay (3972 frames equal).
 
+### Frame data in practice (2026-10-28)
+
+Practice shows player 1's last attack: startup, active, recovery and the advantage on hit or block
+(`recomp/common/src/mk3d/framedata.cpp`, this game's side `src/game/framedata.cpp`). Found with the debug monitor
+stepping a fight a frame at a time and both players pressing a new button every frame for the ground truth.
+
+Fighter object (player record + 0x58, P1 0x470C78, P2 0x471388), the fields that matter:
+- +0x20 / +0x24 its task (pointer, id), task +0x30 the task's function: stance sub_00098B00, block hold sub_001455F0,
+  move routines (X sub_00147F20, A sub_001487A0, Y sub_00148410), hit reactions (sub_0019E540 ...)
+- +0x1BC its strike's contact: -1 none, 1 hit, 2 blocked, 3 armed for the next strike (sub_00094AA0)
+- +0x1D4 stance wait until, +0x1D8 no new move until (game frames, 0x61C418)
+- +0x20C an attack's phase (sub_0014AE00: 1 startup, 2 the hit window sub_00071880, 3 recovery; 0 otherwise, and
+  special moves never set it), +0x214 state (0 stance, 0x2000 walk, 0x1200 attack, 0x60x hit reaction, 0xA0x block),
+  +0x244 the game frame the attack command started, +0x2C8 the strike's reaction id, +0x6AC block-hold entries
+- the fighter whose task runs: 0x5FE9E0, its opponent 0x5FE9D4
+
+The game's rules:
+- A move starts in frame F (sub_0014A070, from the command task, before the fighter's task runs in that frame) unless,
+  at the top of F, the state has 0x200 (but is not 0x420D) or 0x800, the game frame is below +0x1D8, health is 0, or
+  the record's select state is not 2 or 3.
+- The hit test sub_00071730 runs once a frame for each live strike that has not made contact (from sub_00071880,
+  sub_00071E90 and the special moves' strike loops sub_00146400..sub_001472C0); a contact calls sub_0019E8D0 in the
+  victim's context. sub_00071880 tests from the frame after it starts (the first frame whose top shows phase 2), but
+  some moves test in the frame the window opens (Scorpion's crouching A), and special moves keep phase 0, so the
+  overlay counts the hit test itself (an observing override of sub_00071730).
+- Moves end through sub_00072A40 / sub_00072D50, which set +0x1D4 / +0x1D8 = frame + their recovery, then
+  sub_0006FE00 -> sub_00098860 (reset sub_0006E1C0: state 0, phase 0, contact -1; waits while frame < +0x1D4) ->
+  stance. Hit reactions end the same way (Scorpion's X reaction: busy 19 frames after its animation).
+- Blocked: reaction 0xF1/F2/F4/F5/F6 by the attack's block kind (table 0x3A30A0 + id * 0x14, +8: 0 F2, 3 F4, 4/5
+  F5, 100 F6, else F1); F2 (sub_0019D020) sets +0x1D8 = frame + 6, F4 none; the tail sub_0019D080 goes back to block
+  hold, or to sub_0006FE00 when the button is up. The block-hold routine lets go (state 0) in a frame it sees the
+  button up, so a blocking fighter can attack one frame after the first frame its task is back in block hold.
+- Practice: player 2 is no one's (port 1's block +8 is 0, its fighter's controls +0x21C are -1, +0x294 CPU flag 0):
+  the dummy stands. The game's menus have no dummy settings. Every block check ends in sub_0008A210(port, action)
+  (action 1 block, 0xE down; sub_00075610 for standing block, sub_00075860 for crouching), so the overlay's F8 answers
+  "held" there for the dummy's port -1 (practice only).
+- Crouch block: the block-hold routine goes to sub_00140380 (state 0x901, then 0x900) and the crouching hold
+  sub_00145C60 while block and down are held; a blocked hit's tail (sub_0019D080, state 0xF00) waits one frame longer
+  before starting it when block is still held, and it starts at once, so a crouching blocker can act in the frame the
+  hold is first seen (letting go keeps state 0x101 with down held, which the move gate allows), a standing one the
+  frame after.
+
+Measured, Scorpion against Scorpion (move frames, the press is frame 1). In versus both players pressed a new button
+every frame for the ground truth, and the gate above predicted every mashed move on both sides; the rest comes from
+the practice panel (the same gate), with the dummy standing, blocking (F8) or crouch-blocking:
+
+| move | startup | active | player 1 can act | on hit | on block | crouch block |
+|---|---|---|---|---|---|---|
+| X | 12 | 6 | 37 (36 frames) | +26 (mashed; +28 hitting on frame 14) | -22 (mashed) | whiffs over it |
+| Y | 16 | 2 | 30 | +50 | -11 | whiffs over it |
+| B | 14 | 7 | 55 | -8 | -38 | |
+| crouching A (a low) | 19 (tested and hit in the frame its window opens) | 2 | 50 | -7 | hits a standing blocker: +6 | -19 (mashed) |
+| A, 2 hits | 12, again 25 | 6 (7) 1 | 51 | +3 | -20 (second block: +0x1D8 = frame + 6, mashed) | |
+| spear (back, forward, X) | contact in 37 (phase stays 0) | | | | | |
+
 ### Next
 
 - The same layers for Armageddon (with its Motor Kombat side mode) and Deadly Alliance, from a shared core.

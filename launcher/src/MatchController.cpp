@@ -2,16 +2,23 @@
 
 #include <QCoreApplication>
 #include <QDateTime>
+#include <QDir>
 #include <QElapsedTimer>
+#include <QFile>
+#include <QMetaEnum>
 #include <QPointer>
 #include <QRandomGenerator>
+#include <QRegularExpression>
 #include <QTimer>
+
+#include <memory>
 
 #include "AppPaths.h"
 #include "FeedLink.h"
 #include "GameData.h"
 #include "GameProcess.h"
 #include "ServerClient.h"
+#include "TunnelBridge.h"
 #include "UdpRendezvous.h"
 #include "WinUtil.h"
 
@@ -52,9 +59,19 @@ MatchController::MatchController(ServerClient* server, QObject* parent)
         }
     });
     connect(udp_, &UdpRendezvous::punchDone, this, &MatchController::onPunchDone);
+    // UDP from here that never reaches the server (a firewall, a VPN, a network that blocks it): the match goes
+    // through the server's connection instead, and so do the next ones until a hello gets its answer again
+    connect(udp_, &UdpRendezvous::helloAcked, this, [this] {
+        if (!udpBlocked_) return;
+        udpBlocked_ = false;
+        log(tr("The server answers on UDP again: matches go the usual way"));
+    });
     connect(udp_, &UdpRendezvous::helloTimedOut, this, [this] {
-        if (phase_ == Phase::Found || phase_ == Phase::Connecting)
-            log(tr("The server did not answer on UDP; is UDP port %1 blocked by a firewall?").arg(cfg::gamePort()));
+        if (!udpBlocked_)
+            log(tr("The server did not answer on UDP (is UDP port %1 blocked by a firewall or a VPN?): matches go "
+                   "through the server's connection instead").arg(cfg::gamePort()));
+        udpBlocked_ = true;
+        if (phase_ == Phase::Found || phase_ == Phase::Connecting) requestTunnel(str(found_, "match"));
     });
 
     parkTimer_.setSingleShot(true);
@@ -99,6 +116,50 @@ QString gameName(const QString& gameId) {
 }
 }  // namespace
 
+// A game that crashed: an exception's exit code (0x8... or 0xC...; never the launcher's own kill, 0xF291, nor a
+// process ended from outside, 0xFFFFFFFF), or any other failure whose log ends with the crash line the game writes
+// (runtime app/main.cpp LogCrashLine: the exception, where as a module and offset, the thread). The server logs it
+// with the player, so a crash many players have shows up as one.
+void MatchController::watchForCrash(GameProcess* g, const QString& during) {
+    // the phase as the game went: its "exited" status comes before the exit, and onGameStatus moves the match on
+    auto phaseAtExit = std::make_shared<Phase>(phase_);
+    connect(g, &GameProcess::statusChanged, this, [this, phaseAtExit](const QString& line) {
+        if (line.endsWith(QLatin1String("exited"))) *phaseAtExit = phase_;
+    });
+    connect(g, &GameProcess::exited, this, [this, g, during, phaseAtExit](int exitCode, bool) {
+        const quint32 code = quint32(exitCode);
+        QString line;
+        if (code != 0 && code != 0xF291u && code != 0xFFFFFFFFu) {
+            QFile file(QDir(g->sessionDir()).filePath(QStringLiteral("game.log")));
+            if (file.open(QIODevice::ReadOnly)) {
+                if (file.size() > 65536) file.seek(file.size() - 65536);
+                const QList<QByteArray> lines = file.readAll().split('\n');
+                for (auto it = lines.crbegin(); it != lines.crend() && line.isEmpty(); ++it) {
+                    const qsizetype at = it->indexOf("crash: ");
+                    if (at >= 0) line = QString::fromLatin1(it->mid(at + 7)).trimmed();
+                }
+            }
+        }
+        const bool exception = code >= 0x80000000u && code != 0xFFFFFFFFu;
+        if (!exception && line.isEmpty()) return;
+        // "C0000005 at MKA.exe+1A2B3C on a game thread": where it happened, after its code
+        QString where = line.section(QStringLiteral(" at "), 1);
+        if (where.isEmpty()) where = line;
+        where.replace(QRegularExpression(QStringLiteral("[^\\x20-\\x7E]")), QStringLiteral("?"));
+        const QString hex = QString::number(code, 16).toUpper();
+        const QString what = during.isEmpty()
+                                 ? QString::fromLatin1(QMetaEnum::fromType<Phase>().valueToKey(int(*phaseAtExit)))
+                                 : during;
+        log(tr("The game crashed (%1%2)").arg(hex, where.isEmpty() ? QString() : QStringLiteral(" at ") + where));
+        if (!server_->isLoggedIn()) return;
+        server_->send({{QStringLiteral("type"), QStringLiteral("crash_report")},
+                       {QStringLiteral("game"), g->gameId()},
+                       {QStringLiteral("code"), hex},
+                       {QStringLiteral("where"), where.left(150)},
+                       {QStringLiteral("during"), what.left(40)}});
+    });
+}
+
 bool MatchController::prepareStaleCode() {
     if (!prepQueue_.isEmpty()) return true;
     // not a game running already (a search started first): it builds its own code, behind its own window
@@ -120,6 +181,7 @@ void MatchController::prepareNext() {
         const QString id = prepQueue_.first();
         auto* g = new GameProcess(id, 1, this);
         g->setArgs({QStringLiteral("--prepare")});
+        watchForCrash(g, QStringLiteral("preparing"));
         QString err;
         if (!g->start(cfg::gameExe(id), &err, false)) {
             log(tr("Preparing %1: %2").arg(gameName(id), err));
@@ -176,6 +238,9 @@ void MatchController::setPhase(Phase p, const QString& text) {
     phase_ = p;
     phaseText_ = text;
     if (p != Phase::Searching) keepaliveTimer_.stop();
+    if (tunnel_ && p != Phase::Found && p != Phase::Connecting && p != Phase::Starting && p != Phase::Playing &&
+        p != Phase::Reporting && p != Phase::Finishing)
+        closeTunnel();  // no match of this player's any more
     log(text);
     emit phaseChanged(p, text);
     if (p == Phase::Idle) sendSeriesReady();
@@ -356,6 +421,7 @@ GameProcess* MatchController::ensureGame(const QString& gameId, QString* error) 
     }
     showWhenReady_ = soloFrozen_;
     auto* g = new GameProcess(gameId, 1, this);
+    watchForCrash(g);  // first: it says what was going on before onGameExited moves the match on
     connect(g, &GameProcess::statusChanged, this, &MatchController::onGameStatus);
     connect(g, &GameProcess::exited, this, &MatchController::onGameExited);
     if (!g->start(cfg::gameExe(gameId), error)) {
@@ -474,6 +540,7 @@ void MatchController::onServerMessage(const QJsonObject& msg) {
     } else if (type == QLatin1String("match_found")) {
         found_ = msg;
         go_ = {};
+        closeTunnel();
         if (msg.contains(QStringLiteral("connection"))) log(tr("Opponent's connection: %1").arg(connectionText(msg)));
         resultSent_ = false;
         closeFeed();
@@ -487,8 +554,13 @@ void MatchController::onServerMessage(const QJsonObject& msg) {
             return;
         }
         openUdpThen([this, msg, match] {
-            udp_->startHello(server_->serverAddress(), server_->serverUdpPort(), server_->udpToken(), match,
-                             lanEndpoint(), 10000);
+            // UDP that got nowhere lately: through the server's connection at once; else a few seconds' hellos (well
+            // within the server's 10 s), then that way
+            if (udpBlocked_)
+                requestTunnel(match);
+            else
+                udp_->startHello(server_->serverAddress(), server_->serverUdpPort(), server_->udpToken(), match,
+                                 lanEndpoint(), 4000);
             if (msg.value(QStringLiteral("accept_required")).toBool()) {
                 setPhase(Phase::Found, tr("Match found"));
                 emit matchFound(msg);
@@ -503,6 +575,23 @@ void MatchController::onServerMessage(const QJsonObject& msg) {
         if (match != str(found_, "match")) return;
         found_.insert(QStringLiteral("opponent"), msg.value(QStringLiteral("opponent")));
         const int punchMs = msg.value(QStringLiteral("punch_timeout")).toInt(10) * 1000;
+        if (msg.value(QStringLiteral("tunnel")).toBool()) {
+            // through the server's connection: the punch, then the game, send to a local port that passes everything
+            // on to it, and the game's remote is that port (what the ping report says comes back with match_go)
+            closeTunnel();
+            tunnel_ = new TunnelBridge(server_, static_cast<quint16>(cfg::gamePort()), this);
+            QString err;
+            if (!tunnel_->open(&err)) {
+                log(err);
+                closeTunnel();
+                decline();
+                return;
+            }
+            setPhase(Phase::Connecting, tr("Connecting to %1 through the server's connection...").arg(opponentName()));
+            udp_->startTunnelPunch(match, str(msg, "key"), msg.value(QStringLiteral("side")).toInt(), punchMs,
+                                   tunnel_->address(), tunnel_->port());
+            return;
+        }
         if (msg.value(QStringLiteral("relay")).toBool()) {
             // no direct route between the two: the server passes the packets on, its UDP port is the opponent now
             setPhase(Phase::Connecting, tr("Connecting to %1 through the server...").arg(opponentName()));
@@ -630,6 +719,19 @@ void MatchController::openFeed(const QJsonObject& go) {
                            {QStringLiteral("data"), QString::fromLatin1(packets.toBase64())}});
     });
     feed_ = feed;
+}
+
+void MatchController::requestTunnel(const QString& match) {
+    if (match.isEmpty() || match == tunnelAsked_) return;
+    tunnelAsked_ = match;
+    server_->send({{QStringLiteral("type"), QStringLiteral("udp_tunnel")}, {QStringLiteral("match"), match}});
+}
+
+void MatchController::closeTunnel() {
+    if (!tunnel_) return;
+    log(tr("Through the server's connection: %1 packets out, %2 in").arg(tunnel_->packetsOut()).arg(tunnel_->packetsIn()));
+    tunnel_->deleteLater();
+    tunnel_ = nullptr;
 }
 
 // once the game is back at its hold point: what it wrote last (the match's end) goes out first
@@ -763,7 +865,9 @@ void MatchController::onPunchDone(bool ok, int rtt, const QString& remote, const
     server_->send(report);
     // never the address: it is the opponent's (or the server's), and players show these pages on stream
     log(ok ? tr("Connected to %1 %2, %3 ms")
-                 .arg(opponentName(), via == QLatin1String("relay") ? tr("through the server") : tr("directly"))
+                 .arg(opponentName(), via == QLatin1String("tunnel")  ? tr("through the server's connection")
+                                      : via == QLatin1String("relay") ? tr("through the server")
+                                                                      : tr("directly"))
                  .arg(rtt)
            : tr("Could not reach %1 this way").arg(opponentName()));
 }
@@ -971,6 +1075,7 @@ bool MatchController::startSolo(const QString& gameId, QString* error, bool prac
     }
     auto* g = new GameProcess(gameId, 1, this);
     if (practice) g->setEnv(QStringLiteral("MK3D_TRAINING"), QStringLiteral("1"));
+    watchForCrash(g, practice ? QStringLiteral("practice") : QStringLiteral("single player"));
     if (!g->start(cfg::gameExe(gameId), error, false)) {
         delete g;
         thawGame();
@@ -1030,6 +1135,8 @@ bool MatchController::startLocalTest(const QString& gameId, const QString& mode,
     const QString exe = cfg::gameExe(gameId);
     localA_ = new GameProcess(gameId, 1, this);
     localB_ = new GameProcess(gameId, 2, this);
+    watchForCrash(localA_, QStringLiteral("local test"));
+    watchForCrash(localB_, QStringLiteral("local test"));
     if (!localA_->start(exe, error) || !localB_->start(exe, error)) {
         delete localA_;
         delete localB_;

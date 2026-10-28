@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
 import hashlib
 import itertools
 import json
@@ -316,6 +317,57 @@ class UdpPeer(asyncio.DatagramProtocol):
         rtts.sort()
         return {"ok": True, "rtt_ms": int(round(rtts[len(rtts) // 2])), "remote": P.format_endpoint(working[1]),
                 "via": working[0]}
+
+
+class TunnelBridge(asyncio.DatagramProtocol):
+    """The launcher's way when its UDP never reaches the server (udp_tunnel): a local port stands in for the relay.
+    What the game port sends to it goes on the connection as `tunnel` messages, and what comes back that way is sent
+    to the game port, from here: the game port's punch and its game take this port for the relay's."""
+
+    def __init__(self, conn: Connection, game_port: int) -> None:
+        self.conn = conn
+        self.game = ("127.0.0.1", game_port)
+        self.transport: asyncio.DatagramTransport | None = None
+        self._task: asyncio.Task | None = None
+
+    @classmethod
+    async def open(cls, conn: Connection, game_port: int) -> TunnelBridge:
+        loop = asyncio.get_running_loop()
+        _, bridge = await loop.create_datagram_endpoint(lambda: cls(conn, game_port), local_addr=("127.0.0.1", 0))
+        bridge._task = asyncio.create_task(bridge._down())
+        return bridge
+
+    @property
+    def endpoint(self) -> str:
+        assert self.transport is not None
+        host, port = self.transport.get_extra_info("sockname")[:2]
+        return f"{host}:{port}"
+
+    def connection_made(self, transport: asyncio.BaseTransport) -> None:
+        self.transport = transport  # type: ignore[assignment]
+
+    def error_received(self, exc: Exception) -> None:
+        pass
+
+    def datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
+        if (addr[0], addr[1]) == self.game:
+            self.conn.send({"type": "tunnel", "data": base64.b64encode(data).decode("ascii")})
+
+    async def _down(self) -> None:
+        while True:
+            try:
+                msg = await self.conn.expect("tunnel", timeout=3600)
+            except (ConnectionError, TimeoutError):
+                return
+            if self.transport is not None:
+                self.transport.sendto(base64.b64decode(msg["data"]), self.game)
+
+    def close(self) -> None:
+        if self._task is not None:
+            self._task.cancel()
+        if self.transport is not None:
+            self.transport.close()
+            self.transport = None
 
 
 async def play_one_match(conn: Connection, udp: UdpPeer, *, server_host: str, lan_ip: str = "127.0.0.1",

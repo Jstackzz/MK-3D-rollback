@@ -1,0 +1,45 @@
+diff --git a/runtime/app/main.cpp b/runtime/app/main.cpp
+--- a/runtime/app/main.cpp
++++ b/runtime/app/main.cpp
+@@ -36,9 +36,33 @@
+ constexpr UINT kApplyDisplay = WM_APP + 1, kOpenWindow = WM_APP + 2;
+ bool g_mode_changed = false;
+ bool g_apply_posted = false;  // a display apply is waiting in the queue or running
++DWORD g_window_thread = 0;     // the thread the window and its messages run on (wWinMain's)
++
++// One line for every crash, the first thing written: the exception and where, as a module and offset (an address
++// alone means nothing on another PC), and the thread. A front end passes it on, so crashes on many PCs can be told
++// apart.
++void LogCrashLine(EXCEPTION_POINTERS* e) {
++    if (!e) {
++        LOGE("crash: abort");
++        return;
++    }
++    const auto* r = e->ExceptionRecord;
++    const uintptr_t at = reinterpret_cast<uintptr_t>(r->ExceptionAddress);
++    HMODULE mod = nullptr;
++    wchar_t path[MAX_PATH] = L"?";
++    if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
++                           reinterpret_cast<LPCWSTR>(at), &mod))
++        GetModuleFileNameW(mod, path, MAX_PATH);
++    const wchar_t* name = std::wcsrchr(path, L'\\') ? std::wcsrchr(path, L'\\') + 1 : path;
++    const kernel::Thread* t = kernel::Current();
++    LOGE("crash: %08lX at %ls+%llX on %s", r->ExceptionCode, name,
++         (unsigned long long)(at - reinterpret_cast<uintptr_t>(mod)),
++         t && t->ctx ? "a game thread" : GetCurrentThreadId() == g_window_thread ? "the window thread" : "a host thread");
++}
+ 
+ // crash dump in CrashDumps beside the exe
+ LONG WINAPI WriteCrashDump(EXCEPTION_POINTERS* e) {
++    LogCrashLine(e);
+     // the dump holds no guest memory: the guest registers and return addresses go to the log
+     if (kernel::Thread* t = kernel::Current(); e && t && t->ctx) {
+         auto* r = e->ExceptionRecord;
+@@ -252,6 +276,7 @@
+ }  // namespace app
+ 
+ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
++    app::g_window_thread = GetCurrentThreadId();
+     SetUnhandledExceptionFilter(app::WriteCrashDump);
+     std::signal(SIGABRT, [](int) { app::WriteCrashDump(nullptr); });
+     timeBeginPeriod(1);

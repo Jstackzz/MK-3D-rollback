@@ -33,6 +33,10 @@ public:
     // the same through the server's relay (the two could not reach each other): the opponent's packets come and go
     // through the server's UDP port, the one the hellos went to
     void startRelayPunch(const QString& match, const QString& key, int side, int timeoutMs);
+    // through the relay too, by way of the server's connection (no UDP from here reaches the server): `addr`:`port`
+    // is the local port that stands in for the relay (TunnelBridge)
+    void startTunnelPunch(const QString& match, const QString& key, int side, int timeoutMs, const QHostAddress& addr,
+                          quint16 port);
 
 signals:
     void helloAcked(const QString& publicEndpoint, int rttMs);
@@ -58,6 +62,7 @@ private:
     QUdpSocket* sock_ = nullptr;
     quint16 port_ = 0;
     QHostAddress bind_;
+    bool blocked_ = false;  // development (cfg::udpBlocked): nothing goes to the server's UDP port
     QElapsedTimer clock_;
     QTimer helloTimer_, punchTimer_;
 

@@ -145,6 +145,10 @@ void Start(const Command& c) {
         st.side = side;
         st.delay = std::atoi(Key(c, "delay", "2").c_str());
         st.loopback_only = st.peer.rfind("127.", 0) == 0;
+        // tests: a simulated network on what this game sends, as for a game started by hand (netplay.cpp Load)
+        if (const char* v = Env("NET_LAG")) st.lag_ms = std::atoi(v);
+        if (const char* v = Env("NET_JITTER")) st.jitter_ms = std::atoi(v);
+        if (const char* v = Env("NET_LOSS")) st.loss_percent = std::atoi(v);
         if (const char* log = Env("NET_LOG")) {  // "{side}" becomes 0, 1 or w (games on one PC), "{match}" the id
             st.log = log;
             size_t at = st.log.find("{side}");

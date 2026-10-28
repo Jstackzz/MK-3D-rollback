@@ -440,6 +440,42 @@ What the shared core and runtime could do (not changed here, outside recomp/mka)
   release on the recording thread could be held back until its frame is confirmed (`host_rollback::Confirm`), so a
   rollback across it finds the pages still there.
 
+## Frame data in practice (2026-10-28)
+
+Practice shows player 1's last attack (`recomp/common/src/mk3d/framedata.cpp`, this game's side
+`src/game/framedata.cpp`). Armageddon has Deception's fields and rules at other offsets (research/mkd/notes.md,
+"Frame data in practice"), found with the debug monitor stepping a versus fight and both players pressing a new button
+every frame for the ground truth:
+
+- Player records P1 0x831AEC, P2 0x831B34: +8 select state (3 for practice's dummy), +0xC health, +0x30 fighter
+  (static: P1 0x5BBF88, P2 0x5BCC58), +0x3C the fighter's task (+0x30 its function). Game frame counter 0x829304,
+  the fighter whose task runs 0x734FFC.
+- Fighter fields (Deception's in brackets): +0x304 strike contact -1/1/2/3 [0x1BC], +0x31C stance wait until [0x1D4],
+  +0x320 no new move until [0x1D8], +0x380 attack phase 1/2/3 [0x20C], +0x388 state [0x214], +0x390 controls: the
+  port its actions are read from, -1 for practice's dummy [0x21C], +0x3BC attack command start [0x244], +0x40C CPU
+  flag [0x294], +0xC6C block-hold entries [0x6AC].
+- Move gate sub_001D1A90 (refused: state & 0x200 except 0x420D, & 0x800, state 0x6000, frame < +0x320, health 0,
+  select state not 2 or 3); attack command sub_001D34B0 (phase 1, startup, phase 2, strike sub_00084730, phase 3);
+  hit test sub_000843D0; block held sub_00089B50 -> sub_000A0FD0(port, action) (action 1 block, 0xE down); block hold
+  sub_001CCF60, crouching hold sub_001CD680 (state 0x900); block reactions 0x2125A0 / 0x211F80 (the latter sets
+  +0x320 = frame + 6); neutral 0x823D0 -> stance wait 0xB46F0 -> stance 0xB49B0.
+- Practice: no port drives the dummy and the menus have no dummy settings (art/screen_engine.ssf names only
+  arcade_submenu_PRACTICE).
+
+Scorpion against Scorpion (move frames, the press is frame 1; "mashed": checked in versus against both players
+pressing every frame, the rest from the practice panel):
+
+| move | startup | active | player 1 can act | on hit | on block | crouch block |
+|---|---|---|---|---|---|---|
+| X | 12 | 6 | 37 (mashed) | +28 hitting on frame 14 | -17 (mashed: five release timings) | whiffs over it |
+| Y | 16 | 2 | 30 | +50 | -2 | |
+| B | 14 | 7 | 55 | -8 | -33 | |
+| crouching A (a low) | 19 | 2 | 50 | -7 | | -19 (mashed) |
+| A, 2 hits | 12, again 25 | 6 (7) 1 | 51 (mashed) | +2 to +4 (second hit on frame 25 to 27; +4 mashed) | -20 | |
+
+Open: Scorpion's X at point-blank range (contact on its first active frame) once put both fighters into the
+script-run routine 0x2B8F0 for 200+ frames (P1 frozen in phase 2); the panel drops a move not over in 300 frames.
+
 ## Environment and tools
 
 `src/game/pads.cpp` takes `MKA_PADS`, `MKA_INPUT`, `MKA_PAD_DELAY`, `MKA_PAD_LOG` (Deception's `MKD_*` renamed);

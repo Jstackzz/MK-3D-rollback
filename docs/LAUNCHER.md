@@ -143,10 +143,13 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    changed: the runtime's `brightness`, a gamma curve over the game's own ramp,
    blacks and whites kept), *Stretch Deadly Alliance to fill the screen*
    (`display/stretch_4x3`, on unless unticked; the runtime's `stretch_4x3` for a
-   game with no 16:9 layout, else 4:3 between bars): borderless at the
+   game with no 16:9 layout, else 4:3 between bars), *Frame data in practice*
+   (`display/frame_data`, on unless unticked: whether a game shows the practice
+   frame data panel when it starts, `recomp/common/src/mk3d/framedata.h`; F7 in
+   the game shows or hides it, F8 makes the dummy block): borderless at the
    monitor's own resolution unless changed; a game takes them over its
    `settings.toml` when it starts, through `MK3D_DISPLAY`, `MK3D_RESOLUTION`,
-   `MK3D_VSYNC`, `MK3D_BRIGHTNESS` and `MK3D_STRETCH_4X3`). A
+   `MK3D_VSYNC`, `MK3D_BRIGHTNESS`, `MK3D_STRETCH_4X3` and `MK3D_FRAMEDATA`). A
    `defaults.ini` beside the launcher (a player package's server) supplies
    any setting the settings file does not have.
 2. **Sign in** (top right): create an account or sign in; "remember me" keeps
@@ -290,6 +293,36 @@ shows gold (`Style.cpp`). `MK3D_PAD_ANY_WINDOW=1` takes any active launcher
 window as in front, for tests on Qt's offscreen platform with an SDL virtual
 gamepad.
 
+**Crash reports** (0.1.12, `MatchController::watchForCrash`): a game that ends
+with an exception's exit code (`0x8...`/`0xC...`, never the launcher's own kill,
+`0xF291`, nor `0xFFFFFFFF`), or whose log ends with the crash line every game
+writes on a crash (runtime `app/main.cpp` `LogCrashLine`: `crash: C0000005 at
+MKA.exe+1A2B3C on a game thread`), is reported to the server (PROTOCOL.md 1.13)
+with what was going on, and logged here. `tools/online-e2e.ps1 -CrashA N`
+crashes A's game N seconds into its match (a thread at address 0).
+
+**A match's opening** (0.1.12, `recomp/common/src/mk3d/netplay.cpp`
+`kIntroFrames`): its first 120 frames (the load and the first round's intro,
+where nobody can move) are no input on both sides, known before they run, so
+neither game waits on the other's input there; the load's lockstep used to
+cost a frame per one-way trip (about 5 s of slow motion at the start of every
+match at 180 ms of ping, one frame of delay). Each game logs how long its
+opening took and any 60 frames that took over 1.5 s. Launcher matches take
+`<GAME>_NET_LAG`/`_JITTER`/`_LOSS` (simulated network, tests), and
+`<GAME>_NET_NO_INTRO=1` (both games) waits as before.
+
+**No UDP to the server** (0.1.12, `src/TunnelBridge.cpp`, PROTOCOL.md 2.4.1):
+a match whose hellos get no answer within 4 s (and every match after a hello
+that went unanswered, until one is answered again) asks the server for the
+tunnel. Its packets then go through the server's relay over the launcher's TLS
+connection: a UDP port on 127.0.0.1 stands in for the relay, the punch and then
+the game send to it, and the launcher passes them on both ways. The log says
+`The server did not answer on UDP` and, at the end, how many packets went
+through the connection. `[dev] udp_blocked=true` keeps everything from the
+server's UDP port as a blocked network would (`tools\online-e2e.ps1 -NoUdpA`;
+with `-Exe launcher\tools\fake_game.py` and `QT_QPA_PLATFORM=offscreen` the
+whole path runs without a window).
+
 **Updates** (from 0.1.7, `src/Updater.cpp`). The server names the latest
 release (PROTOCOL.md 1.3: `welcome.update`, an `update` push, the
 `client_outdated` reply): a player package offers it in a window (UPDATE NOW,
@@ -432,8 +465,10 @@ while the server runs (WAL mode).
   `recomp/common/src/mk3d`); `launcher/tools/fake_game.py` still stands in for
   a game in launcher-only tests.
 - NAT traversal: UPnP on each player's router, UDP hole punching, then the
-  server's relay (PROTOCOL.md 2.4, 2.5). No NAT-PMP / PCP; IPv4 only. A
-  relayed match costs the detour through the server in delay.
+  server's relay (PROTOCOL.md 2.4, 2.5), over the player's TLS connection when
+  no UDP of theirs reaches the server (2.4.1). No NAT-PMP / PCP; IPv4 only. A
+  relayed match costs the detour through the server in delay, and a tunnelled
+  one the odd hitch when its connection loses a packet.
 - Addresses: the launcher never shows or logs another player's address (or its
   own public one); the game's start line in the log says `remote=(hidden)`. A
   direct match still lets the two PCs see each other's address at the network

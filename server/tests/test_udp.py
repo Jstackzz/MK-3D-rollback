@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 
+from server import protocol as P
 from server.app import ServerConfig
+from server.client import TunnelBridge
 
 from .conftest import hello_and_accept, queue_msg, run_to_go
 
@@ -258,6 +260,102 @@ async def test_full_flow_helper(server, connect, udp_peers):
     await b.request(queue_msg(game="mka", mode="motor"))
     gos = await run_to_go(server, [(a, ua), (b, ub)])
     assert gos[0]["game"] == "mka" and gos[0]["mode"] == "motor"
+
+
+async def test_a_player_without_udp_plays_through_its_connection(server, connect, udp_peers):
+    """A launcher whose UDP never reaches the server (a firewall's or a VPN's doing) asks for the tunnel: its packets
+    go on its connection through a local stand-in for the relay, and the relay passes them on as datagrams."""
+    a, b = await connect("Mileena"), await connect("Baraka")
+    ua, ub = await udp_peers(), await udp_peers()
+    await a.request(queue_msg())
+    await b.request(queue_msg())
+    fa, fb = await a.expect("match_found"), await b.expect("match_found")
+    a.send({"type": "udp_tunnel", "match": fa["match"]})  # its hellos got no answer
+    a.send({"type": "match_accept", "match": fa["match"]})
+    await hello_and_accept(server, b, ub, fb)
+    pa, pb = await a.expect("match_peer"), await b.expect("match_peer")
+    assert pa["relay"] is True and pa["tunnel"] is True
+    assert pb["relay"] is True and pb["tunnel"] is False
+    assert pa["peer"] == pb["peer"] == {"public": "", "lan": ""}
+    bridge = await TunnelBridge.open(a, ua.port)
+    relay = {"public": f"127.0.0.1:{server.udp_port}", "lan": ""}
+    ra, rb = await asyncio.gather(
+        ua.punch({"public": bridge.endpoint, "lan": ""}, match=pa["match"], key=pa["key"], side=pa["side"], timeout=5),
+        ub.punch(relay, match=pb["match"], key=pb["key"], side=pb["side"], timeout=5),
+    )
+    assert ra["ok"] and rb["ok"], (ra, rb)
+    a.send({"type": "ping_report", "match": pa["match"], **ra, "via": "tunnel"})
+    b.send({"type": "ping_report", "match": pb["match"], **rb, "via": "relay"})
+    ga, gb = await a.expect("match_go"), await b.expect("match_go")
+    assert ga["remote"] == bridge.endpoint  # the tunnelled game sends to its launcher's stand-in
+    assert gb["remote"] == f"127.0.0.1:{server.udp_port}"
+    # the games' packets, both ways, byte for byte
+    assert ua.transport is not None and ub.transport is not None
+    ua.transport.sendto(b"MKDR\x03\x01\x00\x00", P.parse_endpoint(bridge.endpoint))
+    data, _ = await asyncio.wait_for(ub.raw.get(), 2)
+    assert data == b"MKDR\x03\x01\x00\x00"
+    ub.transport.sendto(b"MKDR\x03\x02\x00\x00", ("127.0.0.1", server.udp_port))
+    data, addr = await asyncio.wait_for(ua.raw.get(), 2)
+    assert data == b"MKDR\x03\x02\x00\x00" and P.format_endpoint(addr) == bridge.endpoint
+    bridge.close()
+
+
+async def test_two_tunnelled_players_and_the_routes_end_with_the_match(server, connect, udp_peers):
+    server.cfg.relay_linger = 0.1
+    a, b = await connect("Jade"), await connect("Tanya")
+    ua, ub = await udp_peers(), await udp_peers()
+    await a.request(queue_msg())
+    await b.request(queue_msg())
+    fa, fb = await a.expect("match_found"), await b.expect("match_found")
+    for conn, found in ((a, fa), (b, fb)):
+        conn.send({"type": "match_accept", "match": found["match"]})
+    await asyncio.sleep(0.2)
+    assert not a.take_all("match_peer")  # no UDP from either yet
+    for conn, found in ((a, fa), (b, fb)):
+        conn.send({"type": "udp_tunnel", "match": found["match"]})  # accepted, then the hellos gave up
+    pa, pb = await a.expect("match_peer"), await b.expect("match_peer")
+    assert pa["tunnel"] is True and pb["tunnel"] is True
+    ba, bb = await TunnelBridge.open(a, ua.port), await TunnelBridge.open(b, ub.port)
+    ra, rb = await asyncio.gather(
+        ua.punch({"public": ba.endpoint, "lan": ""}, match=pa["match"], key=pa["key"], side=pa["side"], timeout=5),
+        ub.punch({"public": bb.endpoint, "lan": ""}, match=pb["match"], key=pb["key"], side=pb["side"], timeout=5),
+    )
+    assert ra["ok"] and rb["ok"], (ra, rb)
+    a.send({"type": "ping_report", "match": pa["match"], **ra, "via": "tunnel"})
+    b.send({"type": "ping_report", "match": pb["match"], **rb, "via": "tunnel"})
+    ga, gb = await a.expect("match_go"), await b.expect("match_go")
+    assert (ga["remote"], gb["remote"]) == (ba.endpoint, bb.endpoint)
+    assert ua.transport is not None and ub.transport is not None
+    ub.transport.sendto(b"MKDR\x03\x04\x00\x00", P.parse_endpoint(bb.endpoint))
+    data, _ = await asyncio.wait_for(ua.raw.get(), 2)
+    assert data == b"MKDR\x03\x04\x00\x00"
+    for conn in (a, b):
+        await conn.request({"type": "result", "match": ga["match"], "winner": 1, "p1_rounds": 2, "p2_rounds": 0})
+    await a.expect("match_result")
+    await asyncio.sleep(0.4)
+    assert not server.tunnel_routes and not server.relay_routes
+    ua.transport.sendto(b"MKDR\x03\x05\x00\x00", P.parse_endpoint(ba.endpoint))  # after the end: dropped
+    a.send({"type": "tunnel", "data": "not base64!"})  # and no answer, nor to nonsense
+    await asyncio.sleep(0.3)
+    assert ub.raw.empty() and not a.take_all("error")
+    ba.close()
+    bb.close()
+
+
+async def test_the_tunnel_comes_too_late_once_the_peers_are_out(server, connect, udp_peers):
+    a, b = await connect("Kai"), await connect("Sareena")
+    ua, ub = await udp_peers(), await udp_peers()
+    await a.request(queue_msg())
+    await b.request(queue_msg())
+    fa, fb = await a.expect("match_found"), await b.expect("match_found")
+    await hello_and_accept(server, a, ua, fa)
+    await hello_and_accept(server, b, ub, fb)
+    pa = await a.expect("match_peer")
+    assert not pa.get("relay") and not pa.get("tunnel")  # straight: both hellos came
+    a.send({"type": "udp_tunnel", "match": fa["match"]})
+    await asyncio.sleep(0.3)
+    assert not a.take_all("match_peer") and len(b.take_all("match_peer")) == 1  # the way stays as it was
+    assert not server.tunnel_routes
 
 
 async def test_a_player_who_hides_their_address_plays_through_the_relay(server, connect, udp_peers):

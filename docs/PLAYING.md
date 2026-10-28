@@ -153,6 +153,21 @@ whether to trust it: compare it with your host's.
   PRACTICE). A match found comes up over it as above, and
   after the match you are back in practice. Untick the box to wait at the game's
   menu instead.
+- Frame data in practice (all three games): a small panel at the left shows
+  player 1's last attack, counted in frames (60 a second) from the press as
+  frame 1. **Startup** is the frame the attack can first hit, **Active** how
+  many frames it can hit (a move that hits more than once lists each hit's
+  frames, with the gap between them in brackets), **Recovery** the frames
+  after that until you can act again, **Total** the whole move. After a hit or
+  a block it shows the frame advantage, **On hit** or **On block**: how many
+  frames before (+, green) or after (-, red) the dummy you can act again. A hit
+  that lands on a later active frame than the first (from further away) gives
+  more advantage, so the panel names that frame. The dummy stands still in
+  every game's practice; **F8** makes it hold block, then crouch-block (lows
+  are blocked only crouching), then stand again, for the on-block numbers.
+  **F7** shows or hides the panel; **Settings → Frame data in practice** sets
+  whether it is shown when practice starts. None of it is ever in an online
+  match.
 
 Both players need the same package: VERSION.txt lists fingerprints of its programs
 to compare.
@@ -161,7 +176,9 @@ Matches connect by themselves: the launcher opens its game port (UDP 7001) on
 your router when the router allows it (UPnP; Settings shows it on the Router
 line and can turn it off), and when two PCs cannot reach each other directly the
 match runs through the server, with a little more delay. Nothing to set up on
-your router.
+your router. A network that lets no UDP through to the server (some firewalls,
+VPNs, school or work networks) is fine too: the launcher notices and plays
+those matches through its own connection to the server, no VPN needed.
 
 Your IP address is never shown in the launcher, its pages or its logs, nor in
 the games' logs, and a game only listens to its own match's opponent (or the
@@ -174,6 +191,10 @@ That costs ping the farther you and your opponent are from the server (in
 Virginia, USA): little on the US east coast, a lot for two players far from it
 (two players on the west coast: about 20 ms straight, about 140 ms through the
 server).
+
+When a game crashes, the launcher tells the server which game, the crash's code
+and where in the program it happened (nothing else: no files, nothing about
+you), so crashes many players have can be found and fixed.
 
 When a match is found, the MATCH FOUND window shows your opponent's connection:
 the Wi-Fi symbol in orange (wireless drops and delays packets now and then) or
@@ -280,6 +301,13 @@ When something goes wrong
 - Click into the game window after accepting a match in the launcher if you
   play on the keyboard: it only reaches the window in front (controllers work
   either way).
+- The launcher says "The server did not answer on UDP": something between your
+  PC and the server blocks UDP (a firewall, an antivirus's network protection,
+  some VPNs, your network or internet provider). Matches still work, through
+  your connection to the server, with a little more delay and a hitch now and
+  then when that connection loses a packet. When a firewall on your PC is the
+  cause, allowing the launcher and the games through it brings the usual way
+  back.
 - Logs: mk3d-launcher.log and the sessions folder beside the launcher: one
   folder each time the launcher starts a game, with the game's own game.log and,
   for each online match, a net-<match>.log with every frame's inputs. When a

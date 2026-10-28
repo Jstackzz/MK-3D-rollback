@@ -126,7 +126,9 @@ QString resolution() { return get(QStringLiteral("display/resolution"), QStringL
 bool vsync() { return get(QStringLiteral("display/vsync"), true).toBool(); }
 bool stretch4x3() { return get(QStringLiteral("display/stretch_4x3"), true).toBool(); }
 int brightness() { return qBound(50, get(QStringLiteral("display/brightness"), 100).toInt(), 200); }
+bool frameData() { return get(QStringLiteral("display/frame_data"), true).toBool(); }
 bool udpLoopback() { return get(QStringLiteral("dev/udp_loopback"), false).toBool(); }
+bool udpBlocked() { return get(QStringLiteral("dev/udp_blocked"), false).toBool(); }
 bool upnp() { return get(QStringLiteral("online/upnp"), true).toBool(); }
 bool hideIp() { return get(QStringLiteral("online/hide_ip"), false).toBool(); }
 int localTestPort(int instance) {

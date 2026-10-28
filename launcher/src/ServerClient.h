@@ -41,6 +41,8 @@ public:
     QString linkType() const;
 
     int send(QJsonObject msg);  // adds and returns a request id; -1 when offline
+    // a tunnelled match's packet (docs/PROTOCOL.md 2.4.1): on this connection, as UDP would carry it
+    void sendTunnel(const QByteArray& packet);
     int login(const QString& name, const QString& password);
     int registerAccount(const QString& name, const QString& password);
     void logout();
@@ -57,6 +59,7 @@ signals:
     void loggedOut();
     void resumeFailed();
     void kicked(const QString& text);
+    void tunnelData(const QByteArray& packet);  // the other player's, of a tunnelled match (not in message())
 
 private:
     void setState(State s);

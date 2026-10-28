@@ -43,8 +43,10 @@ QString resolution();
 bool vsync();
 bool stretch4x3();  // a 4:3 game (Deadly Alliance) fills a widescreen monitor (else 4:3 between bars)
 int brightness();   // percent, 100 as the games draw it
+bool frameData();   // practice shows player 1's frame data (MK3D_FRAMEDATA); F7 in the game shows or hides it
 int localTestPort(int instance);
 bool udpLoopback();  // development: matches on loopback only (one-PC tests, no firewall prompt)
+bool udpBlocked();   // development: nothing goes to the server's UDP port, as from a PC whose UDP never gets there
 bool upnp();         // open the game UDP port on the router (UPnP)
 bool hideIp();       // matches through the server's relay: no opponent learns this player's address
 }  // namespace cfg
