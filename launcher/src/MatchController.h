@@ -89,6 +89,11 @@ public:
     void stopLocalTest();
     void stopGame();
     void shutdown();
+    // An update leaves each game built before with code for its old executable: it builds that again now, one game
+    // at a time (the game's --prepare, behind its own progress window), so the next match or single player finds it
+    // ready. A game waiting for it does not start meanwhile. False when no game needs it.
+    bool prepareStaleCode();
+    bool preparingCode() const { return !prepQueue_.isEmpty(); }
     // a spectator in a lobby: each of its matches comes to this game as the server passes it on (one at a time, the
     // next once the game is back at its hold point); stopWatching drops what waits and parks a match being watched
     bool watching() const { return !watch_.isEmpty(); }
@@ -107,6 +112,7 @@ signals:
     void soloResumed();  // standby: single player runs again, its window wants the front
     void soloStarted();  // single player's game was started, its window (once it has one) wants the front
     void gameShown();    // standby: the match's game started for an accepted match has its window up
+    void codePrepChanged(const QString& text, bool done);  // prepareStaleCode: the game it is on, or all done
 
 private:
     void setPhase(Phase p, const QString& text);
@@ -116,6 +122,8 @@ private:
     void onPunchDone(bool ok, int rtt, const QString& remote, const QString& via);
     void onLocalStatus();
     GameProcess* ensureGame(const QString& gameId, QString* error);
+    bool codeReady(const QString& gameId, QString* error) const;  // not waiting for prepareStaleCode
+    void prepareNext();
     QString startLine(const QJsonObject& go) const;
     void tryStart();
     void reportResult(QJsonObject fields);
@@ -174,4 +182,7 @@ private:
     QList<QJsonObject> watchQueue_;  // lobby matches to watch next
     QHash<QString, QByteArray> watchData_;  // their feeds so far, by match
     QString finishText_;             // what the phase says once the game is back at its hold point
+    QStringList prepQueue_;          // games whose code prepareStaleCode builds again, the first one's running
+    QStringList prepFailed_;         // the ones it could not (their next start builds it)
+    int prepTotal_ = 0;
 };

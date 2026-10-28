@@ -12,6 +12,7 @@
 
 #include "AppPaths.h"
 #include "Controls.h"
+#include "GameData.h"
 #include "WinUtil.h"
 
 namespace {
@@ -33,19 +34,35 @@ void linkToolchain(const QString& gameDir) {
     }
 }
 
-// the game's files where the game looks for them (runtime app/game_files.cpp): the first assets folder at or above
-// the executable's, holding default.xbe or a disc image
-bool hasGameFiles(const QString& exeDir) {
+// where the game looks for its files (runtime app/game_files.cpp): the first assets folder at or above the
+// executable's; empty when there is none
+QString assetsDir(const QString& exeDir) {
     QDir dir(exeDir);
     for (int i = 0; i < 6; ++i) {
-        if (dir.exists(QStringLiteral("assets"))) {
-            const QDir assets(dir.filePath(QStringLiteral("assets")));
-            return assets.exists(QStringLiteral("default.xbe")) ||
-                   !assets.entryList({QStringLiteral("*.iso")}, QDir::Files).isEmpty();
-        }
+        if (dir.exists(QStringLiteral("assets"))) return dir.filePath(QStringLiteral("assets"));
         if (!dir.cdUp()) break;
     }
-    return false;
+    return {};
+}
+
+// the game's files there: default.xbe or a disc image
+bool hasGameFiles(const QString& exeDir) {
+    const QString found = assetsDir(exeDir);
+    if (found.isEmpty()) return false;
+    const QDir assets(found);
+    return assets.exists(QStringLiteral("default.xbe")) ||
+           !assets.entryList({QStringLiteral("*.iso")}, QDir::Files).isEmpty();
+}
+
+// the extracted game is another release than the one this build is made from: why it is not started (empty when it
+// is the right one, a modified copy of it, or a disc image the game reads itself)
+QString otherRelease(const QString& gameId, const QString& exeDir) {
+    const Game* g = GameData::instance().game(gameId);
+    QFile f(QDir(assetsDir(exeDir)).filePath(QStringLiteral("default.xbe")));
+    if (!g || !f.open(QIODevice::ReadOnly)) return {};
+    bool modified = false;
+    const QString other = g->otherRelease(f.readAll(), &modified);
+    return modified ? QString() : other;
 }
 
 }  // namespace
@@ -89,17 +106,52 @@ QString GameProcess::smartAppControlHelp(bool blocked) {
               "switched back on by resetting Windows.)");
 }
 
+QString GameProcess::antivirusHelp(const QString& file) {
+    return tr("Windows Security (or another antivirus) may have blocked or removed %1. That is a false alarm: a new "
+              "release's files, and the game code each PC builds for itself, are new to it. Open Windows Security > "
+              "Virus & threat protection > Protection history, pick the entry for %1 and choose Actions > Restore (or "
+              "Allow on device), then try again.")
+        .arg(file);
+}
+
+bool GameProcess::codeStale(const QString& exe) {
+    const QFileInfo fi(exe);
+    if (fi.suffix().compare(QLatin1String("exe"), Qt::CaseInsensitive) != 0 || !fi.exists()) return false;
+    const QDir dir(fi.absolutePath());
+    const QFileInfo dll(dir.filePath(fi.completeBaseName() + QStringLiteral(".dll")));
+    if (!dll.exists()) return false;  // never built: its first start builds it
+    QFile stamp(dir.filePath(QStringLiteral("compiler/work/%1/built.txt").arg(fi.completeBaseName())));
+    // a DLL with no stamp (build.bat's) is current when newer than the executable
+    if (!stamp.open(QIODevice::ReadOnly)) return dll.lastModified() <= fi.lastModified();
+    // "<the executable's size> <its last write time, a FILETIME> <the xbe's SHA-1>" (StampFor)
+    const QList<QByteArray> fields = stamp.readLine().trimmed().split(' ');
+    WIN32_FILE_ATTRIBUTE_DATA a{};
+    const std::wstring path = QDir::toNativeSeparators(fi.absoluteFilePath()).toStdWString();
+    if (fields.size() < 2 || !GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &a)) return true;
+    const quint64 size = (quint64(a.nFileSizeHigh) << 32) | a.nFileSizeLow;
+    const quint64 time = (quint64(a.ftLastWriteTime.dwHighDateTime) << 32) | a.ftLastWriteTime.dwLowDateTime;
+    return fields[0] != QByteArray::number(size) || fields[1] != QByteArray::number(time);
+}
+
 bool GameProcess::start(const QString& exe, QString* error, bool netMode) {
     if (isRunning()) return true;
     const QFileInfo fi(exe);
     if (exe.isEmpty() || !fi.exists()) {
-        if (error) *error = tr("Game executable not found: %1. Build the game first or set its path in Settings.")
-                                .arg(QDir::toNativeSeparators(exe));
+        if (error && !exe.isEmpty() && !paths::packagedGameFolder(gameId_).isEmpty())  // a package has it: taken
+            *error = tr("%1 is missing.").arg(fi.fileName()) + QLatin1Char(' ') + antivirusHelp(fi.fileName());
+        else if (error)
+            *error = tr("Game executable not found: %1. Build the game first or set its path in Settings.")
+                         .arg(QDir::toNativeSeparators(exe));
         return false;
     }
     if (fi.suffix().compare(QLatin1String("exe"), Qt::CaseInsensitive) == 0) {
         if (!hasGameFiles(fi.absolutePath())) {
             if (error) *error = tr("The game's files are not there yet: open Build game and extract your disc first.");
+            return false;
+        }
+        if (const QString other = otherRelease(gameId_, fi.absolutePath()); !other.isEmpty()) {
+            if (error) *error = other;
+            applog::write(QStringLiteral("game %1/%2: not started, another release in assets").arg(gameId_).arg(instance_));
             return false;
         }
         linkToolchain(fi.absolutePath());
@@ -136,6 +188,7 @@ bool GameProcess::start(const QString& exe, QString* error, bool netMode) {
     env.insert(QStringLiteral("MK3D_RESOLUTION"), cfg::resolution());
     env.insert(QStringLiteral("MK3D_VSYNC"), cfg::vsync() ? QStringLiteral("1") : QStringLiteral("0"));
     env.insert(QStringLiteral("MK3D_STRETCH_4X3"), cfg::stretch4x3() ? QStringLiteral("1") : QStringLiteral("0"));
+    env.insert(QStringLiteral("MK3D_BRIGHTNESS"), QString::number(cfg::brightness()));
     env.insert(QStringLiteral("XBE_CONTROLS"), QDir::toNativeSeparators(controls::file()));  // read again when it changes
     for (auto it = extraEnv_.cbegin(); it != extraEnv_.cend(); ++it) env.insert(it.key(), it.value());
 
@@ -144,7 +197,9 @@ bool GameProcess::start(const QString& exe, QString* error, bool netMode) {
     proc_->setWorkingDirectory(fi.absolutePath());
     proc_->setProcessChannelMode(QProcess::MergedChannels);
     QString program = fi.absoluteFilePath();
-    QStringList args;
+    QStringList args = extraArgs_;
+    // one started for online play that has to build its code first (an update) goes on once built, asking nothing
+    if (netMode) args << QStringLiteral("--autostart");
     if (fi.suffix().compare(QLatin1String("py"), Qt::CaseInsensitive) == 0) {
         program = cfg::python();
         args = {QStringLiteral("-u"), fi.absoluteFilePath()};
@@ -178,6 +233,8 @@ bool GameProcess::start(const QString& exe, QString* error, bool netMode) {
             // "An Application Control policy has blocked this file" (English Windows) or the policy reported on
             if (winutil::smartAppControl() == 1 || proc_->errorString().contains(QLatin1String("Application Control")))
                 *error += QLatin1Char('\n') + smartAppControlHelp();
+            else if (proc_->errorString().contains(QLatin1String("virus"), Qt::CaseInsensitive))  // ERROR_VIRUS_INFECTED
+                *error += QLatin1Char('\n') + antivirusHelp(fi.fileName());
         }
         // one arg() call: Windows' messages can hold a %1 of their own, which a second call would fill
         applog::write(QStringLiteral("game %1/%2: could not start %3: %4 (Smart App Control %5)")
@@ -189,7 +246,8 @@ bool GameProcess::start(const QString& exe, QString* error, bool netMode) {
     }
     winutil::gameJob().assign(proc_->processId());
     applog::write(QStringLiteral("game %1/%2: started %3 (pid %4), session %5")
-                      .arg(gameId_).arg(instance_).arg(QDir::toNativeSeparators(fi.absoluteFilePath()))
+                      .arg(gameId_).arg(instance_)
+                      .arg((QStringList{QDir::toNativeSeparators(fi.absoluteFilePath())} + args).join(QLatin1Char(' ')))
                       .arg(proc_->processId()).arg(QDir::toNativeSeparators(sessionDir_)));
     status_ = QStringLiteral("starting");
     emit statusChanged(status_);

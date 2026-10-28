@@ -62,7 +62,7 @@ class ServerConfig:
     # launcher older than it gets it in welcome, or pushed once it is announced
     update_file: str | None = None
     update_check_interval: float = 10.0
-    accept_timeout: float = 15.0
+    accept_timeout: float = 20.0
     udp_timeout: float = 10.0
     punch_timeout: float = 10.0
     ping_report_timeout: float = 15.0

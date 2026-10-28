@@ -86,6 +86,80 @@ MatchController::MatchController(ServerClient* server, QObject* parent)
 
 MatchController::~MatchController() = default;
 
+namespace {
+QString gameName(const QString& gameId) {
+    const Game* g = GameData::instance().game(gameId);
+    return !g ? gameId : g->shortName.isEmpty() ? g->title : g->shortName;
+}
+}  // namespace
+
+bool MatchController::prepareStaleCode() {
+    if (!prepQueue_.isEmpty()) return true;
+    // not a game running already (a search started first): it builds its own code, behind its own window
+    const auto running = [this](const QString& id) {
+        return (game_ && game_->isRunning() && game_->gameId() == id) || (solo_ && solo_->gameId() == id);
+    };
+    for (const Game& g : GameData::instance().games())
+        if (!running(g.id) && GameProcess::codeStale(cfg::gameExe(g.id))) prepQueue_ << g.id;
+    if (prepQueue_.isEmpty()) return false;
+    prepTotal_ = int(prepQueue_.size());
+    prepFailed_.clear();
+    log(tr("New executables: building the code again for %1").arg(prepQueue_.join(QStringLiteral(", "))));
+    prepareNext();
+    return true;
+}
+
+void MatchController::prepareNext() {
+    while (!prepQueue_.isEmpty()) {
+        const QString id = prepQueue_.first();
+        auto* g = new GameProcess(id, 1, this);
+        g->setArgs({QStringLiteral("--prepare")});
+        QString err;
+        if (!g->start(cfg::gameExe(id), &err, false)) {
+            log(tr("Preparing %1: %2").arg(gameName(id), err));
+            delete g;
+            prepFailed_ << gameName(id);
+            prepQueue_.removeFirst();
+            continue;
+        }
+        connect(g, &GameProcess::exited, this, [this, g, id](int code, bool crashed) {
+            g->deleteLater();
+            if (prepQueue_.isEmpty() || prepQueue_.first() != id) return;  // shut down meanwhile
+            prepQueue_.removeFirst();
+            if (code == 0 && !crashed) {
+                log(tr("%1 is ready for this version").arg(gameName(id)));
+            } else {
+                log(tr("Preparing %1 did not finish (exit code %2): its next start does it").arg(gameName(id)).arg(code));
+                prepFailed_ << gameName(id);
+            }
+            prepareNext();
+        });
+        const int n = prepTotal_ - int(prepQueue_.size()) + 1;
+        emit codePrepChanged(tr("Preparing %1 for this version (%2 of %3), its window shows how far it is: it can be "
+                                "played once that is done.")
+                                 .arg(gameName(id)).arg(n).arg(prepTotal_),
+                             false);
+        return;
+    }
+    emit codePrepChanged(prepFailed_.isEmpty()
+                             ? tr("The games are ready for this version.")
+                             : tr("Preparing %1 did not finish: it is done on its next start.")
+                                   .arg(prepFailed_.join(QStringLiteral(", "))),
+                         true);
+    emit gameStatusChanged(gameStatus());  // an update offer or install waiting for this goes on
+}
+
+bool MatchController::codeReady(const QString& gameId, QString* error) const {
+    if (!prepQueue_.contains(gameId)) return true;
+    if (error)
+        *error = prepQueue_.first() == gameId
+                     ? tr("%1 is being prepared for this version (its window shows how far it is): it can be played "
+                          "once that is done.").arg(gameName(gameId))
+                     : tr("%1 is prepared for this version next, after %2: it can be played once that is done.")
+                           .arg(gameName(gameId), gameName(prepQueue_.first()));
+    return false;
+}
+
 void MatchController::log(const QString& text) {
     applog::write(QStringLiteral("match: ") + text);
     emit logLine(text);
@@ -259,7 +333,7 @@ GameProcess* MatchController::ensureGame(const QString& gameId, QString* error) 
         if (error) *error = tr("Your game is still playing the last match's ending: a moment.");
         return nullptr;
     }
-    if (game_ && game_->isRunning() && game_->gameId() == gameId) {
+    if (game_ && game_->isRunning() && game_->gameId() == gameId) {  // it built its own code, if it had to
         if (gameFrozen_) {
             thawGame();
             showWhenReady_ = soloFrozen_;
@@ -267,6 +341,7 @@ GameProcess* MatchController::ensureGame(const QString& gameId, QString* error) 
         }
         return game_;
     }
+    if (!codeReady(gameId, error)) return nullptr;
     if (game_) {
         thawGame();  // a frozen game would not see its quit command
         game_->quit();
@@ -843,6 +918,7 @@ void MatchController::finishMatch() {
 // point and no match. One game runs at a time: the game waiting in the background for a match closes first, or,
 // while a search runs (standby), is frozen until a match is accepted.
 bool MatchController::startSolo(const QString& gameId, QString* error, bool practice) {
+    if (!codeReady(gameId, error)) return false;
     if (solo_) {
         if (error) *error = tr("Your single-player game is already open.");
         return false;
@@ -920,6 +996,7 @@ bool MatchController::startLocalTest(const QString& gameId, const QString& mode,
         if (error) *error = tr("Busy: %1").arg(phaseText_);
         return false;
     }
+    if (!codeReady(gameId, error)) return false;
     stopLocalTest();
     const QString exe = cfg::gameExe(gameId);
     localA_ = new GameProcess(gameId, 1, this);
@@ -1001,6 +1078,7 @@ void MatchController::stopGame() {
 }
 
 void MatchController::shutdown() {
+    prepQueue_.clear();  // a game being prepared stops with the rest, and the next start carries on
     stopLocalTest();
     if (phase_ == Phase::Searching) cancelSearch();
     thawSolo();  // frozen games would not see their quit

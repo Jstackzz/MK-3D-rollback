@@ -282,11 +282,16 @@ MainWindow::MainWindow(const LaunchOptions& opts, QWidget* parent)
     if (winutil::smartAppControl() == 1) QTimer::singleShot(400, this, &MainWindow::warnSmartAppControl);
     if (!opts_.updatedFrom.isEmpty()) {
         applog::write(QStringLiteral("update: now %1, from %2").arg(QStringLiteral(MK3D_LAUNCHER_VERSION), opts_.updatedFrom));
-        showNotice(tr("MK3D Online is now %1 (it was %2). Each game prepares its code again on its next start: a "
-                      "minute or two, then press Start.")
+        showNotice(tr("MK3D Online is now %1 (it was %2). The games you have played prepare their code for it next, "
+                      "one at a time: a minute or two each.")
                        .arg(QStringLiteral(MK3D_LAUNCHER_VERSION), opts_.updatedFrom),
                    false);
     }
+    // a game whose code an update left behind (or an update unpacked by hand) builds it now, not on its next start
+    connect(controller_, &MatchController::codePrepChanged, this, [this](const QString& text, bool) {
+        showNotice(text, false);
+    });
+    QTimer::singleShot(opts_.updatedFrom.isEmpty() ? 1500 : 6000, this, [this] { controller_->prepareStaleCode(); });
 }
 
 void MainWindow::warnSmartAppControl() {
@@ -584,6 +589,20 @@ void MainWindow::onMatchFound(const QJsonObject& found) {
                                      g ? g->characterName(req.character) : req.character, this);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     GamepadNav::keepFromBack(dlg);  // B, an attack button, never declines
+    // over the games, and in front again whenever a game window takes the front: a match found the moment the search
+    // began pops up before the match's game (or practice) opens its window, which covered it for the rest of its
+    // countdown, the controller's A going to the game
+    dlg->setWindowFlag(Qt::WindowStaysOnTopHint);
+    auto* keepFront = new QTimer(dlg);
+    keepFront->setInterval(400);
+    connect(keepFront, &QTimer::timeout, dlg, [dlg, pulls = 0]() mutable {
+        if (!dlg->isVisible() || winutil::inFront(dlg)) return;
+        const bool front = winutil::bringToFront(dlg);
+        if (++pulls <= 3)
+            applog::write(QStringLiteral("popup: Match found %1 again").arg(front ? QStringLiteral("in front")
+                                                                                 : QStringLiteral("not in front")));
+    });
+    keepFront->start();
     matchDialog_ = dlg;
     connect(dlg, &QDialog::finished, this, [this](int result) {
         if (controller_->phase() != MatchController::Phase::Found) return;
@@ -685,6 +704,7 @@ QString MainWindow::gamesBusy() const {
     if (controller_->soloRunning()) return tr("you close your single-player game (Single player, Close the game)");
     if (controller_->phase() != MatchController::Phase::Idle) return tr("this is over: %1").arg(controller_->phaseText());
     if (build_->busy()) return tr("Build game is done");
+    if (controller_->preparingCode()) return tr("the games are prepared for this version");
     return {};
 }
 

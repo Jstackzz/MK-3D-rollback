@@ -1,0 +1,95 @@
+diff --git a/runtime/app/app.h b/runtime/app/app.h
+--- a/runtime/app/app.h
++++ b/runtime/app/app.h
+@@ -26,6 +26,7 @@
+     // a title without a 16:9 layout (GameInfo::widescreen false) fills a widescreen output, stretched as it always
+     // was; false: shown 4:3 between bars
+     bool stretch_4x3 = true;
++    uint32_t brightness = 100;  // percent: a gamma curve over the title's own ramp lifts (or lowers) the mid-tones
+     std::string join_ip;                   // co-op: a host past the LAN the system link search also asks
+ };
+ 
+diff --git a/runtime/app/settings.cpp b/runtime/app/settings.cpp
+--- a/runtime/app/settings.cpp
++++ b/runtime/app/settings.cpp
+@@ -50,6 +50,7 @@
+     s.vsync = t["vsync"].value_or(s.vsync);
+     s.aniso = t["anisotropic_filtering"].value_or(s.aniso);
+     s.stretch_4x3 = t["stretch_4x3"].value_or(s.stretch_4x3);
++    s.brightness = t["brightness"].value_or(s.brightness);
+     s.join_ip = t["join_ip"].value_or(s.join_ip);
+     for (const Option& o : kGame.options) {
+         if (o.flag) *o.flag = t[o.key].value_or(*o.flag);
+@@ -70,6 +71,7 @@
+                   {"vsync", s.vsync},
+                   {"anisotropic_filtering", int64_t(s.aniso)},
+                   {"stretch_4x3", s.stretch_4x3},
++                  {"brightness", int64_t(s.brightness)},
+                   {"join_ip", s.join_ip}};
+     for (const Option& o : kGame.options) {
+         if (o.flag) t.insert(o.key, *o.flag);
+diff --git a/runtime/gpu/d3d12.cpp b/runtime/gpu/d3d12.cpp
+--- a/runtime/gpu/d3d12.cpp
++++ b/runtime/gpu/d3d12.cpp
+@@ -687,6 +687,9 @@
+     ComPtr<ID3D12Resource> lut_;
+     D3D12_RESOURCE_STATES lut_state_ = D3D12_RESOURCE_STATE_COPY_DEST;
+     uint8_t ramp_[768] = {};
++    bool ramp_set_ = false;      // the title set a ramp (else the identity)
++    bool ramp_logged_ = false;
++    uint32_t brightness_ = 100;  // the one the lut holds (app::Settings::brightness)
+     bool ramp_dirty_ = false;
+     bool gamma_ = false;
+     Target* bound_rt_ = nullptr;
+@@ -2842,16 +2845,27 @@
+     constexpr uint32_t kRampBytes = 256 * 4;  // one BGRA texel per ramp entry
+     ramp_dirty_ = false;
+     Alloc a = Upload(kRampBytes + D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
++    // the player's brightness over the title's ramp: a gamma curve, black and white stay put (100: none)
++    uint8_t curve[256];
++    for (int i = 0; i < 256; i++)
++        curve[i] = brightness_ == 100 ? uint8_t(i)
++                                      : uint8_t(std::lround(255.0 * std::pow(i / 255.0, 100.0 / brightness_)));
+     bool identity = true;
+     for (int i = 0; i < 256; i++) {
++        const uint8_t r = curve[ramp_set_ ? ramp_[kRampRed + i] : i], g = curve[ramp_set_ ? ramp_[kRampGreen + i] : i],
++                      b = curve[ramp_set_ ? ramp_[kRampBlue + i] : i];
+         uint8_t* p = a.cpu + i * 4;
+-        p[0] = ramp_[kRampBlue + i];
+-        p[1] = ramp_[kRampGreen + i];
+-        p[2] = ramp_[kRampRed + i];
++        p[0] = b;
++        p[1] = g;
++        p[2] = r;
+         p[3] = 255;
+-        identity &= ramp_[kRampRed + i] == i && ramp_[kRampGreen + i] == i && ramp_[kRampBlue + i] == i;
++        identity &= r == i && g == i && b == i;
+     }
+     gamma_ = !identity;
++    if (!ramp_logged_ && ramp_set_) {
++        ramp_logged_ = true;
++        LOGR("gpu: the title set a gamma ramp (mid-grey 128 -> %u)", ramp_[kRampGreen + 128]);
++    }
+     Transition(lut_.Get(), lut_state_, D3D12_RESOURCE_STATE_COPY_DEST);
+     D3D12_TEXTURE_COPY_LOCATION dl{lut_.Get(), D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX};
+     D3D12_TEXTURE_COPY_LOCATION sl{a.res, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT};
+@@ -3015,6 +3029,11 @@
+ }
+ 
+ void D3D12Backend::ApplySettings() {
++    if (const uint32_t b = std::clamp<uint32_t>(app::Get().brightness, 50, 200); b != brightness_) {
++        brightness_ = b;
++        ramp_dirty_ = true;  // the next present makes the lut again
++        LOGR("gpu: brightness %u%%", b);
++    }
+     float want = app::RenderScale(guest_h_);
+     bool remake = ext_ && ext_->Settings();
+     if (std::fabs(want - scale_) > 1e-4f || remake) {
+@@ -3313,6 +3332,7 @@
+ 
+ void D3D12Backend::SetGamma(const uint8_t* ramp) {
+     std::memcpy(ramp_, ramp, sizeof(ramp_));
++    ramp_set_ = true;
+     ramp_dirty_ = true;
+ }
+ 

@@ -45,7 +45,7 @@ fingerprint at start-up. Useful options:
 | `--admins a,b` | accounts allowed to broadcast notices (`python -m server.client notice ...`) |
 | `--min-client 0.1.0` | refuse older launchers |
 | `--allow-same-ip` | let ranked pair two players behind one public IP (LAN events, testing) |
-| `--accept-timeout 15` | seconds to accept a found match |
+| `--accept-timeout 20` | seconds to accept a found match |
 | `--upnp` | open the server's TCP and UDP ports on this network's router (a server on a home PC; `tools/host-server.ps1` passes it) |
 | `--no-relay` | cancel a match whose players cannot reach each other instead of relaying it through the server |
 | `--relay-only` | development: relay every match (tests the relay on one PC; `tools/online-e2e.ps1 -Relay`) |
@@ -134,16 +134,19 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    shows the presented one and asks whether to trust it. Set each game's
    folder and executable (defaults: `games\<game>` and the executable in it
    beside the launcher of a player package, else `recomp/<game>` and
-   `recomp/<game>/out/build/release/<MKD|MKA|MKDA>.exe`), input delay (0-4),
+   `recomp/<game>/out/build/release/<MKD|MKA|MKDA>.exe`), input delay (0-4, 1
+   unless changed; a match takes the larger of the two players'),
    region, max ping, the game UDP port (default 7001), *Hide my IP address
    from opponents* (cfg `online/hide_ip`: `relay` in `queue_join` and
    `lobby_ready`, PROTOCOL.md 1.7) and the display (window
-   mode, resolution, v-sync, *Stretch Deadly Alliance to fill the screen*
+   mode, resolution, v-sync, *Brightness* (`display/brightness`, 100 % unless
+   changed: the runtime's `brightness`, a gamma curve over the game's own ramp,
+   blacks and whites kept), *Stretch Deadly Alliance to fill the screen*
    (`display/stretch_4x3`, on unless unticked; the runtime's `stretch_4x3` for a
    game with no 16:9 layout, else 4:3 between bars): borderless at the
    monitor's own resolution unless changed; a game takes them over its
    `settings.toml` when it starts, through `MK3D_DISPLAY`, `MK3D_RESOLUTION`,
-   `MK3D_VSYNC` and `MK3D_STRETCH_4X3`). A
+   `MK3D_VSYNC`, `MK3D_BRIGHTNESS` and `MK3D_STRETCH_4X3`). A
    `defaults.ini` beside the launcher (a player package's server) supplies
    any setting the settings file does not have.
 2. **Sign in** (top right): create an account or sign in; "remember me" keeps
@@ -158,7 +161,10 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    default) the launcher sends no fighter and the player picks in the game when
    the match starts (docs/PROTOCOL.md 3.3). The game is
    started in the background and boots to its hold point while you search.
-   When a match is found you have 15 s to accept; then the launcher punches
+   When a match is found you have 20 s to accept (the MATCH FOUND window stays
+   on top, and takes the front back when a game window opens over it: the
+   match's game starting the moment a waiting player's search began did); then
+   the launcher punches
    the opponent on the game port, measures the ping, writes the `start` line
    into the game's `cmd.txt`, reports the result the game writes to
    `status.txt`, and parks the game again. *Your record* shows the wins and
@@ -206,13 +212,20 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    BUILD*. The launcher reads the image's Xbox file system itself
    (`src/Xiso.cpp`, the reader `tools/py/xiso.py` also is: an XISO or a whole
    disc dump, no Python), checks the disc's `default.xbe` against the release
-   the build is made for (`xbe_sha1` in `launcher/data/<game>.json`; another
-   release asks first) and the free space, extracts into `<game
+   the build is made for (`xbe_sha1` in `launcher/data/<game>.json`) and the
+   free space, extracts into `<game
    folder>/assets` on a worker thread with a progress bar, then starts the
    game once so it compiles its code library (*Launch once to compile* does
    that again by hand). Before any game start, a player package's
    `toolchain\` (clang and lld, kept once) is hard-linked into the game's
-   compiler folder, and a game without its files is not started.
+   compiler folder, and a game without its files is not started. Another
+   release (`Game::otherRelease`: the xbe's header time stamp and certificate
+   title ID, region and version against `xbe_time` / `xbe_version` /
+   `title_id`) is named for the player (an earlier or later print, the PAL or
+   Japanese release, another game) and neither extracted nor started: its code
+   is laid out differently, so the game would crash. A modified copy of the
+   right release (the same header time stamp) asks before extracting and
+   starts.
 9. **Controls**: which keys press each button of the original Xbox controller
    (two at most; click one and press the new key, Esc cancels, *No key*
    clears it; a key given to another button leaves the one that had it) and
@@ -285,9 +298,16 @@ stopped it. Then the new launcher starts with `--updated <old version>
 settings' instance lock, says what it is now, and deletes the files listed in
 `update\old-files.txt` once they are free (at every start, retried for 20 s
 after an update). Only the release's files change: settings, saves, sessions,
-the disc images and the games' built code stay, and each game rebuilds its
-code on its next start (its own window, then Start). A source build, or a
-folder the launcher cannot write to, only links to the release page.
+the disc images and the games' built code stay. At every start the launcher
+looks for games whose code no longer matches their executable
+(`GameProcess::codeStale`: `compiler\work\<EXE>\built.txt` against the
+executable's size and time) and has each build it again, one at a time, with
+the game's `--prepare` (its own progress window, no Start page; exit code 0
+once ready), so the next match or single player finds it ready; meanwhile that
+game does not start (`MatchController::prepareStaleCode`). A game the launcher
+starts for online play goes on by itself once its code is built
+(`--autostart`). A source build, or a folder the launcher cannot write to, only
+links to the release page.
 
 Making a release that installs itself: `tools\package.ps1 -Build`, publish
 the zip on GitHub as `MK3D-Online-<version>-windows.zip` under the tag

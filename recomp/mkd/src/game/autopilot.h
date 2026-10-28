@@ -22,6 +22,9 @@ int LocalPickPort();
 
 // still pressing buttons
 bool Active();
+// every character's every move open, Shujinko's Konquest-learned specials and fatalities included (online matches
+// and practice, once unlocked): the move gate's override below answers yes for them all
+bool MovesOpen();
 // called from the pad hook for every controller read
 void Apply(int port, input::Pad& pad);
 

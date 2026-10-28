@@ -1,6 +1,7 @@
 #pragma once
 // Games, modes and rosters from the bundled launcher/data/<game>.json files.
 
+#include <QByteArray>
 #include <QHash>
 #include <QList>
 #include <QPair>
@@ -35,6 +36,8 @@ struct Game {
     QString titleId;
     QString defaultExe;
     QString xbeSha1;  // the default.xbe this build is made from
+    quint32 xbeTime = 0;     // its header's time stamp: every build of the game has its own
+    quint32 xbeVersion = 0;  // its certificate's version: a later print of the game has a higher one
     QString notes;
     QList<GameMode> modes;
     QHash<QString, QList<Character>> rosters;
@@ -44,6 +47,10 @@ struct Game {
     QList<GameMode> onlineModes() const;
     QList<Character> roster(const QString& modeId) const;
     QString characterName(const QString& characterId) const;
+    // what a disc's default.xbe is, when not the one this build is made from (empty when it is): another game, region
+    // or print, which the game would crash with (its code is laid out differently), or a modified copy of the right
+    // release (`modified` set: the same build of the game, patched), which may work. For the player.
+    QString otherRelease(const QByteArray& xbe, bool* modified = nullptr) const;
 };
 
 class GameData {

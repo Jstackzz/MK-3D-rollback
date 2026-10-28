@@ -44,8 +44,10 @@ says so, with what is new: press UPDATE NOW (or LATER: the footer's UPDATE
 button brings it back). The launcher downloads it, checks it is exactly the
 release that was published, puts it in place and starts again. It waits until
 your match is over and you close any game you are playing. Your settings,
-saves, built games and disc images stay; each game prepares its code again on
-its next start (a minute or two, then press Start).
+saves, built games and disc images stay. Each game you have built prepares its
+code for the new version right after, one at a time, each in its own small
+window (seconds to a minute or two); a game can be played once its turn is
+done, and the launcher says so.
 
 
 Build a game (once for each game)
@@ -231,12 +233,15 @@ options can move them, and online Armageddon plays with its default one.
 Settings
 --------
 
-The Settings page has the server address, region, maximum ping, input delay, the
+The Settings page has the server address, region, maximum ping, input delay (1
+frame unless you change it: rollback covers the rest of a match's ping), the
 game's UDP port, and the display: borderless (fills the screen), fullscreen or
-a window, the resolution (Desktop is your monitor's own), v-sync, and whether
-Deadly Alliance (which has no widescreen mode) is stretched to fill a widescreen
-monitor, as it is unless you untick it, or keeps its original 4:3 shape with
-black bars at the sides. A game takes them when it starts.
+a window, the resolution (Desktop is your monitor's own), v-sync, brightness
+(100 % is the picture as the game draws it; more lifts the dark tones, blacks
+and whites stay), and whether Deadly Alliance (which has no widescreen mode) is
+stretched to fill a widescreen monitor, as it is unless you untick it, or keeps
+its original 4:3 shape with black bars at the sides. A game takes them when it
+starts.
 
 
 When something goes wrong
@@ -252,8 +257,18 @@ When something goes wrong
   App Control settings; on some versions of Windows 11 it can only be switched
   back on by resetting Windows, so that choice is yours.
 - "The game's files are not there yet": build that game first (Build game).
-- The launcher or the game says the disc is a different release: it is not one of
-  the releases above.
+- The launcher says the disc is a different release (an earlier print, the PAL
+  or Japanese release, another game): it names what your disc is. Each game
+  here is built from one release only, the one listed above; another release's
+  code is laid out differently, so the game would crash with it. Extract a disc
+  image of the listed release over it (Build game). A modified copy of the right
+  release (patched for a modded console) may work: the launcher asks.
+- Windows Security (or another antivirus) reports a threat in a game's files, or
+  a game stops at start saying its code was blocked or removed: a false alarm.
+  Every PC builds its own copy of each game's code (MKD.dll and the others) and
+  a new release brings new files, so no antivirus has seen them before. Open
+  Windows Security > Virus & threat protection > Protection history, pick the
+  entry, choose Actions > Restore (or Allow on device), then start again.
 - "This is not an Xbox disc image": the .iso is a broken or padded conversion
   without the Xbox file system (some downloads carry one beside the good image).
   Use the XISO version of the disc, often named .xiso.iso.

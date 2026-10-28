@@ -117,13 +117,15 @@ bool strict() { return get(QStringLiteral("online/strict"), false).toBool(); }
 bool pickInGame() { return get(QStringLiteral("online/pick_in_game"), true).toBool(); }
 bool practiceWhileWaiting() { return get(QStringLiteral("online/practice_while_waiting"), true).toBool(); }
 bool deathTraps() { return get(QStringLiteral("online/death_traps"), true).toBool(); }
-int inputDelay() { return qBound(0, get(QStringLiteral("online/delay"), 2).toInt(), 4); }
+// 1 frame unless changed: rollback covers the rest of a match's ping, and every frame of it is felt
+int inputDelay() { return qBound(0, get(QStringLiteral("online/delay"), 1).toInt(), 4); }
 int gamePort() { return get(QStringLiteral("online/game_port"), 7001).toInt(); }
 // as a game the launcher does not start: borderless at the monitor's own resolution
 QString displayMode() { return get(QStringLiteral("display/mode"), QStringLiteral("borderless")).toString(); }
 QString resolution() { return get(QStringLiteral("display/resolution"), QStringLiteral("desktop")).toString(); }
 bool vsync() { return get(QStringLiteral("display/vsync"), true).toBool(); }
 bool stretch4x3() { return get(QStringLiteral("display/stretch_4x3"), true).toBool(); }
+int brightness() { return qBound(50, get(QStringLiteral("display/brightness"), 100).toInt(), 200); }
 bool udpLoopback() { return get(QStringLiteral("dev/udp_loopback"), false).toBool(); }
 bool upnp() { return get(QStringLiteral("online/upnp"), true).toBool(); }
 bool hideIp() { return get(QStringLiteral("online/hide_ip"), false).toBool(); }

@@ -1,0 +1,65 @@
+diff --git a/runtime/gpu/d3d12.cpp b/runtime/gpu/d3d12.cpp
+--- a/runtime/gpu/d3d12.cpp
++++ b/runtime/gpu/d3d12.cpp
+@@ -635,6 +635,11 @@
+     ComPtr<ID3D12Device> dev_;
+     ComPtr<ID3D12CommandQueue> queue_;
+     ComPtr<IDXGISwapChain3> swap_;
++    HANDLE latency_ = nullptr;  // signalled once the swap chain takes another frame (SetMaximumFrameLatency(1))
++    UINT SwapFlags() const {
++        return DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT | (tearing_ ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0);
++    }
++    void WaitForDisplay(HRESULT presented);
+     ComPtr<ID3D12Resource> bb_[kFrames];
+     ComPtr<ID3D12Fence> fence_;
+     HANDLE event_ = nullptr;
+@@ -795,7 +800,7 @@
+     sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+     sd.BufferCount = kFrames;
+     sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+-    sd.Flags = tearing_ ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;
++    sd.Flags = SwapFlags();
+     ComPtr<IDXGISwapChain1> sc1;
+     if (FAILED(factory_->CreateSwapChainForHwnd(queue_.Get(), hwnd, &sd, nullptr, nullptr, &sc1))) {
+         LOGE("d3d12: no swap chain");
+@@ -803,7 +808,21 @@
+     }
+     factory_->MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER);
+     sc1.As(&swap_);
++    // DXGI's default lets three presented frames wait for the display: a title paced at 60 frames a second on a
++    // display a hair slower (59.94 Hz) fills that queue within a minute, and every press then shows three refreshes
++    // late. One frame queued at most, and the next frame starts once the display took the last (WaitForDisplay).
++    if (swap_ && SUCCEEDED(swap_->SetMaximumFrameLatency(1))) latency_ = swap_->GetFrameLatencyWaitableObject();
+     return true;
++}
++
++// after a present: wait (not alertable: the title's file APCs are its own) until the swap chain takes another frame,
++// so the next frame reads its input a refresh before it is shown. Never long: a window the display does not show
++// (minimised, occluded) may not be signalled, and a match must not slow down for it.
++void D3D12Backend::WaitForDisplay(HRESULT presented) {
++    if (!latency_ || presented == DXGI_STATUS_OCCLUDED) return;
++    HWND hwnd = static_cast<HWND>(app::Window());
++    if (hwnd && (IsIconic(hwnd) || !IsWindowVisible(hwnd))) return;
++    WaitForSingleObjectEx(latency_, 25, FALSE);
+ }
+ 
+ uint32_t D3D12Backend::CreateHeap(D3D12_DESCRIPTOR_HEAP_TYPE t, uint32_t n, bool visible,
+@@ -2779,7 +2798,7 @@
+         if (f.fence) WaitFence(f.fence);
+     }
+     for (auto& b : bb_) b.Reset();
+-    swap_->ResizeBuffers(kFrames, w, h, DXGI_FORMAT_B8G8R8A8_UNORM, tearing_ ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0);
++    swap_->ResizeBuffers(kFrames, w, h, DXGI_FORMAT_B8G8R8A8_UNORM, SwapFlags());
+     CreateBackBufferViews();
+     bb_w_ = w;
+     bb_h_ = h;
+@@ -2981,7 +3000,8 @@
+     DeliverReports();
+     bool vsync = app::Get().vsync;
+     auto perf_swap = PerfClock::now();
+-    swap_->Present(vsync ? 1 : 0, !vsync && tearing_ ? DXGI_PRESENT_ALLOW_TEARING : 0);
++    HRESULT presented = swap_->Present(vsync ? 1 : 0, !vsync && tearing_ ? DXGI_PRESENT_ALLOW_TEARING : 0);
++    WaitForDisplay(presented);
+     g_perf.swap += PerfMs(perf_swap);
+ 
+     presents_++;

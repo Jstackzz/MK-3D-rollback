@@ -18,6 +18,7 @@
 
 #include "mk3d/link.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -351,7 +352,8 @@ void ApplyLauncherDisplay() {
     const char* res = std::getenv("MK3D_RESOLUTION");
     const char* vsync = std::getenv("MK3D_VSYNC");
     const char* stretch = std::getenv("MK3D_STRETCH_4X3");  // a 4:3 game (Deadly Alliance): fill the screen or not
-    if (!mode && !res && !vsync && !stretch) return;  // started by hand: the settings file alone
+    const char* bright = std::getenv("MK3D_BRIGHTNESS");    // percent, 100 as the game draws it
+    if (!mode && !res && !vsync && !stretch && !bright) return;  // started by hand: the settings file alone
     app::Settings& s = app::Get();
     if (mode) {
         if (!std::strcmp(mode, "windowed")) s.display_mode = app::DisplayMode::Windowed;
@@ -379,6 +381,7 @@ void ApplyLauncherDisplay() {
     }
     if (vsync) s.vsync = std::atoi(vsync) != 0;
     if (stretch) s.stretch_4x3 = std::atoi(stretch) != 0;
+    if (bright) s.brightness = uint32_t(std::clamp(std::atoi(bright), 50, 200));
 }
 
 }  // namespace mk3d::link

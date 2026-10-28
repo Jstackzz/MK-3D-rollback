@@ -39,6 +39,8 @@ void useDarkTitleBar(QWidget* window);
 // Windows lets only the foreground process hand the foreground over and otherwise just flashes the taskbar, so the
 // foreground window's thread input is attached to ours for the switch. True: it has the foreground now.
 bool bringToFront(QWidget* window);
+// the window has the front: the foreground window, the one keys and the launcher's controller navigation go to
+bool inFront(QWidget* window);
 // The game's window in front again (the largest visible window of that process or of one it started), so the player
 // is back in it without switching to it; false when it has none or did not get the foreground.
 bool bringProcessToFront(qint64 pid);

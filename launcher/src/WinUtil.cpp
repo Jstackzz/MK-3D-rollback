@@ -123,6 +123,10 @@ bool bringToFront(QWidget* window) {
     return front;
 }
 
+bool inFront(QWidget* window) {
+    return window && GetForegroundWindow() == reinterpret_cast<HWND>(window->winId());
+}
+
 // the process and any it started (a game that relaunched itself into another image runs on in a child)
 static std::vector<DWORD> processTree(qint64 pid) {
     std::vector<DWORD> pids{static_cast<DWORD>(pid)};

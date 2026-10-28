@@ -177,8 +177,11 @@ bool PlayersPick() { return g_req.by_player[0] || g_req.by_player[1]; }
 // Every character, alternate costume and arena, for as long as the game runs (online matches and practice): the
 // masks the checks read and the built-in ones the checks OR in and every rebuild of the masks starts from
 // (sub_001726E0), so a profile's saved unlocks (its own bits) stay its own. A costume a player picks on the select
-// screen goes to the other game with the pick (ExchangePicks).
+// screen goes to the other game with the pick (ExchangePicks). Shujinko's moves too (g_moves_open, the move gate).
+bool g_moves_open = false;
+
 void Unlock() {
+    g_moves_open = true;
     static bool told = false;  // what was open before, once: which characters, costumes and arenas this opens
     if (!told) {
         told = true;
@@ -343,6 +346,8 @@ void Select(int port, input::Pad& pad, double t) {
 }
 
 }  // namespace
+
+bool MovesOpen() { return g_moves_open; }
 
 bool Active() {
     std::lock_guard<std::mutex> lock(g_lock);

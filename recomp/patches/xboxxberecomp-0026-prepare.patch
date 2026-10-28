@@ -1,0 +1,139 @@
+diff --git a/runtime/app/app.h b/runtime/app/app.h
+--- a/runtime/app/app.h
++++ b/runtime/app/app.h
+@@ -55,8 +55,9 @@
+ bool FindGame(GameFiles& game);
+ std::string Sha1(const std::vector<uint8_t>& data);  // lower case hex
+ // the recompiled code, <exe>.dll, built from the game in assets when missing or out of date (game_code.cpp) and
+-// loaded; false after telling the player why the game cannot start, or when they chose not to start it yet
+-bool PrepareGameCode(const GameFiles& game);
++// loaded; false after telling the player why the game cannot start, or when they chose not to start it yet. `only`
++// (--prepare): built if it has to be and not loaded, true once it is ready
++bool PrepareGameCode(const GameFiles& game, bool only = false);
+ int Instance();  // --instance N on the command line, 0 without: a second copy on this PC for system link tests
+ void* Window();  // HWND
+ // boot splash: GameInfo::splash .bmp or .png beside the exe, up before the game window
+diff --git a/runtime/app/game_code.cpp b/runtime/app/game_code.cpp
+--- a/runtime/app/game_code.cpp
++++ b/runtime/app/game_code.cpp
+@@ -1,7 +1,9 @@
+ // The recompiled game code is built on the player's PC, so a release carries none of it: xbe_recomp translates each
+ // xbe of GameInfo::images to C++, clang compiles that and lld links it into <exe>.dll beside the executables, all from
+ // the compiler folder. The first start does this behind a progress window. Finished objects are kept, so a closed window
+-// or a crash loses only the files in progress and the next start carries on.
++// or a crash loses only the files in progress and the next start carries on. A new release's executables need the
++// code built again (translated, and compiled where that changed it, then linked): a front end can have that done as
++// soon as it is installed (--prepare), and a game it starts goes on once built, without asking (--autostart).
+ #ifndef WIN32_LEAN_AND_MEAN
+ #define WIN32_LEAN_AND_MEAN
+ #endif
+@@ -77,6 +79,8 @@
+ std::wstring g_failure;  // the step that failed, written by the build thread before it ends
+ HWND g_window = nullptr;
+ bool g_start = false;  // the player picked Start once the game was ready
++bool g_go_on = false;   // no Start page once ready: --prepare, or --autostart (a front end started the game)
++bool g_update = false;  // built before, for an earlier release's executables
+ bool g_delete_compiler = false;  // ticked on the ready page
+ uint64_t g_compiler_bytes = 0;
+ constexpr UINT kBuildDone = WM_APP + 1;
+@@ -528,7 +532,9 @@
+     bool ready = g_progress.stage == Stage::Ready;
+     FillBox(dc, client, kBackground);
+     SetBkMode(dc, TRANSPARENT);
+-    const wchar_t* heading = ready ? L"The game is ready." : L"Preparing the game for this PC. This only happens once.";
++    const wchar_t* preparing = g_update ? L"Preparing the game for this version. This happens once after an update."
++                                        : L"Preparing the game for this PC. This only happens once.";
++    const wchar_t* heading = ready ? L"The game is ready." : preparing;
+     DrawLine(dc, l.heading, heading, kText, DT_LEFT);
+     DrawLine(dc, l.stage, StageText(), kDim, DT_LEFT);
+     FillBox(dc, l.bar, kBarEmpty);
+@@ -642,8 +648,8 @@
+             return 0;
+         }
+         case kBuildDone:
+-            if (!wp) {
+-                CloseWindowWith(hwnd, false);  // failed or stopped; ready stays up for the player's pick
++            if (!wp || g_go_on) {
++                CloseWindowWith(hwnd, wp != 0);  // failed or stopped, or nothing to ask; else ready stays up for the pick
+                 return 0;
+             }
+             g_compiler_bytes = CompilerBytes();
+@@ -705,6 +711,18 @@
+     MessageBoxW(nullptr, text.c_str(), kGame.title, MB_ICONERROR);
+ }
+ 
++// The DLL this PC just built is new to every antivirus (each PC builds its own, from its own disc), and one may take it
++// for malware: Windows Security quarantines it, or blocks loading it. What the player can do about it.
++void ShowBlocked(const fs::path& dll) {
++    std::wstring name = dll.filename().wstring();
++    std::wstring text = L"Windows Security (or another antivirus) blocked or removed " + name +
++                        L", the game's code this PC built from your disc. That is a false alarm: each PC builds its "
++                        L"own copy of it, so no antivirus has seen the file before.\n\nTo play, open Windows Security "
++                        L"> Virus & threat protection > Protection history, pick the entry for " + name +
++                        L" and choose Actions > Restore (or Allow on device). Then start the game again.";
++    MessageBoxW(nullptr, text.c_str(), kGame.title, MB_ICONWARNING);
++}
++
+ // the build on its own thread, the window on this one; false when it failed, the player stopped it, or chose Exit
+ bool BuildWithWindow(std::vector<Target>& targets) {
+     if (std::wstring blocker = Blocker(targets); !blocker.empty()) {
+@@ -733,20 +751,39 @@
+ 
+ }  // namespace
+ 
+-bool PrepareGameCode(const GameFiles& game) {
++bool PrepareGameCode(const GameFiles& game, bool only) {
+     // one build at a time: a second copy of the game started meanwhile waits for it, then finds the DLL current
+     std::wstring mutex_name = std::wstring(kGame.name) + L"-GameCode";
+     HANDLE lock = CreateMutexW(nullptr, FALSE, mutex_name.c_str());
+     WaitForSingleObject(lock, INFINITE);
+     std::vector<Image> images = Images();
+     std::vector<Target> stale = StaleTargets(game, images);
+-    for (const Target& target : stale) LOGR("Game code: building %ls.dll", target.image->exe.c_str());
++    g_go_on = only || std::wcsstr(GetCommandLineW(), L"--autostart") != nullptr;
++    for (const Target& target : stale) {
++        std::error_code ec;
++        g_update = g_update || fs::exists(CodeDll(*target.image), ec);
++        LOGR("Game code: building %ls.dll%s", target.image->exe.c_str(), g_update ? " again (new executables)" : "");
++    }
+     bool built = stale.empty() || BuildWithWindow(stale);
+     ReleaseMutex(lock);
+     CloseHandle(lock);
+     if (!built) return false;
+-    for (const Image& image : images)
+-        if (image.xbe == IMAGE_XBE && dispatch::Load(CodeDll(image))) return true;
++    if (only) {
++        LOGR("Game code: ready");
++        return true;
++    }
++    for (const Image& image : images) {
++        if (image.xbe != IMAGE_XBE) continue;
++        if (dispatch::Load(CodeDll(image))) return true;
++        DWORD error = GetLastError();
++        std::error_code ec;
++        bool gone = !fs::exists(CodeDll(image), ec);
++        LOGE("Game code: loading %ls.dll failed (%lu%s)", image.exe.c_str(), error, gone ? ", the file is gone" : "");
++        if (gone || error == ERROR_VIRUS_INFECTED || error == ERROR_VIRUS_DELETED) {
++            ShowBlocked(CodeDll(image));
++            return false;
++        }
++    }
+     MessageBoxW(nullptr, L"The game's code could not be loaded, see the log in the logs folder.", kGame.title,
+                 MB_ICONERROR);
+     return false;
+diff --git a/runtime/app/main.cpp b/runtime/app/main.cpp
+--- a/runtime/app/main.cpp
++++ b/runtime/app/main.cpp
+@@ -268,6 +268,12 @@
+ 
+     app::GameFiles game;
+     if (!app::FindGame(game)) return 1;
++    // --prepare (a front end, once a new release is installed): the game's code built if it has to be, and no more
++    if (std::wcsstr(GetCommandLineW(), L"--prepare")) {
++        bool ready = app::PrepareGameCode(game, true);
++        logx::Flush();
++        return ready ? 0 : 1;
++    }
+     if (!app::PrepareGameCode(game)) return 1;
+ 
+     bool splash = app::OpenSplash(), handover = app::StartHandover();

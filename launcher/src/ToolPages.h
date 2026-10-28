@@ -39,7 +39,8 @@ private:
     struct WorkResult {
         bool ok = false;
         QString error;
-        QString sha1;  // of the disc's default.xbe
+        QString sha1;    // of the disc's default.xbe
+        QByteArray xbe;  // the disc's default.xbe
     };
     void refreshInfo();
     void startExtract();

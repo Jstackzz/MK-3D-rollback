@@ -7,6 +7,7 @@
 #include <QObject>
 #include <QProcess>
 #include <QString>
+#include <QStringList>
 #include <QTimer>
 
 class GameProcess : public QObject {
@@ -20,6 +21,8 @@ public:
     bool start(const QString& exe, QString* error, bool netMode = true);
     // one more environment variable for the next start (MK3D_TRAINING for practice while a search waits)
     void setEnv(const QString& name, const QString& value) { extraEnv_.insert(name, value); }
+    // more command-line arguments for the next start (--prepare)
+    void setArgs(const QStringList& args) { extraArgs_ = args; }
     // "quit" command (a plain game: its window is closed, as the player would), then kill after 5 s
     void quit();
     void kill();
@@ -42,6 +45,12 @@ public:
     // what to tell a player whose Windows blocks the games (`blocked`: it just did): Smart App Control and how to
     // switch it off
     static QString smartAppControlHelp(bool blocked = true);
+    // what to tell a player whose antivirus took a game's file (`file`, its name): a false alarm, as a new release's
+    // files and the code each PC builds for itself are new to it, and where Windows Security gives it back
+    static QString antivirusHelp(const QString& file);
+    // a game built before (its code DLL beside it) whose code no longer matches its executable, as after an update:
+    // its next start builds the code again (runtime app/game_code.cpp, compiler\work\<exe>\built.txt)
+    static bool codeStale(const QString& exe);
 
 signals:
     void statusChanged(const QString& line);
@@ -64,4 +73,5 @@ private:
     bool quitting_ = false;
     QByteArray outBuf_;
     QHash<QString, QString> extraEnv_;
+    QStringList extraArgs_;
 };

@@ -257,7 +257,7 @@ S: {"type":"queue_left","reason":"left"}
 1. **Found.**
    ```json
    S: {"type":"match_found","match":"5f2c9a01d4e3","game":"mkd","mode":"kombat","ranked":false,
-       "side":1,"accept_timeout":15,"accept_required":true,"lobby":null,"death_traps":true,
+       "side":1,"accept_timeout":20,"accept_required":true,"lobby":null,"death_traps":true,
        "opponent":{"name":"Fujin","elo":null,"region":"eu","character":"Raiden"},
        "connection":{"link":"wifi","ping":42,"estimate":null,"measured":false}}
    ```

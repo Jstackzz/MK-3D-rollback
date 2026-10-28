@@ -48,6 +48,7 @@ param(
                                  # meets only the same choice) asks for
     [int]$QuitA = 0,             # seconds into A's first match before A's game is closed, as Alt+F4 would (the
                                  # match ends for both at once: a Kasual series without a rematch, a ranked set lost)
+    [int]$Delay = 2,             # each launcher's input delay in frames (Settings > Online; players' default is 1)
     [int]$Port = 7777            # the server's TCP port (UDP Port + 1), the games' Port + 10 and + 11; the work folder
                                  # is build\online-e2e (build\online-e2e-<Port> for another port), so runs side by side
                                  # need their own
@@ -77,7 +78,7 @@ $gamesIni
 [online]
 region=eu
 max_ping=0
-delay=2
+delay=$Delay
 game_port=$($p[1])
 pick_in_game=$(if ($PickInGame -and ($p[0] -eq 'a' -or -not $MixedPicks)) { 'true' } else { 'false' })
 practice_while_waiting=$(if ($PracticeA -and $p[0] -eq 'a') { 'true' } else { 'false' })

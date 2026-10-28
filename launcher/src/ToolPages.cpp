@@ -226,6 +226,7 @@ void BuildPage::startExtract() {
             QByteArray data;
             if (!disc->read(*xbe, &data, &result->error)) return;
             result->sha1 = QString::fromLatin1(QCryptographicHash::hash(data, QCryptographicHash::Sha1).toHex());
+            result->xbe = data;
             result->ok = true;
         },
         [this, disc, result] { onDiscRead(disc, *result); });
@@ -242,15 +243,15 @@ void BuildPage::onDiscRead(const std::shared_ptr<xiso::Image>& disc, const WorkR
     totalFiles_ = disc->fileCount();
     log_->line(tr("%1 files, %2; default.xbe SHA-1 %3.").arg(totalFiles_).arg(humanBytes(totalBytes_), r.sha1));
     const Game* g = GameData::instance().game(gameId_);
-    if (g && !g->xbeSha1.isEmpty() && r.sha1.compare(g->xbeSha1, Qt::CaseInsensitive) != 0) {
-        log_->line(tr("This is not the release this build is made for (%1, %2: default.xbe SHA-1 %3).")
-                       .arg(g->title, g->edition, g->xbeSha1));
-        applog::write(QStringLiteral("build %1: another release, default.xbe SHA-1 %2").arg(gameId_, r.sha1));
-        const auto answer = QMessageBox::warning(
-            this, tr("Different release"),
-            tr("This disc is not %1 (%2), the release this build of the game is made for. The game will most "
-               "likely crash with it.\n\nExtract it anyway?").arg(g->title, g->edition),
-            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    bool modified = false;
+    if (const QString other = g ? g->otherRelease(r.xbe, &modified) : QString(); !other.isEmpty()) {
+        log_->line(other);
+        applog::write(QStringLiteral("build %1: another release, default.xbe SHA-1 %2: %3").arg(gameId_, r.sha1, other));
+        // another game, region or print never runs: it is not extracted; a patched copy of the right one may
+        const auto answer =
+            modified ? QMessageBox::warning(this, tr("Modified disc"), other + tr("\n\nExtract it anyway?"),
+                                            QMessageBox::Yes | QMessageBox::No, QMessageBox::No)
+                     : QMessageBox::warning(this, tr("Different release"), other);
         if (answer != QMessageBox::Yes) {
             finishStep();
             return;
@@ -441,6 +442,14 @@ SettingsPage::SettingsPage(ServerClient* server, QWidget* parent) : Page(parent)
                            "wider than drawn; unticked, it keeps its original 4:3 shape with black bars at the sides."));
     df->addRow(tr("Window"), mode);
     df->addRow(tr("Resolution"), res);
+    auto* brightness = new QSpinBox;
+    brightness->setRange(70, 160);
+    brightness->setSingleStep(5);
+    brightness->setSuffix(QStringLiteral(" %"));
+    brightness->setValue(cfg::brightness());
+    brightness->setToolTip(tr("Lifts (or lowers) the games' mid-tones; blacks and whites stay as they are. 100 % is "
+                              "the picture as the game draws it."));
+    df->addRow(tr("Brightness"), brightness);
     df->addRow(QString(), vsync);
     df->addRow(QString(), stretch);
     auto* displayNote = ui::label(tr("A game takes these when it starts. Desktop is your monitor's own resolution (a "
@@ -528,6 +537,7 @@ SettingsPage::SettingsPage(ServerClient* server, QWidget* parent) : Page(parent)
     });
     connect(vsync, &QCheckBox::toggled, this, [](bool on) { cfg::set(QStringLiteral("display/vsync"), on); });
     connect(stretch, &QCheckBox::toggled, this, [](bool on) { cfg::set(QStringLiteral("display/stretch_4x3"), on); });
+    connect(brightness, &QSpinBox::valueChanged, this, [](int v) { cfg::set(QStringLiteral("display/brightness"), v); });
     connect(python, &QLineEdit::editingFinished, this, [python] { cfg::set(QStringLiteral("tools/python"), python->text().trimmed()); });
     connect(repo, &QLineEdit::editingFinished, this, [repo] {
         cfg::set(QStringLiteral("tools/repo_root"), QDir::fromNativeSeparators(repo->text().trimmed()));

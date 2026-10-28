@@ -42,6 +42,7 @@ QString displayMode();
 QString resolution();
 bool vsync();
 bool stretch4x3();  // a 4:3 game (Deadly Alliance) fills a widescreen monitor (else 4:3 between bars)
+int brightness();   // percent, 100 as the games draw it
 int localTestPort(int instance);
 bool udpLoopback();  // development: matches on loopback only (one-PC tests, no firewall prompt)
 bool upnp();         // open the game UDP port on the router (UPnP)

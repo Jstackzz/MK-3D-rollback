@@ -6,6 +6,8 @@
   "title_id": "4D57000C",
   "default_exe": "MKDA.exe",
   "xbe_sha1": "5aba0b06995b2179673a9ff05bcf5d0e16a9bc57",
+  "xbe_time": 1040155440,
+  "xbe_version": 4,
   "modes": [
     {
       "id": "kombat",

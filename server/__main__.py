@@ -29,7 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="the release launchers are offered to update to (default: update.json next to the database)")
     ap.add_argument("--allow-same-ip", action="store_true",
                     help="let ranked pair two players from the same public IP (LAN events, development)")
-    ap.add_argument("--accept-timeout", type=float, default=15.0, help="seconds to accept a found match")
+    ap.add_argument("--accept-timeout", type=float, default=20.0, help="seconds to accept a found match")
     ap.add_argument("--no-relay", action="store_true",
                     help="cancel a match whose players cannot reach each other instead of relaying it")
     ap.add_argument("--upnp", action="store_true",
