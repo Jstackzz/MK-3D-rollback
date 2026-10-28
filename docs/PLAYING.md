@@ -78,7 +78,9 @@ whether to trust it: compare it with your host's.
   the game's own select screen" ticked (the default) you choose your fighter in
   the game when the match starts, with your own controller, while your opponent
   does the same on their PC; the game shows their pick once they made it. Untick
-  it to choose your fighter in the launcher instead. Your record (wins, losses,
+  it to choose your fighter in the launcher instead. Puzzle Kombat's fighter is
+  picked the same way, and Chess Kombat's team (leader, champion, sorcerer,
+  shifter, grunt) always on the game's own select screen. Your record (wins, losses,
   and Elo in Ranked) is on the right of the page. When a match is found, its
   ACCEPT window comes up over the game; once you accept, you are back in the
   game.
@@ -99,16 +101,19 @@ whether to trust it: compare it with your host's.
   the two games breaks instead, the match does not count and the series ends.
 - Lobby, to play someone you know: one of you presses Create lobby and gives the
   other the 5-letter code; the other presses Join code and types it. Both choose
-  a fighter (or "Pick in the game") and press Ready, then the host presses START.
-  After every lobby match the launcher comes back in front on the Lobby page with
+  a fighter (or "Pick in the game") and press Ready. Once both are ready the
+  match starts by itself after a 3-2-1 countdown (un-ready to stop it). After
+  every lobby match the launcher comes back in front on the Lobby page with
   Ready highlighted: press A on a controller (or START anywhere on the Lobby
   page) to ready up for the next one.
   If your connection drops, sign back in within a minute (the launcher does it
   by itself) and you are put back in your lobby.
 - Watching a lobby: select it in the list and press Watch selected (or join it,
-  then press Watch). Each match its host starts plays in your own game, a moment
+  then press Watch). Each of its matches plays in your own game, a moment
   behind the players, select screen and ending included; a match already under
-  way is caught up from its start, fast. Up to eight people can watch a lobby.
+  way is caught up from its start, fast, and one that ends early (a player left)
+  is dropped. If your connection drops for a moment, your game keeps watching.
+  Up to eight people can watch a lobby.
   Press Play to take a free place to play between matches, Watch to step aside.
 - Death traps: the arenas' death traps (Deception and Armageddon: the Dead
   Pool's acid, the Lower Mines' spikes and the others) kill on the spot. The

@@ -177,12 +177,22 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    point, and *Leave set* asks first when leaving would lose the set.
 5. **Lobby**: create (optional password, best of 1/3/5, death traps), join from
    the list or by 5-letter code, pick a fighter (or *Pick in the game*), chat,
-   *Ready*; the host starts, and switches the lobby's death traps between
-   matches (the box under its name, `lobby_settings`; both ready again). *Watch selected* (or *Watch* in the lobby) makes
-   you a spectator: each lobby match plays in your game from both players'
-   feeds (docs/PROTOCOL.md 1.10.1; `FeedLink` passes them between game and
-   server: a player's game writes to a TCP port of the launcher's on
-   127.0.0.1, a spectator's reads from one). *Play* takes a free place again.
+   *Ready*: both players ready start the match after the server's 3-2-1
+   countdown (`starts_in`, shown under the controls; no START). The host
+   switches the lobby's death traps between matches (the box under its name,
+   `lobby_settings`; both ready again). *Watch selected* (or *Watch* in the
+   lobby) makes you a spectator: each lobby match plays in your game from both
+   players' feeds (docs/PROTOCOL.md 1.10.1; `FeedLink` passes them between game
+   and server: a player's game writes to a TCP port of the launcher's on
+   127.0.0.1, a spectator's reads from one). A watched match that ends early
+   (`spectate_end` not `agreed`) is dropped from what waits to be watched, and
+   one being set up parks its game after 15 s if the game is not in it (the
+   players' games may never have met: the watching game would wait for that
+   meeting for two minutes); a game reports `starting` once it took a start, so
+   the next one is never sent into it. A spectator whose connection drops keeps
+   watching: the server puts them back in the lobby at the next login within
+   60 s and sends the feed again (the page waits 70 s before it stops the
+   watching). *Play* takes a free place again.
 6. **Single player**: *PLAY* starts the game plainly (no `MK3D_NET`), so it
    runs its own menus as on the console, its practice mode included;
    *PRACTICE* starts it with `MK3D_TRAINING=1` (below), straight to practice's
@@ -338,7 +348,7 @@ Command-line options for development and automation:
 | `--leave-series` | once those are chosen, leave the series at once instead of letting its time run out |
 | `--solo` | with `--queue`: start single player first and search alongside it, standby (`tools/online-e2e.ps1 -StandbyA`) |
 | `--practice on\|off` | practice while a search waits, saved like the queue pages' box (`tools/online-e2e.ps1 -PracticeA` writes it into launcher A's ini) |
-| `--lobby host\|join\|watch --lobby-name NAME --game mkd --mode kombat --character Scorpion` | host a lobby of that name and start its match once both are ready, join it by name and mark ready, or watch it as a spectator (`tools/online-e2e.ps1 -Watch`) |
+| `--lobby host\|join\|watch --lobby-name NAME --game mkd --mode kombat --character Scorpion` | host a lobby of that name and mark ready (its match starts by itself once both are), join it by name and mark ready, or watch it as a spectator (`tools/online-e2e.ps1 -Watch`) |
 | `--death-traps on\|off` | the arenas' death traps this player searches for or hosts, saved like the Kasual page's box (`tools/online-e2e.ps1 -DeathTraps`) |
 | `--page ranked\|casual\|lobby\|single\|leaderboard\|build\|controls\|settings` | start page (`practice`, its old name, opens `single`) |
 | `--local-test` | start the two-instance loopback test |

@@ -208,45 +208,83 @@ void UnlockForPractice() {
 // controller (the pads route it to that side's port, LocalPickPort), and the pick (character, costume flags) goes to
 // the other game with the HELLOs (net::SetLocalPick); the other side waits for the other player's pick, then the
 // autopilot makes it and sets the same costume flags. A spectator's game waits for both players' picks that way.
+// Puzzle Kombat's fighter goes the same way. Chess Kombat's pick is a whole team (leader, champion, sorcerer,
+// shifter, grunt), sent once complete: the other side's team is filled only then, from its leader on (each game keeps
+// its own side's team, and the meeting point gives each game the other's: netgame Agree).
 constexpr int kWaitPick = -2;            // characters[]: the other player has not picked yet
 constexpr double kPlayerPickTime = 75;   // seconds this PC's player has, then the autopilot takes the cursor's
+constexpr double kPlayerTeamTime = 180;  // the same for a Chess Kombat team
 constexpr uint32_t kRecordCharacter = 0x54, kRecordCostume = 0x14;
 bool g_local_pick_sent = false;
 bool g_local_forced = false;             // the time ran out: the autopilot picks for this PC's player
 bool g_costume_due[2] = {};              // a player's costume flags from their game, set once the autopilot picked
 uint32_t g_their_costume[2] = {};
+uint32_t g_their_team[2][5] = {};        // a player's Chess Kombat team from their game, in the order they picked it
+bool g_their_team_in[2] = {};
 
 void ResetPlayerPicks() {
     g_local_pick_sent = g_local_forced = false;
     g_costume_due[0] = g_costume_due[1] = false;
+    g_their_team_in[0] = g_their_team_in[1] = false;
     for (int i = 0; i < 2; i++)
         if (g_req.by_player[i]) g_req.characters[i] = i == g_req.local_side ? -1 : kWaitPick;
 }
 
 bool Picked(int side) { return kernel::R32(kRecord[side] + 8) == 2; }
 
+// Chess Kombat's team select (the grid kind; Puzzle Kombat's is 2)
+bool ChessSelect() { return kernel::R32(kGridKind) == 1; }
+
+bool ChessTeamFull(int port);
+
+// what this PC's player picked, for the other game: a fighter and its costume flags, or a Chess Kombat team
+int LocalPickWords(int me, uint32_t* words) {
+    if (ChessSelect()) {
+        const uint32_t block = ChessTeams();
+        for (uint32_t i = 0; i < 5; i++) words[i] = block ? kernel::R32(block + (me ? 0x2C : 0xC) + 4 * i) : kChessEmpty;
+        return 5;
+    }
+    words[0] = kernel::R32(kRecord[me] + kRecordCharacter);
+    words[1] = kernel::R32(kRecord[me] + kRecordCostume);
+    return 2;
+}
+
 // this PC's player's pick, once made, to the other game; the other player's (a spectator's game: both players'),
 // once it came, to the autopilot
 void ExchangePicks(double t) {
     const int me = g_req.local_side;
     if (me < 0 && !g_req.watch) return;
-    if (me >= 0 && g_req.by_player[me] && !g_local_pick_sent && Picked(me)) {
-        const uint32_t words[2] = {kernel::R32(kRecord[me] + kRecordCharacter), kernel::R32(kRecord[me] + kRecordCostume)};
-        mk3d::net::SetLocalPick(words, 2);
+    const bool chess = ChessSelect();
+    if (me >= 0 && g_req.by_player[me] && !g_local_pick_sent && (Picked(me) || (chess && ChessTeamFull(me)))) {
+        uint32_t words[5] = {};
+        const int n = LocalPickWords(me, words);
+        mk3d::net::SetLocalPick(words, n);
         g_local_pick_sent = true;
-        LOGR("autopilot: this player picked character %u, costume flags %X", words[0], words[1]);
+        if (chess)
+            LOGR("autopilot: this player's team %u %u %u %u %u", words[0], words[1], words[2], words[3], words[4]);
+        else
+            LOGR("autopilot: this player picked character %u, costume flags %X", words[0], words[1]);
     }
-    if (me >= 0 && g_req.by_player[me] && !g_local_forced && !g_local_pick_sent && t > kPlayerPickTime) {
+    const double pick_time = chess ? kPlayerTeamTime : kPlayerPickTime;
+    if (me >= 0 && g_req.by_player[me] && !g_local_forced && !g_local_pick_sent && t > pick_time) {
         g_local_forced = true;
-        LOGI("autopilot: no pick after %.0f s: this player gets the cursor's", kPlayerPickTime);
+        LOGI("autopilot: no pick after %.0f s: this player gets the cursor's", pick_time);
     }
     for (int other = 0; other < 2; other++) {
         if (other == me) continue;
         if (g_req.by_player[other] && g_req.characters[other] == kWaitPick) {
-            uint32_t words[4] = {};
-            int n = 4;
+            uint32_t words[8] = {};
+            int n = 8;
             const bool in = g_req.watch ? mk3d::net::WatchPick(other, words, n) : mk3d::net::PeerPick(words, n);
-            if (in && n > 0 && SlotOf(int(words[0])) >= 0) {
+            if (in && n >= 5 && chess) {
+                // picked again here place by place as that player did: the select screen ends as theirs did (the
+                // player record keeps the last pick, which the state checks read)
+                for (int i = 0; i < 5; i++) g_their_team[other][i] = words[i];
+                g_their_team_in[other] = true;
+                g_req.characters[other] = int(words[0]);
+                LOGR("autopilot: P%d's team %u %u %u %u %u", other + 1, words[0], words[1], words[2], words[3],
+                     words[4]);
+            } else if (in && n > 0 && SlotOf(int(words[0])) >= 0) {
                 g_req.characters[other] = int(words[0]);
                 g_their_costume[other] = n > 1 ? words[1] : 0;
                 g_costume_due[other] = true;
@@ -300,6 +338,16 @@ void ChessDecide(int port, ChessPort& c) {
         return;
     }
     int cur = int(kernel::R32(kCursor[port]));
+    if (g_their_team_in[port]) {  // the other player's team: its first place still empty, as they picked it
+        const uint32_t block = ChessTeams();
+        int place = 0;
+        while (place < 5 && block && kernel::R32(block + (port ? 0x2C : 0xC) + 4 * uint32_t(place)) != kChessEmpty)
+            place++;
+        const int target = place < 5 ? SlotOf(int(g_their_team[port][place])) : -1;
+        if (target >= 0 && cur != target) c.buttons = Steer(cur, target, 8);
+        else c.a = 0xFF;
+        return;
+    }
     if (!c.leader) {
         int target = g_req.characters[port] >= 0 ? SlotOf(g_req.characters[port]) : -1;
         if (target >= 0 && cur != target) {
@@ -392,7 +440,9 @@ int LocalPickPort() {
     std::lock_guard<std::mutex> lock(g_lock);
     const int me = g_req.local_side;
     if (g_phase != Phase::Select || me < 0 || !g_req.by_player[me] || g_local_forced || Since() < 1.5) return -1;
-    if (kernel::R32(kMainTask) != kSelectTask || Picked(me)) return -1;  // not up, or picked
+    // Kombat's select screen, Puzzle Kombat's, Chess Kombat's team select
+    const uint32_t task = kernel::R32(kMainTask);
+    if ((task != kSelectTask && task != kPuzzleSelectTask && task != kChessSelectTask) || Picked(me)) return -1;
     return me;
 }
 
@@ -466,17 +516,22 @@ void Apply(int port, input::Pad& pad) {
                 return;
             }
             if (g_hold_at_select) return;
-            // players picking on the select screen may take their time (75 s each, after that their cursor's)
-            if (FightSetups() > g_base_fights || MatchStarts() > g_base_matches || t > (PlayersPick() ? 240 : 90)) {
+            // players picking on the select screen may take their time (75 s each, after that their cursor's; a
+            // Chess Kombat team 180 s)
+            const double limit = !PlayersPick() ? 90 : ChessSelect() ? 300 : 240;
+            if (FightSetups() > g_base_fights || MatchStarts() > g_base_matches || t > limit) {
                 Enter(Phase::Done);
                 return;
             }
             if (t < 1.5) return;  // the select screen fades in
             if (g_req.unlock_all) Unlock();
             if (port == 0) ExchangePicks(t);
-            if (kernel::R32(kGridKind) == 1 && port <= 1) {
+            if (ChessSelect() && port <= 1) {
                 ChessPort& c = g_chess[port];
                 pad.connected = true;
+                // this PC's player builds their own team; the other player's side is filled once theirs is complete
+                if (port == g_req.local_side && g_req.by_player[port] && !g_local_forced) return;
+                if (g_req.characters[port] == kWaitPick) return;
                 long cycle = long(t / 0.25);
                 if (cycle != c.cycle) {
                     c.cycle = cycle;

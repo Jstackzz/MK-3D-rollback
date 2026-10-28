@@ -181,6 +181,9 @@ void Start(const Command& c) {
     LOGR("link: start %s (%s vs %s), match %s, %s%s", mode.c_str(), picks[0].c_str(), picks[1].c_str(),
          g_match.c_str(), watch ? "watching" : g_online ? "online" : "offline",
          start.death_traps ? "" : ", no death traps");
+    // off the hold point from now on: a launcher still reading "ready" until the fight began would send its next
+    // start (a spectator's next match) into this one
+    WriteStatus("starting match=" + g_match);
 }
 
 void Rematch(const Command& c) {

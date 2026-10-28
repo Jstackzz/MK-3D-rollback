@@ -63,6 +63,7 @@ class ServerConfig:
     update_file: str | None = None
     update_check_interval: float = 10.0
     accept_timeout: float = 20.0
+    lobby_countdown: float = 3.0  # both players of a lobby ready: its match starts this long after, by itself
     udp_timeout: float = 10.0
     punch_timeout: float = 10.0
     ping_report_timeout: float = 15.0
@@ -290,6 +291,8 @@ class Lobby:
     death_traps: bool = True
     max_spectators: int = 8
     feed: Feed | None = None  # the spectator feed of the lobby's last match
+    starts_at: float | None = None  # both players ready: the match starts by itself then (the 3-2-1 countdown)
+    countdown: int = 0  # the countdowns begun, so a called-off one's timer does nothing
 
     @property
     def state(self) -> str:
@@ -323,6 +326,7 @@ class Lobby:
             "region": self.region, "rounds": self.rounds, "locked": bool(self.password), "state": self.state,
             "death_traps": self.death_traps, "max_spectators": self.max_spectators,
             "match": self.match.id if self.match is not None else None,
+            "starts_in": round(max(0.0, self.starts_at - time.time()), 2) if self.starts_at is not None else None,
             "members": [
                 {"name": m.session.name, "character": m.character, "ready": m.ready, "host": m.session is self.host,
                  "spectator": m.spectator, "link": m.link or None, "ping": m.server_rtt}
@@ -609,6 +613,8 @@ class Server:
             del self.feeds[feed.match]
             if feed.lobby.feed is feed:
                 feed.lobby.feed = None
+        for lobby in [lb for lb in self.lobbies.values() if lb.starts_at is not None and lb.starts_at <= now]:
+            self._lobby_countdown_due(lobby)  # a countdown its timer missed
         self._run_matchmaking(now)
         self._push_online(now)
         self._push_update(now)
@@ -1745,12 +1751,45 @@ class Server:
                 return code
 
     def _broadcast_lobby(self, lobby: Lobby, reply_to: tuple[Session, dict[str, Any]] | None = None) -> None:
+        self._lobby_countdown(lobby)
         state = lobby.full_state()
         for member in lobby.members:
             out = {"type": "lobby", "lobby": state}
             if reply_to is not None and member.session is reply_to[0] and "id" in reply_to[1]:
                 out["id"] = reply_to[1]["id"]
             member.session.send(out)
+
+    def _lobby_countdown(self, lobby: Lobby) -> None:
+        """Both players ready and no match: it starts by itself once a 3-2-1 countdown has run, which anything that
+        clears a ready (a player un-readying, a new fighter, a role or settings change) or takes a player away calls
+        off. Run before every lobby state goes out, so the state carries it."""
+        players = lobby.players()
+        both = lobby.match is None and len(players) == 2 and all(m.ready for m in players)
+        if both and lobby.starts_at is None:
+            lobby.starts_at = time.time() + self.cfg.lobby_countdown
+            lobby.countdown += 1
+            log.info("lobby %s: both ready, the match starts in %g s", lobby.id, self.cfg.lobby_countdown)
+            try:
+                asyncio.get_running_loop().call_later(self.cfg.lobby_countdown, self._lobby_countdown_due, lobby,
+                                                      lobby.countdown)
+            except RuntimeError:  # no loop (a unit test calling in directly): the tick starts it
+                pass
+        elif not both and lobby.starts_at is not None:
+            lobby.starts_at = None
+            if lobby.match is None:
+                log.info("lobby %s: countdown called off", lobby.id)
+
+    def _lobby_countdown_due(self, lobby: Lobby, countdown: int | None = None) -> None:
+        if lobby.starts_at is None or (countdown is not None and countdown != lobby.countdown):
+            return
+        if self.lobbies.get(lobby.id) is not lobby:
+            lobby.starts_at = None
+            return
+        players = lobby.players()
+        if lobby.match is None and len(players) == 2 and all(m.ready for m in players):
+            self._start_lobby_match(lobby, None)
+        else:
+            self._broadcast_lobby(lobby)
 
     def _lobby_match_over(self, lobby: Lobby, m: Match) -> None:
         if lobby.match is not m:
@@ -1949,6 +1988,8 @@ class Server:
             self.lobbies.pop(lobby.id, None)
         elif lobby.host is s:
             lobby.host = (lobby.players() or lobby.members)[0].session
+            if lobby.name == f"{s.name}'s lobby":  # named after the host who left: after the one who has it now
+                lobby.name = f"{lobby.host.name}'s lobby"
         if member is None or not member.spectator:
             for other in lobby.members:
                 other.ready = False
@@ -2056,6 +2097,8 @@ class Server:
         self._broadcast_lobby(lobby, reply_to=(s, msg))
 
     def on_lobby_start(self, s: Session, msg: dict[str, Any]) -> None:
+        """The host starts the match at once, without waiting for the countdown (launchers from 0.1.11 never ask:
+        both players ready starts it)."""
         lobby = self._need_lobby(s)
         if lobby.host is not s:
             raise P.ProtocolError("not_host", "Only the host can start.")
@@ -2063,7 +2106,12 @@ class Server:
             raise P.ProtocolError("busy", "A match is already running.")
         if len(lobby.players()) < 2 or not all(m.ready for m in lobby.players()):
             raise P.ProtocolError("not_ready", "Both players must be ready.")
+        self._start_lobby_match(lobby, s.name, reply_to=(s, msg))
+
+    def _start_lobby_match(self, lobby: Lobby, by: str | None,
+                           reply_to: tuple[Session, dict[str, Any]] | None = None) -> None:
         now = time.time()
+        lobby.starts_at = None
         ordered = sorted(lobby.players(), key=lambda mem: mem.session is not lobby.host)  # a host who plays first
         players = [
             MatchPlayer(side=i + 1, account_id=mem.session.account_id or 0, name=mem.session.name or "?",
@@ -2083,8 +2131,8 @@ class Server:
                 "side": p.side, "accept_timeout": 0, "accept_required": False, "lobby": lobby.id,
                 "death_traps": m.death_traps, "opponent": self._opponent(m, m.other(p)),
             })
-        log.info("lobby %s: match %s started by %s", lobby.id, m.id, s.name)
-        self._broadcast_lobby(lobby, reply_to=(s, msg))
+        log.info("lobby %s: match %s started %s", lobby.id, m.id, f"by {by}" if by else "(both ready)")
+        self._broadcast_lobby(lobby, reply_to=reply_to)
 
     # --- leaderboard ------------------------------------------------------------------------------
 

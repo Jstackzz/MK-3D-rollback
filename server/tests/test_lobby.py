@@ -148,3 +148,48 @@ async def test_a_dropped_connection_gets_its_lobby_place_back(server, connect):
     await connect("ShaoKahn", register=False)
     await asyncio.sleep(0.2)
     assert [m.session.name for m in server.lobbies[code].members] == ["Goro"]
+
+
+async def test_lobby_starts_by_itself_once_both_are_ready(server, connect):
+    """No START: both players ready begins a countdown (the state's starts_in), un-readying calls it off, and once it
+    has run the match is found as a host's lobby_start would have it."""
+    server.cfg.lobby_countdown = 0.4
+    host, guest = await connect("Goro"), await connect("ShaoKahn")
+    code = (await host.request(create_msg()))["lobby"]["id"]
+    await guest.request({"type": "lobby_join", "lobby": code, "character": "Kenshi"})
+    first = await host.request({"type": "lobby_ready", "ready": True})
+    assert first["lobby"]["starts_in"] is None
+    state = await guest.request({"type": "lobby_ready", "ready": True})
+    assert 0 < state["lobby"]["starts_in"] <= 0.4
+
+    off = await host.request({"type": "lobby_ready", "ready": False})
+    assert off["lobby"]["starts_in"] is None
+    await asyncio.sleep(0.7)
+    assert server.lobbies[code].match is None and not host.take_all("match_found")
+
+    again = await host.request({"type": "lobby_ready", "ready": True})
+    assert again["lobby"]["starts_in"] is not None
+    fh, fg = await host.expect("match_found"), await guest.expect("match_found")
+    assert fh["match"] == fg["match"] and fh["lobby"] == code and fh["accept_required"] is False
+    assert (fh["side"], fg["side"]) == (1, 2)
+    in_match = await guest.expect("lobby", pred=lambda m: m["lobby"]["state"] == "in_match")
+    assert in_match["lobby"]["match"] == fh["match"] and in_match["lobby"]["starts_in"] is None
+
+
+async def test_a_lobby_named_after_its_host_takes_the_next_hosts_name(server, connect):
+    """The host leaves: the lobby named after them (the launcher's default) is named after the new host, so the list
+    never shows two lobbies named after one player; a lobby its host named stays as it is."""
+    host, guest = await connect("Goro"), await connect("ShaoKahn")
+    code = (await host.request(create_msg(name="Goro's lobby")))["lobby"]["id"]
+    await guest.request({"type": "lobby_join", "lobby": code, "character": "Kenshi"})
+    await host.request({"type": "lobby_leave"})
+    state = await guest.expect("lobby", pred=lambda m: len(m["lobby"]["members"]) == 1)
+    assert (state["lobby"]["host"], state["lobby"]["name"]) == ("ShaoKahn", "ShaoKahn's lobby")
+
+    third = await connect("Moloch")
+    code2 = (await third.request(create_msg(name="Friday sets")))["lobby"]["id"]
+    fourth = await connect("Kitana")
+    await fourth.request({"type": "lobby_join", "lobby": code2, "character": "Kenshi"})
+    await third.request({"type": "lobby_leave"})
+    kept = await fourth.expect("lobby", pred=lambda m: len(m["lobby"]["members"]) == 1)
+    assert (kept["lobby"]["host"], kept["lobby"]["name"]) == ("Kitana", "Friday sets")

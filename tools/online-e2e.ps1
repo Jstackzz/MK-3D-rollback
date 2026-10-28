@@ -48,6 +48,11 @@ param(
                                  # meets only the same choice) asks for
     [int]$QuitA = 0,             # seconds into A's first match before A's game is closed, as Alt+F4 would (the
                                  # match ends for both at once: a Kasual series without a rematch, a ranked set lost)
+    [int]$QuitABeforeFight = 0,  # seconds after the server starts A's match (-QuitAMatch) before A's game is closed: still at
+                                 # its select screen, the players' games never meet (a spectator must not wait for it)
+    [int]$QuitAMatch = 1,        # which of the lobby's matches -QuitABeforeFight ends (2: after one the spectator watched)
+    [int]$ServerPortC = 0,       # the spectator C's launcher connects to the server through this port (a proxy that can
+                                 # cut its connection: a dropped connection while watching); 0: the server's own
     [int]$Delay = 2,             # each launcher's input delay in frames (Settings > Online; players' default is 1)
     [int]$Port = 7777            # the server's TCP port (UDP Port + 1), the games' Port + 10 and + 11; the work folder
                                  # is build\online-e2e (build\online-e2e-<Port> for another port), so runs side by side
@@ -67,9 +72,10 @@ $fp = (Get-Content (Join-Path $root 'build\launcher-dev\mk3d-launcher.ini') | Wh
 $exePath = if ([IO.Path]::IsPathRooted($Exe)) { $Exe } else { Join-Path $root $Exe }
 $gamesIni = if ($Exe) { "[games]`r`n$Game\exe=$($exePath -replace '\\', '/')" } else { '' }
 foreach ($p in @(@('a', ($Port + 10)), @('b', ($Port + 11)), @('c', ($Port + 12)))) {
+    $serverPort = if ($p[0] -eq 'c' -and $ServerPortC) { $ServerPortC } else { $Port }
     $ini = @"
 [server]
-address=127.0.0.1:$Port
+address=127.0.0.1:$serverPort
 fingerprint=$fp
 auto_connect=true
 
@@ -148,6 +154,7 @@ $results = 0
 $watched = 0
 $inMatchA = $null
 $quit = $false
+$goAt = $null
 while (((Get-Date) - $t0).TotalSeconds -lt $Seconds) {
     foreach ($s in Get-ChildItem -Path "$work\a\sessions", "$work\b\sessions", "$work\c\sessions" -Directory -ErrorAction SilentlyContinue) {
         $f = Join-Path $s.FullName 'status.txt'
@@ -171,11 +178,19 @@ while (((Get-Date) - $t0).TotalSeconds -lt $Seconds) {
     # the server's RESULT lines count the matches done (a game's result status can last less than a poll); a ranked
     # set is done when the server closes it
     $serverLog = @(Get-Content "$work\server\err.txt", "$work\server\out.txt" -ErrorAction SilentlyContinue)
+    if ($QuitABeforeFight -gt 0 -and -not $goAt -and @($serverLog | Select-String -Pattern ' go: ').Count -ge $QuitAMatch) { $goAt = Get-Date }
+    if ($QuitABeforeFight -gt 0 -and $goAt -and -not $quit -and ((Get-Date) - $goAt).TotalSeconds -ge $QuitABeforeFight) {
+        $quit = $true
+        $gameA = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.ParentProcessId -eq $la.Id })
+        foreach ($g in $gameA) { Stop-Process -Id $g.ProcessId -Force -ErrorAction SilentlyContinue }
+        "{0,6:N1}s A's game closed before the fight (pid {1})" -f ((Get-Date) - $t0).TotalSeconds, (($gameA | ForEach-Object { $_.ProcessId }) -join ' ')
+    }
     $done = @($serverLog | Select-String -Pattern 'RESULT match=').Count
     $finished = if ($Queue -eq 'ranked') { @($serverLog | Select-String -Pattern 'SET \S+ over').Count -ge 1 }
                 else { $results -ge 2 * $Matches -or $done -ge $Matches }
     if ($QuitA -gt 0) { $finished = @($serverLog | Select-String -Pattern 'ABANDONED match=').Count -ge 1 }
-    if ($Watch) { $finished = $finished -and $watched -ge $Matches }  # the spectator runs behind the players
+    if ($QuitABeforeFight -gt 0) { $finished = $done -ge ($Matches - 1) -and $quit }  # the first one never plays
+    if ($Watch) { $finished = $finished -and $watched -ge $(if ($QuitABeforeFight -gt 0) { $Matches - 1 } else { $Matches }) }  # the spectator runs behind
     if ($finished) { Start-Sleep -Seconds 12; break }
     Start-Sleep -Milliseconds 250
 }

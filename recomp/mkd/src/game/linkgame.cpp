@@ -100,11 +100,12 @@ bool Begin(const Start& start) {
     req.names[0] = start.picks[0];
     req.names[1] = start.picks[1];
     req.unlock_all = true;
-    // online, a side the launcher left without a character: that player picks on the select screen (a spectator's
-    // game takes both players' picks from their games)
+    // online, a side the launcher left without a character: that player picks on the select screen (Kombat's and
+    // Puzzle Kombat's fighter, Chess Kombat's team; a spectator's game takes both players' picks from their games)
     req.local_side = start.online && !start.watch ? start.side : -1;
     req.watch = start.watch;
-    for (int i = 0; i < 2; i++) req.by_player[i] = start.online && start.mode == "kombat" && start.picks[i].empty();
+    const bool picks = start.mode == "kombat" || start.mode == "puzzle" || start.mode == "chess";
+    for (int i = 0; i < 2; i++) req.by_player[i] = start.online && picks && start.picks[i].empty();
     g_request = req;
     PickArena(start.seed, start.stage);
     SetOptions(start);

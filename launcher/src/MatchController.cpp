@@ -75,6 +75,12 @@ MatchController::MatchController(ServerClient* server, QObject* parent)
     connect(&watchTimeout_, &QTimer::timeout, this, [this] {
         if (phase_ == Phase::Watching) endWatch(tr("The watched match never came through"));
     });
+    // the players' match ended early, maybe before both their games met: the watching game would wait for that
+    // meeting at its select screen (two minutes, its picture still), so it parks
+    watchEndTimeout_.setSingleShot(true);
+    connect(&watchEndTimeout_, &QTimer::timeout, this, [this] {
+        if (phase_ == Phase::Watching && !watchInMatch_) endWatch(tr("The watched match ended before it got going"));
+    });
     startTimeout_.setSingleShot(true);
     connect(&startTimeout_, &QTimer::timeout, this, [this] {
         if (phase_ == Phase::Starting) {
@@ -582,9 +588,25 @@ void MatchController::onServerMessage(const QJsonObject& msg) {
         if (watchFeed_ && match == watchFeedMatch_) watchFeed_->deliver(data);
         else if (watchData_.contains(match)) watchData_[match] += data;
     } else if (type == QLatin1String("spectate_end")) {
-        // the players are done; this game, behind them, plays on to the same end with what it has
-        if (match == str(watch_, "match"))
+        // the players are done; this game, behind them, plays on to the same end with what it has. A match that ended
+        // early (a player left, a desync: not "agreed") may have ended before both games even met.
+        const bool whole = str(msg, "status") == QLatin1String("agreed");
+        if (match == str(watch_, "match")) {
             log(tr("The players finished the match being watched (%1)").arg(str(msg, "status")));
+            if (!whole && !watchInMatch_) {
+                if (!pendingStart_.isEmpty()) endWatch(tr("The watched match ended before it got going"));  // not sent
+                else watchEndTimeout_.start(15000);
+            }
+        } else if (!whole) {
+            for (qsizetype i = 0; i < watchQueue_.size(); ++i) {
+                if (str(watchQueue_[i], "match") != match) continue;
+                log(tr("Lobby match %1 vs %2 ended early: not watching it")
+                        .arg(str(watchQueue_[i], "p1_name"), str(watchQueue_[i], "p2_name")));
+                watchQueue_.removeAt(i);
+                watchData_.remove(match);
+                break;
+            }
+        }
     }
 }
 
@@ -665,6 +687,8 @@ void MatchController::startWatch() {
     watchFeed_ = feed;
     watchFeedMatch_ = match;
     watch_ = info;
+    watchInMatch_ = false;
+    watchEndTimeout_.stop();
     finishText_ = tr("Done watching");
     pendingStart_ = watchStartLine(info);
     setPhase(Phase::Watching, tr("Watching %1 vs %2: the match is being set up...")
@@ -680,6 +704,8 @@ void MatchController::onWatchStatus(const QString& state) {
         tryStart();
     } else if (state == QLatin1String("in_match")) {
         watchTimeout_.stop();
+        watchEndTimeout_.stop();
+        watchInMatch_ = true;
         setPhase(Phase::Watching, tr("Watching %1 vs %2").arg(str(watch_, "p1_name"), str(watch_, "p2_name")));
         emit gameShown();
     } else if (state == QLatin1String("result")) {
@@ -695,10 +721,13 @@ void MatchController::onWatchStatus(const QString& state) {
 // to it until then; then the next one may come
 void MatchController::endWatch(const QString& text) {
     watchTimeout_.stop();
+    watchEndTimeout_.stop();
+    watchInMatch_ = false;
+    const bool started = pendingStart_.isEmpty();  // the game took the watched match's start: it parks from it
     watch_ = {};
     pendingStart_.clear();
     finishText_ = text;
-    if (game_ && game_->isRunning() && !game_->isReady()) {
+    if (started && game_ && game_->isRunning() && !game_->isReady()) {
         game_->command(QStringLiteral("park"));
         finishTimeout_.start(45000);
         setPhase(Phase::Finishing, text);

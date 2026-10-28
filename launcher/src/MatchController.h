@@ -174,6 +174,8 @@ private:
     QElapsedTimer searchClock_;
     QJsonObject pingWiden_;  // the server's rule for raising the max ping ({} when it is not raised)
     QTimer parkTimer_, keepaliveTimer_, startTimeout_, finishTimeout_, watchTimeout_;
+    QTimer watchEndTimeout_;  // the watched match ended early: the watching game's while to be in it, else it parks
+    bool watchInMatch_ = false;  // the watching game plays the watched match (it was at its meeting point)
     QString localStartA_, localStartB_, localResultA_, localResultB_;
     FeedLink* feed_ = nullptr;       // this player's lobby match's feed
     FeedLink* watchFeed_ = nullptr;  // the watched match's, to the game, until it is back at its hold point (it plays

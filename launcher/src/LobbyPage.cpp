@@ -13,6 +13,7 @@
 #include <QPushButton>
 #include <QStackedWidget>
 #include <QTableWidget>
+#include <QTimer>
 #include <QVBoxLayout>
 
 #include "AppPaths.h"
@@ -110,8 +111,14 @@ LobbyPage::LobbyPage(ServerClient* server, MatchController* controller, QWidget*
     character_->setMinimumWidth(150);
     ready_ = new QPushButton(tr("Ready"));
     ready_->setCheckable(true);
-    start_ = new QPushButton(tr("START"));
-    start_->setObjectName(QStringLiteral("Primary"));
+    // no START: both players ready starts the match after a 3-2-1 countdown (the server's), shown here
+    countdown_ = ui::label(QString(), "Big");
+    countdown_->setAlignment(Qt::AlignCenter);
+    nextInfo_ = ui::label(QString(), "Muted");
+    nextInfo_->setAlignment(Qt::AlignCenter);
+    nextInfo_->setWordWrap(true);
+    tick_ = new QTimer(this);
+    tick_->setInterval(100);
     leave_ = new QPushButton(tr("Leave"));
     role_ = new QPushButton(tr("Watch"));
     controls->addWidget(character_, 1);
@@ -119,7 +126,8 @@ LobbyPage::LobbyPage(ServerClient* server, MatchController* controller, QWidget*
     controls->addWidget(role_);
     controls->addWidget(leave_);
     pv->addLayout(controls);
-    pv->addWidget(start_);
+    pv->addWidget(countdown_);
+    pv->addWidget(nextInfo_);
     chat_ = new LogView;
     pv->addWidget(chat_, 1);
     auto* chatRow = new QHBoxLayout;
@@ -160,7 +168,7 @@ LobbyPage::LobbyPage(ServerClient* server, MatchController* controller, QWidget*
         server_->send({{QStringLiteral("type"), QStringLiteral("lobby_role")},
                        {QStringLiteral("role"), watchNow ? QStringLiteral("spectator") : QStringLiteral("player")}});
     });
-    connect(start_, &QPushButton::clicked, this, [this] { server_->send({{QStringLiteral("type"), QStringLiteral("lobby_start")}}); });
+    connect(tick_, &QTimer::timeout, this, &LobbyPage::updateStatus);
     connect(deathTraps_, &QCheckBox::toggled, this, [this](bool on) {
         server_->send({{QStringLiteral("type"), QStringLiteral("lobby_settings")}, {QStringLiteral("death_traps"), on}});
     });
@@ -192,10 +200,23 @@ LobbyPage::LobbyPage(ServerClient* server, MatchController* controller, QWidget*
     connect(chatInput_, &QLineEdit::returnPressed, this, &LobbyPage::sendChat);
     connect(server_, &ServerClient::message, this, &LobbyPage::onMessage);
     // signed out or offline: the server took this player out of the lobby (a lobby is the session's), so the page
-    // goes back to the list rather than showing a room it is no longer in
+    // goes back to the list rather than showing a room it is no longer in. A dropped connection gets the place back
+    // at the next login within the server's 60 s, so a spectator's game keeps watching meanwhile: from what it has,
+    // then from the feed sent again
+    rejoinGrace_ = new QTimer(this);
+    rejoinGrace_->setSingleShot(true);
+    rejoinGrace_->setInterval(70000);
+    connect(rejoinGrace_, &QTimer::timeout, this, [this] {
+        if (!inLobby()) controller_->stopWatching();
+    });
     connect(server_, &ServerClient::stateChanged, this, [this](ServerClient::State st) {
-        if (st == ServerClient::State::LoggedIn) refresh();
-        else leftLobby();
+        if (st == ServerClient::State::LoggedIn) {
+            refresh();
+        } else if (inLobby()) {
+            const bool dropped = st == ServerClient::State::Offline && watchingHere_;
+            leftLobby(dropped);
+            if (dropped) rejoinGrace_->start();
+        }
     });
 }
 
@@ -363,14 +384,12 @@ void LobbyPage::showLobby(const QJsonObject& lobby) {
                                  lobby.value(QStringLiteral("locked")).toBool() ? tr(", password") : QString(),
                                  s(lobby, "state").replace(QLatin1Char('_'), QLatin1Char(' ')), extras));
     members_->setRowCount(static_cast<int>(members.size()));
-    bool allReady = playersIn == 2;
     bool meReady = false, meWatching = false;
     QString myChar;
     for (int i = 0; i < members.size(); ++i) {
         const QJsonObject mem = members.at(i).toObject();
         const bool ready = mem.value(QStringLiteral("ready")).toBool();
         const bool spectator = mem.value(QStringLiteral("spectator")).toBool();
-        if (!spectator) allReady = allReady && ready;
         if (s(mem, "name") == server_->accountName()) {
             meReady = ready;
             meWatching = spectator;
@@ -419,10 +438,12 @@ void LobbyPage::showLobby(const QJsonObject& lobby) {
     role_->setToolTip(meWatching ? tr("Take a free place to play in this lobby's next match")
                                  : tr("Step aside and watch this lobby's matches in your game"));
     role_->setEnabled(meWatching ? playersIn < 2 && !inMatch : !inMatch);
+    watchingHere_ = meWatching;
     if (!meWatching) controller_->stopWatching();  // a player now: nothing more to watch
-    start_->setVisible(host);
-    start_->setEnabled(host && allReady && !inMatch);
-    start_->setText(inMatch ? tr("MATCH IN PROGRESS") : tr("START"));
+    else rejoinGrace_->stop();                      // back in after a dropped connection
+    const double startsIn = lobby.value(QStringLiteral("starts_in")).toDouble(-1);
+    startsAtMs_ = !inMatch && startsIn >= 0 ? QDateTime::currentMSecsSinceEpoch() + qint64(startsIn * 1000.0) : 0;
+    updateStatus();
     {
         const QSignalBlocker block(deathTraps_);
         deathTraps_->setChecked(lobby.value(QStringLiteral("death_traps")).toBool(true));
@@ -439,14 +460,40 @@ void LobbyPage::showLobby(const QJsonObject& lobby) {
             appendChat(s(c, "from"), s(c, "text"), c.value(QStringLiteral("ts")).toDouble());
         }
         chat_->appendPlainText(meWatching
-                                   ? tr("-- Watching lobby %1: each match its host starts plays in your game.")
+                                   ? tr("-- Watching lobby %1: each of its matches plays in your game.")
                                          .arg(s(lobby, "id"))
                                    : tr("-- Joined lobby %1. Share the code with your opponent.").arg(s(lobby, "id")));
     }
 }
 
-void LobbyPage::leftLobby() {
-    controller_->stopWatching();
+void LobbyPage::updateStatus() {
+    if (s(lobby_, "state") == QLatin1String("in_match")) {
+        tick_->stop();
+        countdown_->setText(tr("MATCH IN PROGRESS"));
+        countdown_->show();
+        nextInfo_->hide();
+        return;
+    }
+    if (startsAtMs_) {
+        if (!tick_->isActive()) tick_->start();
+        const qint64 left = startsAtMs_ - QDateTime::currentMSecsSinceEpoch();
+        countdown_->setText(left > 0 ? tr("STARTING IN %1").arg((left + 999) / 1000) : tr("STARTING..."));
+        countdown_->show();
+        nextInfo_->hide();
+        return;
+    }
+    tick_->stop();
+    countdown_->hide();
+    nextInfo_->setText(spectating() ? tr("The next match plays in your game once both players are ready.")
+                                    : tr("The match starts by itself once both players are ready."));
+    nextInfo_->show();
+}
+
+void LobbyPage::leftLobby(bool keepWatching) {
+    if (!keepWatching) controller_->stopWatching();
+    watchingHere_ = false;
+    tick_->stop();
+    startsAtMs_ = 0;
     lobby_ = {};
     right_->setCurrentIndex(0);
     character_->clear();

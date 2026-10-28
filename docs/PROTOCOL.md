@@ -454,10 +454,10 @@ C: {"type":"lobby_chat","text":"gg"}
 C: {"type":"lobby_character","character":"Kenshi"}
 C: {"type":"lobby_ready","ready":true,"delay":2,"relay":false,"link":"wifi","server_rtt":31}
                                            (delay optional, 0-4; relay, link, server_rtt 0.1.8)
-C: {"type":"lobby_start"}                                       (host only)
+C: {"type":"lobby_start"}                       (host only: at once; launchers from 0.1.11 never send it)
 C: {"type":"lobby_settings","death_traps":false}               (host only, 0.1.8)
 S: {"type":"lobby","lobby":{"id":"K7WQ2","name":"Friday sets","host":"Raijin","game":"mkd",
-    "mode":"kombat","region":"eu","rounds":3,"locked":false,"state":"open","match":null,
+    "mode":"kombat","region":"eu","rounds":3,"locked":false,"state":"open","match":null,"starts_in":2.4,
     "death_traps":true,"max_spectators":8,
     "members":[{"name":"Raijin","character":"Scorpion","ready":true,"host":true,"spectator":false},
                {"name":"Fujin","character":"Kenshi","ready":true,"host":false,"spectator":false},
@@ -480,10 +480,14 @@ S: {"type":"lobby_left","lobby":"K7WQ2"}
   message per 0.5 s per player (`slow_down`).
 - `lobby_create` and `lobby_join` reply with `lobby`; errors: `busy`,
   `no_such_lobby`, `lobby_full`, `bad_lobby_password`. `rounds` is 1, 3 or 5.
-- `lobby_start`: host only (`not_host`), needs two players who are both ready
-  (`not_ready`). It starts the match flow of 1.8 at step 3 with the host as
-  side 1 (when the host plays); the lobby `state` becomes `in_match` with
-  `match` set, and the reply is that `lobby` state. Changing character clears
+- Two players both ready start the lobby's match by themselves (0.1.11): the
+  server counts down 3 s (`starts_in`, the seconds left, in every `lobby` state
+  meanwhile; `null` otherwise), and anything that clears a `ready` (a player
+  un-readying, a new character, a role or settings change) or takes a player
+  away calls it off. Then the match flow of 1.8 starts at step 3 with the host
+  as side 1 (when the host plays); the lobby `state` becomes `in_match` with
+  `match` set. `lobby_start` (host only, `not_host`; two players both ready,
+  `not_ready`) starts it at once, its reply that `lobby` state. Changing character clears
   your `ready` flag. `death_traps` (the host's, default `true`) is every
   lobby match's; `lobby_settings` changes it between matches (host only,
   `not_host`; not while a match is set up or runs, `busy`), which clears
@@ -493,10 +497,10 @@ S: {"type":"lobby_left","lobby":"K7WQ2"}
   `lobby_full`). `lobby_role` moves a member between the two: to `player`
   needs a free place and no match running (`lobby_full`, `busy`), to
   `spectator` is refused to a player whose match is set up or runs (`busy`).
-  Spectators neither ready (`not_player`) nor play; a host who watches still
-  starts the lobby's matches.
-- If the host leaves, a player (else another member) becomes host; an empty
-  lobby is deleted. A member who disconnects leaves the lobby (and a player
+  Spectators neither ready (`not_player`) nor play.
+- If the host leaves, a player (else another member) becomes host, and a
+  lobby named "<old host>'s lobby" (the launcher's default) is renamed
+  "<new host>'s lobby" (0.1.11); an empty lobby is deleted. A member who disconnects leaves the lobby (and a player
   cancels a match that has not reached `playing`; a spectator does not).
 - States: `open`, `full` (both places to play taken), `in_match`. `locked` =
   has a password.
@@ -799,6 +803,7 @@ first line.
 |---|---|
 | `booting` | process started, loading |
 | `ready` | parked at the hold point, able to take `start` |
+| `starting match=<id>` | took a `start`: off the hold point, setting the match up (picks, loading), until `in_match` (0.1.11) |
 | `in_match match=<id>` | a match (or practice: `match=practice`) is running |
 | `result winner=1 p1_rounds=2 p2_rounds=1 p1_char=12 p2_char=7 match=<id>` | the match ended normally (`winner` is 1 or 2; `p1_char`/`p2_char`, the fighters as the game's character ids, which `start` takes as `p1`/`p2`, only in modes with fighters); the game stays on its result screen until `park`, `rematch` or `quit` |
 | `desync frame=N match=<id>` | the two simulations diverged at frame N; the match is aborted |
@@ -808,7 +813,7 @@ first line.
 `match=<id>` (echoed from `start`) is recommended on the match states so that
 identical results of two consecutive matches are still different lines.
 
-Typical sequences: `booting` -> `ready` -> (`start`) -> `in_match` ->
+Typical sequences: `booting` -> `ready` -> (`start`) -> `starting` -> `in_match` ->
 `result ...` -> (`park`) -> `ready`; practice: `ready` -> (`start
 mode=practice`) -> `in_match match=practice` -> (`park`, or the player leaves
 practice in the game) -> `ready`.
