@@ -208,6 +208,11 @@ class FakeGame:
 def main() -> int:
     status_path, cmd_path = os.environ.get("MK3D_STATUS"), os.environ.get("MK3D_CMD")
     if not status_path or not cmd_path:
+        if os.environ.get("MK3D_GAME"):  # started plainly by the launcher: single player or practice, until closed
+            practice = os.environ.get("MK3D_TRAINING") == "1"
+            log(f"plain game ({'practice' if practice else 'single player'}): runs until closed")
+            while True:
+                time.sleep(1)
         print("run me from the MK3D launcher (MK3D_STATUS and MK3D_CMD are not set)", file=sys.stderr)
         return 2
     return FakeGame(status_path, cmd_path).run()

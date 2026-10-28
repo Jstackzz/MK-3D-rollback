@@ -167,7 +167,8 @@ C: {"type":"online"}
 S: {"type":"online","count":12,"connected":14,"queued":3,"playing":4,
     "queues":{"mkd/kombat/casual":2,"mkd/kombat/ranked":1},
     "games":{"mkd":{"playing":9,"searching":3,"matches":4,"lobbies":3},
-             "mka":{"playing":0,"searching":0,"matches":0,"lobbies":0},"mkda":{...}}}
+             "mka":{"playing":0,"searching":0,"matches":0,"lobbies":0},"mkda":{...}},
+    "searchers":[{"name":"Kitana","game":"mkd","queue":"mkd/kombat/casual"},...]}
 S: {"type":"notice","text":"Server restarts in 10 minutes.","level":"warn"}
 C: {"type":"admin_notice","text":"...","level":"info"}      (admins only, server --admins)
 ```
@@ -178,7 +179,9 @@ queue (`<game>/<mode>/<casual|ranked>`, `/no-traps` after a Kasual search
 without death traps). `games` (0.1.13) counts each game's players: `searching`,
 in its `matches` (from `match_found` on, and between two matches of a series),
 in its `lobbies` (spectators too), and `playing`, any of those, each player
-once; the matchmaking pages show them. The server pushes `online` to every
+once; the matchmaking pages show them. `searchers` (0.1.14) names who searches,
+with the game and the queue, the longest waiting first (40 at most); the
+matchmaking pages list them game by game. The server pushes `online` to every
 connection when the numbers change, at most once per 2 s. `notice` is pushed
 to everyone; `welcome.motd` carries the message of the day. `level` is
 `info` or `warn`.

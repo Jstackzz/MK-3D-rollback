@@ -83,7 +83,9 @@ whether to trust it: compare it with your host's.
   shifter, grunt) always on the game's own select screen. Your record (wins, losses,
   and Elo in Ranked) is on the right of the page, and above it how many play the
   game right now: searching (and how many of them in the mode you picked, the
-  ones you can meet), in matches and in lobbies. When a match is found, its
+  ones you can meet), in matches and in lobbies, then who is searching right
+  now in each of the three games (point at the line to see whether each one
+  searches Kasual or Ranked, and which mode). When a match is found, its
   ACCEPT window comes up over the game; once you accept, you are back in the
   game.
 - After a Kasual match, once the game has played its ending, a window comes up
@@ -142,7 +144,7 @@ whether to trust it: compare it with your host's.
   with every fighter, costume and arena unlocked: pick yours, then the dummy,
   with one controller.
   What your profile has unlocked stays as it is. You can search for a match
-  while you practice, as below.
+  while you practice, as below: accepting a match closes practice.
 - Play while you wait: search for a match (Kasual or Ranked) and play single
   player meanwhile, in either order. When a match is found, its ACCEPT window
   comes up over your game. Accept it and your single-player game is set aside,
@@ -154,9 +156,11 @@ whether to trust it: compare it with your host's.
   pages, on by default): once you search, the game opens its practice mode by
   itself, at the character select screen, where you pick your fighter and then
   the dummy with your controller (everything is unlocked there, as with
-  PRACTICE). A match found comes up over it as above, and
-  after the match you are back in practice. Untick the box to wait at the game's
-  menu instead.
+  PRACTICE). Only that one game runs while you wait. A match found comes up
+  over it; accept it and practice closes while the match's game opens (it
+  takes a few seconds to start). If the match falls through (your opponent
+  declines or does not answer), you are back in the queue and in practice.
+  Untick the box to wait at the game's menu instead.
 - Frame data in practice (all three games): a small panel at the left shows
   player 1's last attack, counted in frames (60 a second) from the press as
   frame 1. **Startup** is the frame the attack can first hit, **Active** how

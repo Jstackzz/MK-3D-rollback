@@ -38,6 +38,7 @@ param(
     [switch]$PracticeA,          # A practises while it searches (practice while you wait): the match freezes the
                                  # practice, A leaves the series after it and practice runs on
     [int]$DelayB = 0,            # seconds before B starts (and queues): time for A's practice to come up
+    [int]$AcceptB = 3,           # seconds before B accepts a match found; -1: never (the match times out, A searches again)
     [int]$Pads = 2,              # controllers each game reports at least (<GAME>_PADS); 0: only what is plugged in, as a player's PC
     [switch]$PickInGame,         # both players pick on the game's own select screen (their scripts move the cursor
                                  # and press A first); otherwise the launchers pick CharA and CharB
@@ -145,7 +146,7 @@ Start-Sleep -Seconds ([Math]::Max(1, $DelayB))
 Set-Item "env:${x}_INPUT" $InputB
 $how = if ($Queue -eq 'lobby') { @('--lobby', 'join', '--lobby-name', "e2e$stamp", '--lobby-matches', "$Matches") } else { $queueArgs }
 if ($DeathTraps -and $Queue -ne 'lobby') { $how += @('--death-traps', $DeathTraps) }
-$lb = Start-Process -FilePath $launcher -ArgumentList (@('--config', "`"$work\b\mk3d-launcher.ini`"", '--user', "e2eB$stamp", '--register') + $how + @('--game', $Game, '--mode', $Mode, '--character', $CharB, '--auto-accept', '3')) -PassThru
+$lb = Start-Process -FilePath $launcher -ArgumentList (@('--config', "`"$work\b\mk3d-launcher.ini`"", '--user', "e2eB$stamp", '--register') + $how + @('--game', $Game, '--mode', $Mode, '--character', $CharB, '--auto-accept', "$AcceptB")) -PassThru
 $lc = $null
 if ($Watch) {
     Start-Sleep -Seconds ([Math]::Max(1, $WatchDelay))

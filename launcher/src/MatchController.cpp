@@ -446,8 +446,11 @@ bool MatchController::findMatch(const QueueRequest& req, QString* error) {
         if (error) *error = tr("Busy: %1").arg(phaseText_);
         return false;
     }
-    // standby: single player runs on while this searches; the match's game starts once a match is accepted
-    if (!solo_ && !ensureGame(req.game, error)) return false;
+    // standby: single player runs on while this searches; the match's game starts once a match is accepted. Practice
+    // while you wait the same way: practice alone, started with the search (maybeStartPractice), the match's game not
+    // before a match is accepted
+    const bool practiceFirst = !solo_ && cfg::practiceWhileWaiting();
+    if (practiceFirst ? !codeReady(req.game, error) : !solo_ && !ensureGame(req.game, error)) return false;
     QString uerr;
     if (!openUdp(&uerr)) {
         if (error) *error = uerr;
@@ -499,8 +502,12 @@ void MatchController::cancelSearch() {
 
 void MatchController::accept() {
     if (phase_ != Phase::Found) return;
-    if (solo_ && !soloFrozen_) {  // standby: single player steps aside, the match's game comes up
-        freezeSolo();
+    if (solo_ && !soloFrozen_) {
+        // standby: the match's game comes up. Practice while you wait is done with, closed; single player steps aside,
+        // frozen, to go on where it stood after the match
+        const bool practice = soloPractice_;
+        if (practice) closeSolo(tr("Practice closed: the match's game starts"));
+        else freezeSolo();
         QString err;
         if (!ensureGame(str(found_, "game"), &err)) {
             log(err);
@@ -508,6 +515,7 @@ void MatchController::accept() {
             decline();
             return;
         }
+        if (practice) showWhenReady_ = true;  // in front once it is up, as practice was
     }
     server_->send({{QStringLiteral("type"), QStringLiteral("match_accept")}, {QStringLiteral("match"), str(found_, "match")}});
     setPhase(Phase::Connecting, tr("Accepted; waiting for the opponent..."));
@@ -954,7 +962,6 @@ void MatchController::onGameStatus(const QString& line) {
             setPhase(Phase::Idle, finishText_.isEmpty() ? tr("Match over") : finishText_);
         }
         tryStart();
-        maybeStartPractice();
     } else if (st == QLatin1String("in_match")) {
         if (phase_ == Phase::Starting && forThisMatch) {
             startTimeout_.stop();
@@ -1051,7 +1058,7 @@ void MatchController::finishMatch() {
 
 // The whole game started plainly, its menus as on the console (arcade, its practice mode, the side modes): no hold
 // point and no match. One game runs at a time: the game waiting in the background for a match closes first, or,
-// while a search runs (standby), is frozen until a match is accepted.
+// while a search runs (standby) with single player, is frozen until a match is accepted.
 bool MatchController::startSolo(const QString& gameId, QString* error, bool practice) {
     if (!codeReady(gameId, error)) return false;
     if (solo_) {
@@ -1062,12 +1069,12 @@ bool MatchController::startSolo(const QString& gameId, QString* error, bool prac
         if (error) *error = tr("Busy: %1").arg(phaseText_);
         return false;
     }
-    if (game_ && phase_ == Phase::Searching) {
+    if (game_ && phase_ == Phase::Searching && !practice) {
         freezeGame();
-    } else if (game_) {
+    } else if (game_) {  // practice never waits beside a match's game: it starts again once a match is accepted
+        thawGame();  // a frozen game would not see its quit
         GameProcess* waiting = game_;
         game_ = nullptr;
-        gameFrozen_ = false;
         disconnect(waiting, nullptr, this, nullptr);
         waiting->quit();
         QElapsedTimer t;
@@ -1114,16 +1121,33 @@ bool MatchController::startSolo(const QString& gameId, QString* error, bool prac
     return true;
 }
 
-// Practice while a Ranked or Kasual search waits: once the match's game is at its hold point, ready for a match, it is
-// frozen there (a match found thaws it at once) and the game starts again for practice (standby takes it from there)
+// Practice while a Ranked or Kasual search waits: the game alone, for practice, from the search's start (a match's game
+// still up from before closes: one game at a time); accepting a match closes it and starts the match's game, and a
+// match that falls through brings the search, and so practice, back
 void MatchController::maybeStartPractice() {
-    if (phase_ != Phase::Searching || solo_ || !game_ || !game_->isReady() || !cfg::practiceWhileWaiting()) return;
+    if (phase_ != Phase::Searching || solo_ || !cfg::practiceWhileWaiting()) return;
     QString err;
     if (!startSolo(request_.game, &err, true)) log(tr("Practice while you wait: %1").arg(err));
 }
 
 void MatchController::stopSolo() {
     if (solo_) solo_->quit();  // its window closes; the exit makes the controller idle
+}
+
+// single player closed at once by the launcher, without waiting for its exit, which is nobody's business any more
+void MatchController::closeSolo(const QString& why) {
+    GameProcess* g = solo_;
+    if (!g) return;
+    thawSolo();  // a frozen game would not see its quit
+    solo_ = nullptr;
+    soloPractice_ = false;
+    soloFrozen_ = false;
+    soloHidden_.clear();
+    disconnect(g, nullptr, this, nullptr);
+    g->quit();
+    QTimer::singleShot(6000, g, &QObject::deleteLater);
+    log(why);
+    emit gameStatusChanged(gameStatus());
 }
 
 bool MatchController::startLocalTest(const QString& gameId, const QString& mode, const QString& p1,

@@ -223,3 +223,22 @@ async def test_online_counts_the_players_of_each_game(server, connect):
     pushed = await searching.expect("online", timeout=5, pred=lambda m: "id" not in m and
                                     m["games"]["mkd"]["lobbies"] == 0)
     assert pushed["games"]["mkd"] == {"playing": 1, "searching": 1, "matches": 0, "lobbies": 0}
+
+
+async def test_online_lists_who_is_searching(server, connect):
+    """The matchmaking pages show who searches, for which game and queue, the longest waiting first; a search that
+    ends leaves the list, and every connection is told."""
+    from .conftest import queue_msg
+
+    kitana, tanya, watcher = [await connect(n) for n in ("Kitana", "Tanya", "Jade")]
+    await kitana.request(queue_msg(game="mkd"))
+    await tanya.request(queue_msg(game="mka", mode="motor", ranked=True))
+    online = await watcher.request({"type": "online"})
+    assert online["searchers"] == [
+        {"name": "Kitana", "game": "mkd", "queue": "mkd/kombat/casual"},
+        {"name": "Tanya", "game": "mka", "queue": "mka/motor/ranked"},
+    ]
+    watcher.take_all("online")  # the pushes so far
+    await kitana.request({"type": "queue_leave"})
+    pushed = await watcher.expect("online", timeout=5, pred=lambda m: "id" not in m and len(m["searchers"]) == 1)
+    assert pushed["searchers"] == [{"name": "Tanya", "game": "mka", "queue": "mka/motor/ranked"}]

@@ -58,6 +58,7 @@ private:
     QCheckBox* pickInGame_;  // pick on the game's own select screen (modes the launcher picks for otherwise)
     QLabel* playersNow_;   // how many play this game right now (the server's counts)
     QLabel* playersInfo_;  // searching (for this page's queue too), in matches, in lobbies
+    QLabel* searchers_;    // who searches right now, for which game and queue
     QComboBox* region_;
     QComboBox* maxPing_;
     QCheckBox* strict_;

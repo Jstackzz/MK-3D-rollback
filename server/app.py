@@ -1006,7 +1006,12 @@ class Server:
         playing = sum(len(m.players) for m in self.matches.values() if m.state != "found")
         return {"type": "online", "count": len(self.by_account), "connected": len(self.sessions),
                 "queued": len(self.queue), "playing": playing, "queues": dict(sorted(queues.items())),
-                "games": self._game_counts()}
+                "games": self._game_counts(), "searchers": self._searchers()}
+
+    def _searchers(self, limit: int = 40) -> list[dict[str, str]]:
+        """Who searches, for which game and queue, the longest waiting first (the matchmaking pages list them)."""
+        entries = sorted(self.queue.values(), key=lambda e: (e.since, e.name))[:limit]
+        return [{"name": e.name, "game": e.game, "queue": e.queue_name} for e in entries]
 
     def _game_counts(self) -> dict[str, dict[str, int]]:
         """Each game's players: searching, in its matches (a series between two matches too), in its lobbies

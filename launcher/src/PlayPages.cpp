@@ -6,6 +6,7 @@
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QHBoxLayout>
+#include <QHash>
 #include <QHeaderView>
 #include <QJsonArray>
 #include <QLabel>
@@ -111,17 +112,24 @@ QueuePage::QueuePage(bool ranked, ServerClient* server, MatchController* control
     playersNow_ = ui::label(QString());
     playersInfo_ = ui::label(QString(), "Muted");
     playersInfo_->setWordWrap(true);
+    searchers_ = ui::label(QString());
+    searchers_->setWordWrap(true);
+    searchers_->setTextFormat(Qt::PlainText);  // players' names, never markup
     mm->addWidget(playersNow_);
     mm->addWidget(playersInfo_);
-    auto* form = new QFormLayout;
-    form->setLabelAlignment(Qt::AlignRight);
+    mm->addWidget(searchers_);
+    // region and max ping on one row: the card keeps room for the players' lines above at the window's smallest
+    auto* where = new QHBoxLayout;
     region_ = new QComboBox;
     ui::fillRegions(region_, cfg::region());
     maxPing_ = new QComboBox;
     ui::fillMaxPing(maxPing_, cfg::maxPing());
-    form->addRow(tr("Region"), region_);
-    form->addRow(tr("Max ping"), maxPing_);
-    mm->addLayout(form);
+    where->addWidget(ui::label(tr("Region")));
+    where->addWidget(region_, 3);
+    where->addSpacing(8);
+    where->addWidget(ui::label(tr("Max ping")));
+    where->addWidget(maxPing_, 2);
+    mm->addLayout(where);
     strict_ = new QCheckBox(tr("Strict: close ratings and my region only"));
     strict_->setChecked(cfg::strict());
     strict_->setVisible(ranked);
@@ -129,8 +137,8 @@ QueuePage::QueuePage(bool ranked, ServerClient* server, MatchController* control
     practice_ = new QCheckBox(tr("Practice while you wait"));
     practice_->setChecked(cfg::practiceWhileWaiting());
     practice_->setToolTip(tr("While the search runs, the game opens its practice: pick your fighter and the dummy "
-                             "(every fighter is unlocked there) and train. A match found comes up over it, and "
-                             "afterwards you are back in practice."));
+                             "(every fighter is unlocked there) and train. A match found comes up over it; accept it "
+                             "and practice closes while the match's game opens."));
     mm->addWidget(practice_);
     // ranked: never (the server holds to it too)
     deathTraps_ = new QCheckBox(ranked ? tr("Death traps: always off in Ranked") : tr("Death traps"));
@@ -396,6 +404,7 @@ void QueuePage::updatePlayers() {
     const bool show = g && server_->isOnline() && !game.isEmpty();
     playersNow_->setVisible(show);
     playersInfo_->setVisible(show);
+    searchers_->setVisible(false);
     if (!show) return;
     const QString modeId = mode_->currentData().toString();
     const GameMode* m = g->mode(modeId);
@@ -427,6 +436,40 @@ void QueuePage::updatePlayers() {
                               .arg(search)
                               .arg(game.value(QStringLiteral("matches")).toInt())
                               .arg(game.value(QStringLiteral("lobbies")).toInt()));
+    // who searches, game by game (this page's first, each game's longest waiting first), this player left out; what each
+    // one searches for (Kasual or Ranked, the mode) in the tooltip
+    constexpr int kNamesPerGame = 5;
+    QHash<QString, QStringList> names;  // game id -> who searches it
+    QStringList games, details;
+    for (const auto& v : online_.value(QStringLiteral("searchers")).toArray()) {
+        const QJsonObject s = v.toObject();
+        const QString name = s.value(QStringLiteral("name")).toString();
+        const QString id = s.value(QStringLiteral("game")).toString();
+        if (name.isEmpty() || name == server_->accountName()) continue;
+        if (!games.contains(id)) games << id;
+        names[id] << name;
+        // its queue: <game>/<mode>/<casual|ranked>[/no-traps]
+        const QStringList q = s.value(QStringLiteral("queue")).toString().split(QLatin1Char('/'));
+        const Game* sg = gameOf(id);
+        const GameMode* sm = sg ? sg->mode(q.value(1)) : nullptr;
+        details << tr("%1: %2, %3 %4%5")
+                       .arg(name, sg ? sg->shortName : id,
+                            q.value(2) == QLatin1String("ranked") ? tr("Ranked") : tr("Kasual"),
+                            sm ? sm->name : q.value(1),
+                            q.value(3) == QLatin1String("no-traps") ? tr(", no death traps") : QString());
+    }
+    if (games.removeOne(gameId_)) games.prepend(gameId_);
+    QStringList parts;
+    for (const QString& id : std::as_const(games)) {
+        const QStringList& who = names[id];
+        const Game* sg = gameOf(id);
+        QString list = who.mid(0, kNamesPerGame).join(QStringLiteral(", "));
+        if (who.size() > kNamesPerGame) list += tr(" and %1 more").arg(who.size() - kNamesPerGame);
+        parts << QStringLiteral("%1: %2").arg(sg ? sg->shortName : id, list);
+    }
+    searchers_->setVisible(!parts.isEmpty());
+    searchers_->setText(tr("Searching now: %1").arg(parts.join(QStringLiteral("  ·  "))));
+    searchers_->setToolTip(details.join(QLatin1Char('\n')));
 }
 
 void QueuePage::onSeries(const QJsonObject& s) {
@@ -627,8 +670,8 @@ SinglePlayerPage::SinglePlayerPage(MatchController* controller, QWidget* parent)
     exeInfo_->setWordWrap(true);
     solo->addWidget(exeInfo_);
     auto* onlineNote = ui::label(tr("You can search for an online match while you play: when one is found, accept it "
-                                    "over your game, which waits frozen through the match and the rematches after "
-                                    "it, then carries on where you left it."),
+                                    "over your game. Single player waits frozen through the match and the rematches "
+                                    "after it, then carries on where you left it; practice closes."),
                                  "Muted");
     onlineNote->setWordWrap(true);
     solo->addWidget(onlineNote);

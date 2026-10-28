@@ -227,11 +227,15 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    player is thawed and brought to the front, where it stood (runtime patch
    0020 keeps the frozen minutes out of its clock). Lobby matches still wait
    for single player to close. *Practice while you wait* (Ranked and Kasual,
-   `cfg::practiceWhileWaiting`, on by default): once a search's match game is
-   at its hold point it is frozen there and the game starts again for practice
-   (`MK3D_TRAINING=1`: the autopilot takes it to practice's character select,
-   only player 1 taking part, and hands it over), so accepting a match thaws a
-   game that is ready at once; standby does the rest. In a source build the **Local test** box
+   `cfg::practiceWhileWaiting`, on by default): the search starts practice
+   alone (`MK3D_TRAINING=1`: the autopilot takes it to practice's character
+   select, only player 1 taking part, and hands it over), no match game beside
+   it (one still up from before closes); accepting a match closes practice
+   (`MatchController::closeSolo`) and starts the match's game, brought to the
+   front once it is at its hold point, and a match that falls through puts the
+   search back, which starts practice again and closes the match's game.
+   Practice opened with *PRACTICE* before a search goes the same way; single
+   player is frozen as above. In a source build the **Local test** box
    starts two instances on this PC (UDP 7001/7002) with matching start lines,
    no server needed; a player package hides it.
 7. **Leaderboard**: top 100 by Elo per game and mode.
@@ -311,7 +315,10 @@ gamepad.
 shows the server's counts for the page's game (`online.games`, PROTOCOL.md
 1.6) and how many of the searches are in this page's queue (`online.queues`:
 the mode, Kasual or Ranked, a Kasual search's death traps), this player's own
-search left out while it runs.
+search left out while it runs; under them, who searches right now (`online.searchers`),
+game by game, this page's game first and five names a game at most, what each
+one searches for in the tooltip (0.1.14). Region and max ping share a row, so
+the card fits at the window's smallest.
 
 **Crash reports** (0.1.12, `MatchController::watchForCrash`): a game that ends
 with an exception's exit code (`0x8...`/`0xC...`, never the launcher's own kill,

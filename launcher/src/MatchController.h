@@ -147,6 +147,7 @@ private:
     void log(const QString& text);
     void freezeSolo();
     void thawSolo();
+    void closeSolo(const QString& why);  // practice, once its search's match is accepted
     void freezeGame();
     void thawGame();
     void maybeBackToSolo();    // standby: nothing more to play online, single player again
