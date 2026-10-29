@@ -135,6 +135,7 @@ private:
     void tryStart();
     void reportResult(QJsonObject fields);
     void reportLeft();  // the game ended during the match: "left", with how it ended
+    void reportDesync(int frame);  // the match went out of step: the game's log of it to the server
     void finishMatch();
     void sendSeriesReady();
     void releaseUdp();

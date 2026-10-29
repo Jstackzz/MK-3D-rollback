@@ -14,7 +14,7 @@ executable (`src/mk3d/*.cpp`, added by the game's `CMakeLists.txt`) and lives in
 | `mk3d/synctest.cpp` | `<prefix>_SYNCTEST=1`: from a match's first frame, every frame is run, rolled back and run again; both runs must write the same |
 | `mk3d/monitor.cpp` | `<prefix>_MONITOR=<port>`: the debug monitor (`tools/py/mkdbg.py`): read and write memory, dump, pause and step, hold pad buttons, call game functions |
 | `mk3d/framedata.h/.cpp` | frame data in practice: player 1's last attack (startup, active, recovery, on hit / on block) as an ImGui panel, F7 / `MK3D_FRAMEDATA`; F8 makes the dummy block; never online |
-| `mk3d/names.h/.cpp` | the players' account names in an online or a watched fight (the start line's `p1_name` / `p2_name`), inside the health bars beside the timer while the fight's HUD is up, fading with the game's screen fades |
+| `mk3d/names.h/.cpp` | the players' account names in an online or a watched fight (the start line's `p1_name` / `p2_name`), just above the health bars while the fight's HUD is up, fading with the game's screen fades |
 | `mk3d/game.cpp` | `Env()`: environment variables under the game's prefix |
 
 ## What a game provides
@@ -26,7 +26,7 @@ executable (`src/mk3d/*.cpp`, added by the game's `CMakeLists.txt`) and lives in
 | `mk3d/netgame.h` | `netgame.cpp` | the per-port input blocks, the meeting point's words and agreement (frame counters, a side mode's setup), reseeding the engine's random generator, the match's start and end, the state hash, the values the launcher reports, state switches, the loader, the per-site random streams, log fields and diagnostic blocks |
 | `mk3d/linkgame.h` | `linkgame.cpp` | the autopilot's front end driving (hold point, start, rematch, park), matches started, and a match's result per mode |
 | `mk3d/framedata.h` | `framedata.cpp`, `game_info.cpp` | where the fighters are and the game's own rule for starting a move (an `Adapter`), its hit test calling `ActiveCheck`, its "is this action held" function asking `DummyHolds`; `GameInfo` `.window`, `.ui`, `.message` |
-| `mk3d/names.h` | `names.cpp`, `game_info.cpp` | whether the fight's HUD is up, where its bars are and how far a screen fade has gone (an `Adapter`; `PlaceInBars` reads Deception's and Armageddon's bar quads, `ShadeUnder` finds a game's fade box in its object lists); `GameInfo` `.window`, `.ui` |
+| `mk3d/names.h` | `names.cpp`, `game_info.cpp` | whether the fight's HUD is up, where its bars are and how far a screen fade has gone (an `Adapter`; `PlaceAboveBars` reads Deception's and Armageddon's bar quads, `ShadeUnder` finds a game's fade box in its object lists); `GameInfo` `.window`, `.ui` |
 
 Fixed byte ranges another thread owns (a graphics device's vertical blank fields) are named once with
 `rb::AddFixedVolatile` (Deception: `src/game/game.cpp`). A game's rand hook calls `net::CountRand`.

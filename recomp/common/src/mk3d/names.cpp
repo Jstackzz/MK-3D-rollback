@@ -26,7 +26,7 @@ namespace mk3d::names {
 namespace {
 
 constexpr float kFontPixels = 64.0f;  // the atlas' size: sharp up to a 4K frame
-// the names' line height in the frame's 480 lines: capitals 10 lines tall, as the games' own fighter names in the bars
+// the names' line height in the frame's 480 lines: capitals 10 lines tall, as the games' own fighter names
 constexpr float kTextHeight = 19.0f;
 // A fight's HUD comes in with its bars growing out from the timer (Deception's wait there a moment first): the names
 // show once each has room beside the timer and their place has held still a few frames, then fade in.
@@ -86,35 +86,32 @@ void Install(const Adapter& adapter) {
     OnFrameStart(&FrameStart);
 }
 
-bool PlaceInBars(const BarQuads& bars, Place& out) {
-    constexpr float kGap = 8.0f;  // past a bar's middle: clear of the fighter's name in its outer half
+bool PlaceAboveBars(const BarQuads& bars, Place& out) {
     const float width = float(kernel::R32(bars.hud_width));
     if (width < 320 || width > 2048) return false;
-    float lo[2], hi[2], middle = 0;
+    float x[2] = {}, top = -FLT_MAX;
     for (int side = 0; side < 2; side++) {
         const uint32_t obj = kernel::R32(bars.back[side]);
         if (!obj || !mem::IsCommitted(obj) || kernel::R32(obj + 4) != kernel::R32(bars.back[side] + 4)) return false;
         const uint32_t quad = kernel::R32(obj + 0x34);
         if (!quad || !mem::IsCommitted(quad) || !mem::IsCommitted(quad + 0x40)) return false;
-        float x0 = FLT_MAX, x1 = -FLT_MAX, y0 = FLT_MAX, y1 = -FLT_MAX;
+        float lo = FLT_MAX, hi = -FLT_MAX, high = -FLT_MAX;
         for (uint32_t corner = 0; corner < 4; corner++) {
             const float cx = F32(quad + corner * 0x14), cy = F32(quad + corner * 0x14 + 4);
-            x0 = std::min(x0, cx);
-            x1 = std::max(x1, cx);
-            y0 = std::min(y0, cy);
-            y1 = std::max(y1, cy);
+            lo = std::min(lo, cx);
+            hi = std::max(hi, cx);
+            high = std::max(high, cy);
         }
         const float ox = float(int32_t(kernel::R32(obj + 0x14))), oy = float(int32_t(kernel::R32(obj + 0x18)));
-        lo[side] = x0 + ox;
-        hi[side] = x1 + ox;
-        middle += (y0 + y1) / 2 + oy;
+        x[side] = (side == 0 ? lo + bars.inset : hi - bars.inset) + ox;
+        top = std::max(top, high + oy);
     }
     const float k = 640.0f / width;
-    out.p1_start = ((lo[0] + hi[0]) / 2 + kGap) * k;
-    out.p1_end = std::min(hi[0], width / 2 - bars.clear) * k;
-    out.p2_start = std::max(lo[1], width / 2 + bars.clear) * k;
-    out.p2_end = ((lo[1] + hi[1]) / 2 - kGap) * k;
-    out.y = 480.0f - middle / 2;
+    out.p1_start = x[0] * k;
+    out.p1_end = (width / 2 - bars.clear) * k;
+    out.p2_start = (width / 2 + bars.clear) * k;
+    out.p2_end = x[1] * k;
+    out.y = 480.0f - (top + bars.above);
     return out.y > 0;  // slid off the top with the HUD
 }
 
@@ -181,7 +178,6 @@ void Ui(double) {
     const float fx = (io.DisplaySize.x - fw) / 2, fy = (io.DisplaySize.y - fh) / 2;
     const float sx = fw / 640.0f, sy = fh / 480.0f;
     ImFont* font = g_font ? g_font : ImGui::GetFont();
-    const ImFontGlyph* cap = font->FindGlyph('H');
     const int alpha = int(std::lround(255.0f * std::clamp(p.shade, 0.0f, 1.0f)));
     if (alpha == 0) return;
     ImDrawList* draw = ImGui::GetBackgroundDrawList();  // under any ImGui window (the frame data panel)
@@ -190,19 +186,17 @@ void Ui(double) {
         const char* text = names[side].c_str();
         float size = kTextHeight * sy;
         ImVec2 extent = font->CalcTextSizeA(size, FLT_MAX, 0.0f, text);
-        // a long name (16 wide letters) shrinks to its room rather than reach the fighter's name
+        // a long name (16 wide letters) shrinks to its room rather than run into the timer
         const float room = (side == 0 ? p.p1_end - p.p1_start : p.p2_end - p.p2_start) * sx;
         if (extent.x > room) {
             size *= room / extent.x;
             extent = font->CalcTextSizeA(size, FLT_MAX, 0.0f, text);
         }
-        const float scale = size / font->FontSize;
-        const float capital = cap ? (cap->Y0 + cap->Y1) / 2 * scale : size / 2;  // the capitals' middle in the line
         const float outline = std::max(1.0f, size / 12.0f);
-        const float x = std::floor(side == 0 ? fx + p.p1_end * sx - extent.x : fx + p.p2_start * sx);
-        const float y = std::floor(fy + p.y * sy - capital);
-        // a dark outline, then the letters: readable over the bar's green and red alike, like the games' own outlined
-        // lettering; both fade with the game's screen
+        const float x = std::floor(side == 0 ? fx + p.p1_start * sx : fx + p.p2_end * sx - extent.x);
+        const float y = std::floor(fy + p.y * sy - extent.y);  // standing on the line
+        // a dark outline, then the letters: readable over any arena, like the games' own outlined HUD lettering; both
+        // fade with the game's screen
         for (int dx = -1; dx <= 1; dx++)
             for (int dy = -1; dy <= 1; dy++)
                 if (dx || dy)

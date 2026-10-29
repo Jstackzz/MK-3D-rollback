@@ -16,7 +16,8 @@ with Python). It reads MK3D_STATUS and MK3D_CMD from the environment, like the r
     quit                  exit
 
 Other knobs: MK3D_FAKE_BOOT (seconds before "ready", default 1.5), MK3D_FAKE_RESULT=desync to
-report "desync frame=600" instead of a result.
+report "desync frame=600" instead of a result (its game.log, beside status.txt, then has a match's
+lines as a real game writes them, for the launcher's desync report).
 """
 
 from __future__ import annotations
@@ -93,6 +94,14 @@ class FakeGame:
     def status(self, line: str) -> None:
         log(f"status: {line}")
         write_atomic(self.status_path, line)
+
+    def game_log(self, *lines: str) -> None:
+        """Lines as a real game's game.log has them (beside status.txt), what the launcher's reports read."""
+        path = os.path.join(os.path.dirname(os.path.abspath(self.status_path)), "game.log")
+        t = time.monotonic()
+        with open(path, "a", encoding="ascii") as f:
+            for line in lines:
+                f.write(f"[{t:9.3f}] {line}\n")
 
     def close_socket(self) -> None:
         if self.sock is not None:
@@ -183,6 +192,13 @@ class FakeGame:
             elif now - self.connected_at >= self.match_seconds:
                 self.state = "over"
                 if os.environ.get("MK3D_FAKE_RESULT") == "desync":
+                    side = self.start.get("side", "1")
+                    self.game_log(f"link: start kombat ( vs ), match {self.match}, online, death traps",
+                                  f"netplay: UDP {self.start.get('local_port', '0')}, side {side}, rollback",
+                                  "netplay: arena 4, costumes 1 and 0",
+                                  "netplay: match 1 in sync with rollback, 2 frames of delay",
+                                  "error: netplay: DESYNC at frame 600 (ours 1234ABCD/00000001, theirs "
+                                  "5678EF00/00000001)")
                     self.status(f"desync frame=600 match={self.match}")
                 else:
                     seed = int(self.start.get("seed", "0"))
@@ -192,6 +208,8 @@ class FakeGame:
             self.pump_network(now)  # keep answering the peer until park
 
     def run(self) -> int:
+        self.game_log("Fake game (launcher/tools/fake_game.py)", f"CPU: {os.environ.get('PROCESSOR_IDENTIFIER', '?')}",
+                      "Game: default.xbe in fake, sha1 0000000000000000000000000000000000000000")
         self.status("booting")
         time.sleep(float(os.environ.get("MK3D_FAKE_BOOT", "1.5")))
         self.state = "ready"

@@ -185,10 +185,10 @@ whether to trust it: compare it with your host's.
   whether it is shown when practice starts. None of it is ever in an online
   match.
 - Player names (all three games): in an online match, and in a lobby match you
-  watch, each player's account name is written inside their health bar, next
-  to the timer (the fighter's name keeps the other end of the bar). They come
-  and go with the bars and fade with the screen, and a long name is drawn a
-  little smaller so it never reaches the fighter's name.
+  watch, each player's account name stands just above their health bar,
+  player 1's at the left and player 2's at the right. They come and go with
+  the bars and fade with the screen, and a long name is drawn a little smaller
+  so it never reaches the timer.
 
 Both players need the same package: VERSION.txt lists fingerprints of its programs
 to compare.
@@ -348,6 +348,13 @@ When something goes wrong
   frames a second, which such a monitor cannot show evenly. Use its G-SYNC or
   FreeSync (V-sync: On, G-SYNC or FreeSync monitor), or set it to 120 Hz or
   60 Hz in Windows' display settings.
+- Something drawn wrong (textures flickering, a floor or wall in the wrong
+  colours, missing health bars): press F3 while it is on screen. The game saves
+  what it drew that frame (every texture and draw, and the picture), then the
+  pictures of the next 20 frames, into a captures folder inside that game's
+  session folder (sessions, below; the game stutters for a moment while it
+  saves). Zip that session folder and send it with what you saw and on which
+  stage.
 - Logs: mk3d-launcher.log and the sessions folder beside the launcher: one
   folder each time the launcher starts a game, with the game's own game.log and,
   for each online match, a net-<match>.log with every frame's inputs. When a

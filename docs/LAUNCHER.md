@@ -347,6 +347,31 @@ MKD.dll+5F21C) on a game thread`; the report carries everything after ` at `.
 `tools/online-e2e.ps1 -CrashA N` crashes A's game N seconds into its match (a
 thread at address 0).
 
+**Desync reports** (0.1.15, `MatchController::reportDesync`): a match whose
+games went out of step (the game's `desync` status) is reported with what the
+game logged of it, 1.5 s later so the failed check's own line is written:
+Windows, the processor and the game's executable from the log's start, the
+match's lines from the link's `start` line (picks, the setup both games agreed
+on or the lines saying it differs, the check; not the per-second stats), and the
+game's extracted files (count, bytes, a hash of names and sizes: `gameFiles`,
+once a run), IP addresses and user folders taken out (PROTOCOL.md 1.13.1).
+`MK3D_FAKE_RESULT=desync` makes `launcher/tools/fake_game.py` write such a log.
+
+**Frame captures for players** (0.1.15, `GameProcess::start`): every game gets
+`XBE_CAPTURE_DIR=<session>\captures`, so F3 in the game saves a capture there
+(`<HHMMSS>\`: `frame.txt` with every draw, its shaders and textures, the render
+targets as the frame moved between them, `final.bmp`, then `next_00.bmp` to
+`next_19.bmp`, the next 20 frames' pictures, runtime `d3d12.cpp` `cap_next_`),
+and the game's log says so. What a player who sees textures flicker or drawn
+wrong sends; the session folders are kept 30 starts, as before. Every game's
+log also carries a `gpu:` line every two minutes (runtime patch 0032,
+`LogGpuStatus`: textures held, colour and depth render targets and their free
+views, video memory used of the budget; `XBE_GPU_STATUS_EVERY=<presents>`
+changes how often), and says when a texture or render target could not be made.
+Render targets the game no longer uses give their views back once every view
+is taken (`EvictTargets`): before, a long session could run out, and what the
+game drew into a new target was lost without a word.
+
 **How a game ended** (0.1.14, `MatchController::reportLeft`): a game that ends
 during a match reports `left` with `exit` and `exit_code` (PROTOCOL.md 1.9),
 the server logging both with the abandoned match. `exit` comes from the last

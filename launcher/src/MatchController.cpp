@@ -1,10 +1,13 @@
 #include "MatchController.h"
 
 #include <QCoreApplication>
+#include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
+#include <QDirIterator>
 #include <QElapsedTimer>
 #include <QFile>
+#include <QJsonArray>
 #include <QMetaEnum>
 #include <QPointer>
 #include <QRandomGenerator>
@@ -142,6 +145,74 @@ QString exitReason(const QString& sessionDir) {
         if (l.contains(QLatin1String("relaunching into"))) return QStringLiteral("relaunched");
     }
     return end < lines.size() ? QStringLiteral("window closed") : QStringLiteral("ended from outside");
+}
+
+// A log line as a desync report carries it: printable, no IP address, no user folder, 200 characters at most
+QString reportLine(const QByteArray& raw) {
+    static const QRegularExpression ip(QStringLiteral("\\b\\d{1,3}(\\.\\d{1,3}){3}\\b"));
+    static const QRegularExpression home(QStringLiteral("([A-Za-z]:\\\\Users\\\\)[^\\\\]+"));
+    QString l = QString::fromLatin1(raw).trimmed();
+    l.replace(QRegularExpression(QStringLiteral("[^\\x20-\\x7E]")), QStringLiteral("?"));
+    l.replace(ip, QStringLiteral("x.x.x.x"));
+    l.replace(home, QStringLiteral("\\1*"));
+    return l.left(200);
+}
+
+// What a desync report says of a game's log (PROTOCOL.md 1.13.1): the PC (Windows, processor, the game's executable)
+// from the log's start, then the last match's lines from its start (the link's "start" line): the picks, the setup
+// both games agreed on (or did not), the check that failed; the per-second stats left out, 36 lines at most (its
+// first 22 and its last 14)
+QStringList desyncLines(const QString& sessionDir) {
+    QFile file(QDir(sessionDir).filePath(QStringLiteral("game.log")));
+    if (!file.open(QIODevice::ReadOnly)) return {};
+    QStringList out;
+    for (const QByteArray& raw : file.read(16384).split('\n')) {
+        if (raw.contains("] OS: ") || raw.contains("] CPU: ") || raw.contains("] Game: default.xbe"))
+            out << reportLine(raw);
+    }
+    file.seek(std::max<qint64>(0, file.size() - 262144));
+    const QList<QByteArray> tail = file.readAll().split('\n');
+    qsizetype start = tail.size();
+    for (qsizetype i = tail.size() - 1; i >= 0; --i) {
+        if (tail[i].contains("link: start ")) {
+            start = i;
+            break;
+        }
+    }
+    static const QRegularExpression stats(QStringLiteral("netplay: frame \\d+: "));
+    QStringList match;
+    for (qsizetype i = start; i < tail.size(); ++i) {
+        const QByteArray& raw = tail[i];
+        const bool wanted = raw.contains("netplay:") || raw.contains("link:") || raw.contains("autopilot: this player") ||
+                            raw.contains("picked character") || raw.contains("error:") || raw.contains("warning:");
+        if (wanted && !stats.match(QString::fromLatin1(raw)).hasMatch()) match << reportLine(raw);
+    }
+    if (match.size() > 36) match = match.mid(0, 22) + match.mid(match.size() - 14);
+    return out + match;
+}
+
+// The game's files as extracted from the player's disc (its assets folder): how many, how large, and a hash of
+// their names and sizes; two copies that differ there (a modded disc, files left out of a smaller copy) play two
+// different games. Once a run per game.
+QString gameFiles(const QString& gameId) {
+    static QHash<QString, QString> known;
+    if (const auto it = known.constFind(gameId); it != known.constEnd()) return *it;
+    const QString assets = QDir(cfg::gameFolder(gameId)).filePath(QStringLiteral("assets"));
+    QStringList entries;
+    qint64 bytes = 0;
+    QDirIterator it(assets, QDir::Files | QDir::Hidden, QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        it.next();
+        const qint64 size = it.fileInfo().size();
+        bytes += size;
+        entries << QStringLiteral("%1|%2").arg(QDir(assets).relativeFilePath(it.filePath()).toLower()).arg(size);
+    }
+    entries.sort();
+    const QByteArray list = QCryptographicHash::hash(entries.join(QLatin1Char('\n')).toUtf8(), QCryptographicHash::Sha1);
+    return known[gameId] = QStringLiteral("Game files: %1 files, %2 bytes, names and sizes %3")
+                               .arg(entries.size())
+                               .arg(bytes)
+                               .arg(QString::fromLatin1(list.toHex().left(16)));
 }
 }  // namespace
 
@@ -1021,6 +1092,7 @@ void MatchController::onGameStatus(const QString& line) {
     } else if (st == QLatin1String("desync") && inOnline && forThisMatch) {
         reportResult({{QStringLiteral("outcome"), QStringLiteral("desync")},
                       {QStringLiteral("frame"), keys.value(QStringLiteral("frame")).toInt()}});
+        reportDesync(keys.value(QStringLiteral("frame")).toInt());
     } else if (st == QLatin1String("disconnected") && inOnline && forThisMatch) {
         reportResult({{QStringLiteral("outcome"), QStringLiteral("disconnected")}});
     } else if (st == QLatin1String("error") && inOnline) {
@@ -1057,6 +1129,26 @@ void MatchController::onGameExited() {
     default:
         break;
     }
+}
+
+// The match went out of step: what the game logged of it goes to the server (PROTOCOL.md 1.13.1), whose log then has
+// both players' side by side. A moment later: the game's log has the failed check's own line by then.
+void MatchController::reportDesync(int frame) {
+    if (!game_) return;
+    const QString match = str(go_, "match"), gameId = game_->gameId(), dir = game_->sessionDir();
+    QTimer::singleShot(1500, this, [this, match, gameId, dir, frame] {
+        if (!server_->isLoggedIn()) return;
+        QStringList said = desyncLines(dir);
+        said << gameFiles(gameId);
+        QJsonArray lines;
+        for (const QString& l : said) lines.append(l);
+        server_->send({{QStringLiteral("type"), QStringLiteral("desync_report")},
+                       {QStringLiteral("game"), gameId},
+                       {QStringLiteral("match"), match.left(16)},
+                       {QStringLiteral("frame"), frame},
+                       {QStringLiteral("lines"), lines}});
+        log(tr("The match went out of step at frame %1: what the game logged of it went to the server").arg(frame));
+    });
 }
 
 // this player's game ended during the match: the report says so, with how it ended (the server logs it with the match)

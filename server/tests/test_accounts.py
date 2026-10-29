@@ -160,6 +160,28 @@ async def test_bad_input_is_answered(server, connect):
     assert err["code"] == "bad_json"
 
 
+async def test_a_desync_report_is_logged_with_the_player(server, connect, caplog):
+    """A launcher whose match went out of step sends its game log's lines for it; the server logs each with the
+    player (nothing kept), refuses what is not a frame and plain text lines, and stops listening after a session's
+    share."""
+    c = await connect("Raiden")
+    lines = ["[  28.4] netplay: arena 4, costumes 1 and 0",
+             "[  29.0] error: netplay: DESYNC at frame 30 (ours 1234ABCD/00000001, theirs 5678EF00/00000001)"]
+    with caplog.at_level("INFO", logger="mk3d.server"):
+        ack = await c.request({"type": "desync_report", "game": "mkd", "match": "7658cd7bfcd7", "frame": 30,
+                               "lines": lines})
+    assert ack["type"] == "desync_ack"
+    said = [r.getMessage() for r in caplog.records]
+    assert any("DESYNC_REPORT Raiden mkd" in m and "match 7658cd7bfcd7 at frame 30: 2 lines" in m for m in said)
+    assert any(m == "DESYNC_REPORT Raiden | " + lines[1] for m in said)
+    for bad in ({"lines": ["bad\x07line"]}, {"lines": "not a list"}, {"lines": ["x" * 201]},
+                {"lines": ["line"] * 41}, {"frame": -1, "lines": []}, {"frame": True, "lines": []},
+                {"game": "nope", "lines": []}):
+        with pytest.raises(ServerError) as exc:
+            await c.request({"type": "desync_report", "game": "mkd", "match": "m", "frame": 30, **bad})
+        assert exc.value.code == "bad_request"
+
+
 async def test_a_crash_report_is_logged_with_the_player(server, connect, caplog):
     """A launcher whose game crashed says where; the server logs it with the player (nothing kept), refuses what is
     not plain text, and stops listening after a session's share."""

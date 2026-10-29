@@ -1,0 +1,229 @@
+diff --git a/runtime/gpu/d3d12.cpp b/runtime/gpu/d3d12.cpp
+--- a/runtime/gpu/d3d12.cpp
++++ b/runtime/gpu/d3d12.cpp
+@@ -46,6 +46,7 @@ namespace gpu {
+ namespace {
+ 
+ constexpr int kFrames = 3;
++constexpr uint32_t kCapNext = 20;  // a capture (F3) also saves the next frames' pictures: a third of a second
+ constexpr uint64_t kStaleFrames = 8;  // frames a target may go unused and still be read back
+ constexpr uint64_t kUploadSize = 64ull << 20;
+ // a draw starting with less than this left in the frame's ring waits for the GPU and starts the ring over
+@@ -54,6 +55,7 @@ constexpr uint32_t kSrvCount = 3 * 32768;
+ constexpr uint32_t kSamplerCount = 2048;
+ constexpr uint32_t kRtvCount = 1024;
+ constexpr uint32_t kDsvCount = 256;
++constexpr uint64_t kTargetIdleFrames = 600;  // a target unused this long gives its view back when none is left
+ constexpr DXGI_FORMAT kBgra = DXGI_FORMAT_B8G8R8A8_UNORM;
+ constexpr uint32_t kQueries = 8192;  // occlusion queries in flight, several frames of counted draws
+ constexpr uint32_t kNoQuery = ~0u;
+@@ -597,6 +599,8 @@ private:
+     void ReleaseTarget(std::unordered_map<uint64_t, Target>::iterator it);
+     bool CreateTargetResource(Target& t, const Surface& s);
+     bool CreateTargetView(Target& t);
++    size_t EvictTargets(bool depth);
++    void LogGpuStatus();
+     // UploadTarget, then its step
+     void UploadTarget(Target& t, const Surface& s);
+     ComPtr<ID3D12Resource> CreatePixelTexture(const std::vector<uint8_t>& px, uint32_t pitch, uint32_t w, uint32_t h);
+@@ -633,6 +637,8 @@ private:
+     void RecordLateCopy(Late& l, uint32_t slot, ID3D12Resource* src);
+ 
+     ComPtr<IDXGIFactory4> factory_;
++    ComPtr<IDXGIAdapter3> adapter3_;  // the GPU in use, asked how full its memory is (LogGpuStatus)
++    uint64_t status_every_ = 7200;    // presents between LogGpuStatus lines
+     ComPtr<ID3D12Device> dev_;
+     ComPtr<ID3D12CommandQueue> queue_;
+     ComPtr<IDXGISwapChain3> swap_;
+@@ -680,6 +686,7 @@ private:
+     // one frame capture: every draw in a text file, each target as the frame leaves it, the textures it read
+     FILE* cap_ = nullptr;
+     std::filesystem::path cap_dir_;
++    uint32_t cap_next_ = 0;  // frames after a capture whose pictures are still to be saved (a flicker shows in them)
+     uint32_t cap_i_ = 0;
+     uint32_t cap_rt_ = 0;
+     std::unordered_set<uint32_t> cap_seen_;
+@@ -779,6 +786,22 @@ bool D3D12Backend::CreateDevice() {
+     ComPtr<IDXGIAdapter1> adapter;
+     if (SUCCEEDED(factory_.As(&f6))) {
+         f6->EnumAdapterByGpuPreference(0, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&adapter));
++        // XBE_ADAPTER=<part of its name>: another GPU of this PC instead (tests: one vendor's driver against another's)
++        wchar_t want[128] = {};
++        if (GetEnvironmentVariableW(L"XBE_ADAPTER", want, DWORD(std::size(want))) && want[0]) {
++            _wcslwr_s(want);
++            ComPtr<IDXGIAdapter1> a;
++            for (UINT i = 0; f6->EnumAdapterByGpuPreference(i, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE,
++                                                             IID_PPV_ARGS(&a)) != DXGI_ERROR_NOT_FOUND; i++) {
++                DXGI_ADAPTER_DESC1 d{};
++                a->GetDesc1(&d);
++                _wcslwr_s(d.Description);
++                if (wcsstr(d.Description, want)) {
++                    adapter = a;
++                    break;
++                }
++            }
++        }
+     }
+     if (FAILED(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&dev_))) &&
+         FAILED(D3D12CreateDevice((adapter = nullptr).Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&dev_)))) {
+@@ -788,6 +811,9 @@ bool D3D12Backend::CreateDevice() {
+     DXGI_ADAPTER_DESC1 ad{};
+     if (adapter) adapter->GetDesc1(&ad);
+     LOGR("D3D12 adapter: %ls", adapter ? ad.Description : L"default");
++    if (adapter) adapter.As(&adapter3_);
++    if (wchar_t every[16] = {}; GetEnvironmentVariableW(L"XBE_GPU_STATUS_EVERY", every, DWORD(std::size(every))))
++        status_every_ = std::max<uint64_t>(60, _wtoi64(every));
+     D3D12_COMMAND_QUEUE_DESC qd{};
+     qd.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+     dev_->CreateCommandQueue(&qd, IID_PPV_ARGS(&queue_));
+@@ -1128,17 +1154,52 @@ Target* D3D12Backend::EnsureTarget(const Surface& s, bool depth) {
+     t.gh = slot.gh;
+     if (!CreateTargetResource(t, s)) return nullptr;
+     g_perf.targets++;
+-    // an empty pool drops the new resource with t
+-    if (!CreateTargetView(t)) return nullptr;
++    if ((depth ? free_dsv_ : free_rtv_).empty()) EvictTargets(depth);
++    // an empty pool drops the new resource with t, and what the game draws into it is lost
++    if (!CreateTargetView(t)) {
++        LOG_FIRST(8, "d3d12: no %s view left for a new target at %08X (%zu held)", depth ? "depth" : "colour",
++                  slot.data, targets_.size());
++        return nullptr;
++    }
+     t.data = slot.data;
+     t.bytes = GuestPitch(slot.gw) * slot.gh;
+     if (depth) t.bytes = slot.gw * slot.gh * 4;
+     t.epoch = DirtyEpoch(slot.data);
+     t.sig = MemSig(slot.data, t.bytes);
+     auto& ref = targets_[slot.key] = std::move(t);
++    if (targets_.size() % 64 == 0)
++        LOGR("d3d12: %zu render targets held (%zu colour and %zu depth views free)", targets_.size(), free_rtv_.size(),
++             free_dsv_.size());
+     return &ref;
+ }
+ 
++// A session renders into ever new places (each stage's surfaces where the game's heap put them, a match game plays
++// stage after stage), and a target is kept until its size changes: once every view was taken, a new target could not
++// be made and what the game drew into it was lost (textures flickering, a floor drawn black, the health bars gone).
++// The targets unused longest, none used within kTargetIdleFrames, give theirs back: an eighth of the pool at most.
++size_t D3D12Backend::EvictTargets(bool depth) {
++    std::vector<std::pair<uint64_t, uint64_t>> idle;  // last used, key
++    for (const auto& [key, tg] : targets_) {
++        if (tg.depth != depth) continue;
++        auto u = target_used_.find(tg.data);
++        uint64_t used = u == target_used_.end() ? 0 : u->second;
++        if (used + kTargetIdleFrames < frame_) idle.emplace_back(used, key);
++    }
++    std::sort(idle.begin(), idle.end());
++    const size_t want = std::max<size_t>(1, (depth ? kDsvCount : kRtvCount) / 8);
++    size_t n = 0;
++    for (const auto& [used, key] : idle) {
++        if (n >= want) break;
++        if (auto it = targets_.find(key); it != targets_.end()) {
++            ReleaseTarget(it);
++            n++;
++        }
++    }
++    LOGR("d3d12: every %s view was taken (%zu targets held): %zu unused longest gave theirs back",
++         depth ? "depth" : "colour", targets_.size() + n, n);
++    return n;
++}
++
+ bool D3D12Backend::BindTargets(const State& s) {
+     Target* rt = EnsureTarget(s.rt, false);
+     Target* ds = s.rs[kRsZEnable] || s.rs[kRsStencilEnable] ? EnsureTarget(s.zs, true) : nullptr;
+@@ -1665,14 +1726,33 @@ bool D3D12Backend::CreateTexture(Tex& tx, const TextureDesc& d, const FormatInfo
+     td.MipLevels = UINT16(tx.levels);
+     td.Format = tx.fmt;
+     td.SampleDesc.Count = 1;
+-    if (FAILED(dev_->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &td, D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+-                                             IID_PPV_ARGS(&tx.res)))) {
++    if (HRESULT hr = dev_->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &td, D3D12_RESOURCE_STATE_COPY_DEST,
++                                                   nullptr, IID_PPV_ARGS(&tx.res));
++        FAILED(hr)) {
++        // drawn without it: a texture missing or flickering (video memory full, as LogGpuStatus would show)
++        LOG_FIRST(8, "d3d12: a %ux%u texture could not be made (%08lX, %zu textures held)", d.width, d.height,
++                  static_cast<unsigned long>(hr), textures_.size());
+         textures_.erase(key);
+         return false;
+     }
+     return true;
+ }
+ 
++// Now and then in every log: what the renderer holds and how full the video memory is, so a session's log shows
++// what grew before something was drawn wrong (XBE_GPU_STATUS_EVERY=<presents>, 7200 by default: two minutes)
++void D3D12Backend::LogGpuStatus() {
++    size_t colour = 0, depth = 0;
++    for (const auto& [key, tg] : targets_) (tg.depth ? depth : colour)++;
++    DXGI_QUERY_VIDEO_MEMORY_INFO vm{};
++    const bool mem = adapter3_ && SUCCEEDED(adapter3_->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &vm));
++    LOGR("gpu: %zu textures, %zu colour and %zu depth targets (%zu and %zu views free)%s", textures_.size(), colour,
++         depth, free_rtv_.size(), free_dsv_.size(),
++         mem ? (", video memory " + std::to_string(vm.CurrentUsage >> 20) + " of " + std::to_string(vm.Budget >> 20) +
++                " MB")
++                   .c_str()
++             : "");
++}
++
+ void CopyLevelRows(uint8_t* out, const D3D12_PLACED_SUBRESOURCE_FOOTPRINT& fp, UINT rows, UINT64 row_size,
+                    const std::vector<uint8_t>& px, uint32_t pitch) {
+     uint32_t slices = fp.Footprint.Depth;
+@@ -1817,6 +1897,7 @@ ID3D12Resource* D3D12Backend::BindTexture(const State& s, int stage, DrawTexture
+     if (ext_) ext_->Sample(d.data, fi.depth, stage, alt, stages.k[stage], box);
+     auto tit = targets_.find(SizedTargetKey(d.data, fi.depth, d.width, d.height) | alt);
+     if (tit != targets_.end() && !d.cube && d.depth == 1 && !fi.compressed) {
++        target_used_[d.data] = frame_;  // sampled counts as used: a target only read keeps its view (EvictTargets)
+         return BindTargetTexture(s, stage, d, tit->second, box, stages);
+     }
+     return BindGuestTexture(s, stage, d, fi, stages);
+@@ -2810,6 +2891,8 @@ void D3D12Backend::ResizeSwap() {
+     uint32_t w = std::max<LONG>(rc.right - rc.left, 1);
+     uint32_t h = std::max<LONG>(rc.bottom - rc.top, 1);
+     if (w == bb_w_ && h == bb_h_) return;
++    // in the log: a window that keeps changing size makes its picture again each time (a flicker's cause)
++    LOG_FIRST(32, "d3d12: window %ux%u (was %ux%u): the picture's buffers made again", w, h, bb_w_, bb_h_);
+     Flush();
+     for (auto& f : frames_) {
+         if (f.fence) WaitFence(f.fence);
+@@ -2855,7 +2938,8 @@ void D3D12Backend::FinishCapture(const Surface& front) {
+     fclose(cap_);
+     cap_ = nullptr;
+     cap_tex_.clear();
+-    LOGI("d3d12: frame captured to %s", cap_dir_.string().c_str());
++    LOGR("d3d12: frame captured to %s, the next %u frames' pictures follow", cap_dir_.string().c_str(), kCapNext);
++    cap_next_ = kCapNext;
+ }
+ 
+ void D3D12Backend::StartCapture() {
+@@ -3034,6 +3118,14 @@ void D3D12Backend::Present(const Surface& front) {
+     PerfScope perf_present{g_perf.present};
+     if (cap_) {
+         FinishCapture(front);
++    } else if (cap_next_) {
++        // the frames after a capture, their pictures alone: something that flickers is right in one, wrong in the next
++        if (Target* f = FindTarget(front, false)) {
++            char name[24];
++            snprintf(name, sizeof(name), "next_%02u", kCapNext - cap_next_);
++            CapSave(*f, name);
++        }
++        cap_next_--;
+     } else if (g_capture.exchange(false) && CaptureOn()) {
+         StartCapture();
+     }
+@@ -3061,6 +3153,7 @@ void D3D12Backend::Present(const Surface& front) {
+     presents_++;
+     presents_seen_.store(presents_);
+     frame_++;
++    if (presents_ % status_every_ == 0) LogGpuStatus();
+     ReleaseOldTextures();
+     ResetFrame();
+     CountFps();
+@@ -3077,6 +3170,9 @@ void D3D12Backend::ApplySettings() {
+     float want = app::RenderScale(guest_h_);
+     bool remake = ext_ && ext_->Settings();
+     if (std::fabs(want - scale_) > 1e-4f || remake) {
++        // every target starts again empty: what the game drew into one before (shadows, effects) is gone for a frame
++        LOG_FIRST(32, "gpu: render scale %.3f (was %.3f)%s: every render target made again", want, scale_,
++                  remake ? ", the extension's settings changed" : "");
+         Flush();
+         for (auto& [key, tg] : targets_) (tg.depth ? free_dsv_ : free_rtv_).push_back(tg.view);
+         targets_.clear();

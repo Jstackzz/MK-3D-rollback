@@ -609,6 +609,30 @@ thread`) and what was going on (the match phase, `single player`, `practice`,
 keeps nothing; plain printable text only (`bad_request`), at most 20 a session
 (more are dropped without a word).
 
+### 1.13.1 Desync reports (0.1.15)
+
+```json
+C: {"type":"desync_report","game":"mkd","match":"7658cd7bfcd7","frame":30,
+    "lines":["[    0.004] CPU: AMD Ryzen 7 9800X3D 8-Core Processor (16 threads)", "...",
+             "[   28.425] netplay: arena 4, costumes 1 and 0",
+             "[   29.000] error: netplay: DESYNC at frame 30 (ours 1234ABCD/00000001, theirs 5678EF00/00000001)",
+             "Game files: 587 files, 4050117929 bytes, names and sizes 3017906901d6341d"]}
+S: {"type":"desync_ack"}
+```
+
+A launcher whose match went out of step (its game's `desync` status, after the
+`result` with outcome `desync`) sends what its game logged of it: from the log's
+start, Windows, the processor and the game's executable (`default.xbe` and its
+SHA-1); from the match's start (the link's `start` line), the picks, the setup
+both games agreed on (or the lines saying it differs) and the failed check (the
+per-second stats left out; 36 lines at most); last, the game's extracted files:
+how many, how large, and a hash of their names and sizes (a modded or reduced
+copy of the disc differs there). IP addresses and user folders are taken out.
+The server logs each line with the player's name (`DESYNC_REPORT <name> |
+<line>`, after a line naming the game, launcher version, match and frame), so
+both players' reports of a match stand side by side, and keeps nothing: at most
+40 lines of 200 printable characters (else `bad_request`), 10 reports a session.
+
 ---
 
 ## 2. NAT traversal: UDP rendezvous
@@ -851,7 +875,7 @@ below); `rounds` (best of N); `ranked` (0 or
 their options' DEATH TRAPS from it, and the round time and blood level to
 their defaults, whatever each PC's options and profile say); `match` (id,
 echoed in status lines). Optional: `p1_name`, `p2_name` (account names; the
-games write them inside the health bars),
+games show them just above the health bars),
 `stage` (absent = the game derives it from the seed), `feed` (`127.0.0.1:port`,
 a TCP port of the launcher's: the game writes its spectator feed there, 1.10.1;
 a lobby match's), `watch=1` (a spectator: no `side`, `local_port` or `remote`;

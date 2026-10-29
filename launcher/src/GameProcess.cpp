@@ -184,6 +184,9 @@ bool GameProcess::start(const QString& exe, QString* error, bool netMode) {
     env.insert(QStringLiteral("MK3D_SESSION_DIR"), QDir::toNativeSeparators(sessionDir_));
     env.insert(QStringLiteral("MK3D_INSTANCE"), QString::number(instance_));
     env.insert(QStringLiteral("MK3D_LOG"), QDir::toNativeSeparators(QDir(sessionDir_).filePath(QStringLiteral("game.log"))));
+    // F3 in the game saves what it drew (the frame's draws, textures and picture, then the next frames' pictures)
+    // under the session: what a player who sees something drawn wrong (flicker, a broken texture) sends
+    env.insert(QStringLiteral("XBE_CAPTURE_DIR"), QDir::toNativeSeparators(QDir(sessionDir_).filePath(QStringLiteral("captures"))));
     env.insert(QStringLiteral("MK3D_DISPLAY"), cfg::displayMode());
     env.insert(QStringLiteral("MK3D_RESOLUTION"), cfg::resolution());
     env.insert(QStringLiteral("MK3D_VSYNC"), cfg::vsync() ? QStringLiteral("1") : QStringLiteral("0"));

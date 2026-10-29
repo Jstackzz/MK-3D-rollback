@@ -38,9 +38,11 @@ NEEDS_LOGIN = {
     "logout", "queue_join", "queue_leave", "match_accept", "match_decline", "ping_report", "match_state",
     "result", "lobby_create", "lobby_list", "lobby_join", "lobby_leave", "lobby_chat", "lobby_character",
     "lobby_ready", "lobby_start", "admin_notice", "series_ready", "lobby_role", "feed", "lobby_settings",
-    "crash_report", "udp_tunnel", "tunnel",
+    "crash_report", "udp_tunnel", "tunnel", "desync_report",
 }
 CRASH_REPORTS_PER_SESSION = 20  # a game crashing over and over says so this many times, then no more
+DESYNC_REPORTS_PER_SESSION = 10  # matches out of step a session reports, then no more
+DESYNC_LINES = 40  # a desync report's lines from the game's log, 200 characters each at most
 CRASH_TEXT = re.compile(r"[\x20-\x7E]*")  # printable ASCII only: it goes into the log as is
 FEED_MAGIC = b"MKDR"
 FEED_TYPES = (5, 6, 7, 8, 9)  # the spectator feed's packet types (recomp/common/src/mk3d/netplay.cpp)
@@ -124,6 +126,7 @@ class Session:
         self.hello = False
         self.client_version = ""
         self.crash_reports = 0
+        self.desync_reports = 0
         self.account_id: int | None = None
         self.name: str | None = None
         self.admin = False
@@ -492,6 +495,7 @@ class Server:
             "series_ready": self.on_series_ready,
             "leaderboard": self.on_leaderboard,
             "crash_report": self.on_crash_report,
+            "desync_report": self.on_desync_report,
             "udp_tunnel": self.on_udp_tunnel,
             "tunnel": self.on_tunnel,
         }
@@ -2135,6 +2139,28 @@ class Server:
         log.info("CRASH %s %s (launcher %s) during %s: %s %s", s.name, game, s.client_version or "?",
                  during or "?", code or "?", where or "?")
         self._reply(s, msg, {"type": "crash_ack"})
+
+    def on_desync_report(self, s: Session, msg: dict[str, Any]) -> None:
+        """A launcher's match went out of step: its game log's lines for that match (the setup both games agreed on,
+        the picks, the check that failed), this PC's processor and the game's files. Logged with the player, nothing
+        kept: both players' reports side by side say what differed (docs/PROTOCOL.md 1.13.1)."""
+        game = P.get_str(msg, "game", max_len=8)
+        if game not in P.GAMES:
+            raise P.ProtocolError("bad_request", "Unknown game.")
+        match = P.get_str(msg, "match", max_len=16, default="")
+        frame, lines = msg.get("frame", 0), msg.get("lines")
+        if (not isinstance(frame, int) or isinstance(frame, bool) or not 0 <= frame < 2**32
+                or not isinstance(lines, list) or len(lines) > DESYNC_LINES or not CRASH_TEXT.fullmatch(match)
+                or not all(isinstance(line, str) and len(line) <= 200 and CRASH_TEXT.fullmatch(line) for line in lines)):
+            raise P.ProtocolError("bad_request", "Desync reports are a frame and plain text lines.")
+        s.desync_reports += 1
+        if s.desync_reports > DESYNC_REPORTS_PER_SESSION:
+            return
+        log.info("DESYNC_REPORT %s %s (launcher %s) match %s at frame %d: %d lines", s.name, game,
+                 s.client_version or "?", match or "?", frame, len(lines))
+        for line in lines:
+            log.info("DESYNC_REPORT %s | %s", s.name, line)
+        self._reply(s, msg, {"type": "desync_ack"})
 
     def on_lobby_chat(self, s: Session, msg: dict[str, Any]) -> None:
         lobby = self._need_lobby(s)
