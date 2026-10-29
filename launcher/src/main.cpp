@@ -43,6 +43,10 @@ int main(int argc, char* argv[]) {
                                         QStringLiteral("image"));
     const QCommandLineOption acceptOpt(QStringLiteral("auto-accept"), QStringLiteral("Development: accept found matches after N seconds."),
                                        QStringLiteral("seconds"));
+    const QCommandLineOption cancelOpt(
+        QStringLiteral("cancel-search"),
+        QStringLiteral("Development: cancel the --queue search N seconds after it starts, as CANCEL SEARCH does."),
+        QStringLiteral("seconds"));
     const QCommandLineOption lobbyOpt(QStringLiteral("lobby"),
                                       QStringLiteral("Development: host a lobby (start once both are ready), join it "
                                                      "(ready at once) or watch it (as a spectator)."),
@@ -88,7 +92,7 @@ int main(int argc, char* argv[]) {
     const QCommandLineOption autoUpdateOpt(QStringLiteral("auto-update"),
                                            QStringLiteral("Development: install an update offered at once, without asking."));
     for (const auto* o : {&configOpt, &serverOpt, &fpOpt, &userOpt, &pwEnvOpt, &regOpt, &queueOpt, &gameOpt, &modeOpt,
-                          &charOpt, &pageOpt, &acceptOpt, &localTestOpt, &extractOpt, &lobbyOpt, &lobbyNameOpt,
+                          &charOpt, &pageOpt, &acceptOpt, &cancelOpt, &localTestOpt, &extractOpt, &lobbyOpt, &lobbyNameOpt,
                           &lobbyMatchesOpt, &leaveLobbyOpt, &upnpProbeOpt, &rematchesOpt, &rematchChoiceOpt,
                           &leaveSeriesOpt, &soloOpt,
                           &practiceOpt, &deathTrapsOpt, &updatedOpt, &autoUpdateOpt})
@@ -134,6 +138,7 @@ int main(int argc, char* argv[]) {
     opts.character = cli.value(charOpt);
     opts.page = cli.value(pageOpt);
     opts.autoAcceptSeconds = cli.isSet(acceptOpt) ? cli.value(acceptOpt).toInt() : -1;
+    opts.cancelSearchSeconds = cli.isSet(cancelOpt) ? std::max(0, cli.value(cancelOpt).toInt()) : -1;
     opts.localTest = cli.isSet(localTestOpt);
     opts.extractImage = cli.value(extractOpt);
     opts.lobby = cli.value(lobbyOpt);

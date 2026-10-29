@@ -40,6 +40,7 @@
 #include "mk3d/framedata.h"
 #include "mk3d/game.h"
 #include "mk3d/linkgame.h"
+#include "mk3d/names.h"
 #include "mk3d/netplay.h"
 
 namespace mk3d::link {
@@ -61,6 +62,7 @@ int g_wins_needed = 2;
 std::atomic<bool> g_park{false};
 bool g_park_after_end = false;  // asked to park while the match's end still plays in sync
 std::chrono::steady_clock::time_point g_park_deadline;
+std::chrono::steady_clock::time_point g_park_left_at;  // when netplay was first seen out of the match (none: {})
 
 std::wstring Widen(const char* s) {
     std::wstring w;
@@ -163,6 +165,8 @@ void Start(const Command& c) {
     } else {
         net::Disable();
     }
+    // the players' names over the fight, an online or a watched match's only (names.h)
+    names::SetPlayers(g_online ? Key(c, "p1_name") : std::string(), g_online ? Key(c, "p2_name") : std::string());
     game::Start start;
     start.mode = mode;
     start.picks[0] = picks[0];
@@ -215,6 +219,7 @@ void Park() {
     g_in_match = false;
     g_fighting = false;
     net::Disable();
+    names::SetPlayers(std::string(), std::string());
     game::ExpectMenu();
     g_park = true;  // the frame hook switches the game to the main menu
 }
@@ -228,9 +233,10 @@ bool InSync() {
 // while the game still plays the match's end: the finisher, a fatality, the winner's pose. Both games leave the match
 // in sync together after that (netplay.cpp, MatchOver), so the park waits for it, and for 30 s at most.
 void RequestPark() {
-    if (g_in_match && g_online && g_reported && InSync()) {
+    if (g_in_match && g_online && g_reported) {
         g_park_after_end = true;
         g_park_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+        g_park_left_at = {};
         LOGI("link: park once the match's end has played");
         return;
     }
@@ -240,7 +246,12 @@ void RequestPark() {
 // the match's state, written when it changes
 void Update() {
     if (g_park_after_end) {
-        if (!InSync() || std::chrono::steady_clock::now() > g_park_deadline) {
+        // Out of the match, the other game may still need this one's last inputs (a packet lost at the end), which
+        // netplay sends again when asked, until the park closes it: so the park waits 2 s more. Parked at once, this
+        // game left the other one waiting out its 15 s for them, on the match's last frame (a fatality's).
+        const auto now = std::chrono::steady_clock::now();
+        if (!InSync() && g_park_left_at == std::chrono::steady_clock::time_point{}) g_park_left_at = now;
+        if ((!InSync() && now - g_park_left_at >= std::chrono::seconds(2)) || now > g_park_deadline) {
             LOGI("link: the match's end has played");
             Park();
         }

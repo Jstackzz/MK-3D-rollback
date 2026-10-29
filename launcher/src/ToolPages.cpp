@@ -391,6 +391,9 @@ SettingsPage::SettingsPage(ServerClient* server, QWidget* parent) : Page(parent)
     hideIp->setChecked(cfg::hideIp());
     hideIp->setToolTip(tr("Your matches go through the server, so nobody you play can see your address. They get "
                           "more ping the farther you and your opponent are from the server (in Virginia, USA)."));
+    auto* matchSound = new QCheckBox(tr("Play a sound when a match is found"));
+    matchSound->setChecked(cfg::matchSound());
+    matchSound->setToolTip(tr("A short chime with the MATCH FOUND window, heard over the game you wait in."));
     routerState_ = ui::label(tr("Router: not asked"), "Muted");
     routerState_->setWordWrap(true);
     of->addRow(tr("Region"), region);
@@ -398,6 +401,7 @@ SettingsPage::SettingsPage(ServerClient* server, QWidget* parent) : Page(parent)
     of->addRow(tr("Input delay"), delay);
     of->addRow(tr("Game UDP port"), port);
     of->addRow(QString(), strict);
+    of->addRow(QString(), matchSound);
     of->addRow(QString(), upnp);
     of->addRow(QString(), hideIp);
     of->addRow(tr("Router"), routerState_);
@@ -544,6 +548,7 @@ SettingsPage::SettingsPage(ServerClient* server, QWidget* parent) : Page(parent)
         if (on && upnp_) upnp_->map(static_cast<quint16>(cfg::gamePort()));
     });
     connect(strict, &QCheckBox::toggled, this, [](bool on) { cfg::set(QStringLiteral("online/strict"), on); });
+    connect(matchSound, &QCheckBox::toggled, this, [](bool on) { cfg::set(QStringLiteral("online/match_sound"), on); });
     connect(hideIp, &QCheckBox::toggled, this, [](bool on) { cfg::set(QStringLiteral("online/hide_ip"), on); });
     connect(mode, &QComboBox::currentIndexChanged, this, [mode] { cfg::set(QStringLiteral("display/mode"), mode->currentData()); });
     connect(res, &QComboBox::currentIndexChanged, this, [res] {

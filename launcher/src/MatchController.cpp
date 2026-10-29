@@ -114,6 +114,35 @@ QString gameName(const QString& gameId) {
     const Game* g = GameData::instance().game(gameId);
     return !g ? gameId : g->shortName.isEmpty() ? g->title : g->shortName;
 }
+
+// How a game ended by itself, from the last lines of its log (runtime patches 0027 and 0029): "crash", "asked to leave
+// N" (it wanted its console's dashboard, as after a disc error), "shut down", "relaunched", "window closed" (a clean end
+// the game said nothing about), "ended from outside" (no last line at all: killed, or its PC's doing)
+QString exitReason(const QString& sessionDir) {
+    QFile file(QDir(sessionDir).filePath(QStringLiteral("game.log")));
+    QList<QByteArray> lines;
+    if (file.open(QIODevice::ReadOnly)) {
+        if (file.size() > 65536) file.seek(file.size() - 65536);
+        lines = file.readAll().split('\n');
+    }
+    qsizetype end = lines.size();  // its last "Exit (" line: what the game wrote just before it says why
+    for (qsizetype i = lines.size() - 1; i >= 0; --i) {
+        if (lines[i].contains("Exit (")) {
+            end = i;
+            break;
+        }
+    }
+    static const QRegularExpression leave(QStringLiteral("asked to leave \\(HalReturnToFirmware (\\d+)\\)"));
+    for (qsizetype i = end - 1; i >= 0 && i >= end - 80; --i) {
+        const QString l = QString::fromLatin1(lines[i]);
+        if (l.contains(QLatin1String("crash: "))) return QStringLiteral("crash");
+        if (const QRegularExpressionMatch m = leave.match(l); m.hasMatch())
+            return QStringLiteral("asked to leave %1").arg(m.captured(1));
+        if (l.contains(QLatin1String("asked to shut down"))) return QStringLiteral("shut down");
+        if (l.contains(QLatin1String("relaunching into"))) return QStringLiteral("relaunched");
+    }
+    return end < lines.size() ? QStringLiteral("window closed") : QStringLiteral("ended from outside");
+}
 }  // namespace
 
 // A game that crashed: an exception's exit code (0x8... or 0xC...; never the launcher's own kill, 0xF291, nor a
@@ -435,7 +464,11 @@ GameProcess* MatchController::ensureGame(const QString& gameId, QString* error) 
     return game_;
 }
 
-bool MatchController::prepareGame(const QString& gameId, QString* error) { return ensureGame(gameId, error) != nullptr; }
+bool MatchController::prepareGame(const QString& gameId, QString* error) {
+    GameProcess* g = ensureGame(gameId, error);
+    if (g) lobbyGame_ = g;
+    return g != nullptr;
+}
 
 bool MatchController::findMatch(const QueueRequest& req, QString* error) {
     if (!server_->isLoggedIn()) {
@@ -490,14 +523,21 @@ void MatchController::sendKeepaliveHello() {
 }
 
 void MatchController::cancelSearch() {
+    const bool searching = phase_ == Phase::Searching;
     if (phase_ == Phase::Found || phase_ == Phase::Connecting) {
         decline();
+    } else if (searching) {
+        server_->send({{QStringLiteral("type"), QStringLiteral("queue_leave")}});
+        releaseUdp();
+    } else {
         return;
     }
-    if (phase_ != Phase::Searching) return;
-    server_->send({{QStringLiteral("type"), QStringLiteral("queue_leave")}});
-    releaseUdp();
-    setPhase(Phase::Idle, tr("Search cancelled"));
+    // no game is left running for it: practice it opened while it waited, the match's game (unless a lobby's Ready
+    // wants it); single player, or practice the player opened before, stays
+    if (practiceForSearch_ && solo_ && soloPractice_) closeSolo(tr("Search cancelled: practice closed"));
+    if (game_ && game_ != lobbyGame_ && game_->isRunning()) closeGame(tr("Search cancelled: the match's game closed"));
+    practiceForSearch_ = false;
+    if (searching) setPhase(Phase::Idle, tr("Search cancelled"));
 }
 
 void MatchController::accept() {
@@ -984,10 +1024,10 @@ void MatchController::onGameStatus(const QString& line) {
     } else if (st == QLatin1String("disconnected") && inOnline && forThisMatch) {
         reportResult({{QStringLiteral("outcome"), QStringLiteral("disconnected")}});
     } else if (st == QLatin1String("error") && inOnline) {
-        // "error exited": GameProcess's word for a game that closed by itself (Alt+F4, a crash), which ends the match
-        // for both: the player left it (onGameExited)
-        reportResult({{QStringLiteral("outcome"),
-                       line.startsWith(QLatin1String("error exited")) ? QStringLiteral("left") : QStringLiteral("error")}});
+        // "error exited": GameProcess's word for a game that ended by itself (closed, crashed, asked to leave), which
+        // ends the match for both: the player left it (onGameExited)
+        if (line.startsWith(QLatin1String("error exited"))) reportLeft();
+        else reportResult({{QStringLiteral("outcome"), QStringLiteral("error")}});
     }
 }
 
@@ -1003,9 +1043,9 @@ void MatchController::onGameExited() {
         break;
     case Phase::Starting:
     case Phase::Playing:
-        // the player closed their game (or it crashed) during the match: they left it, which ends the series (and
-        // loses a ranked set) instead of offering a rematch
-        reportResult({{QStringLiteral("outcome"), QStringLiteral("left")}});
+        // the player's game ended during the match (closed, crashed, asked to leave): they left it, which loses a
+        // ranked set; Kasual offers the rematch again
+        reportLeft();
         break;
     case Phase::Finishing:
         finishTimeout_.stop();
@@ -1017,6 +1057,19 @@ void MatchController::onGameExited() {
     default:
         break;
     }
+}
+
+// this player's game ended during the match: the report says so, with how it ended (the server logs it with the match)
+void MatchController::reportLeft() {
+    if (resultSent_ || go_.isEmpty()) return;
+    QJsonObject fields{{QStringLiteral("outcome"), QStringLiteral("left")}};
+    if (game_ && !game_->isRunning()) {
+        const QString why = exitReason(game_->sessionDir());
+        fields.insert(QStringLiteral("exit"), why);
+        fields.insert(QStringLiteral("exit_code"), game_->exitCode());
+        log(tr("Your game ended during the match (%1, exit code %2)").arg(why).arg(game_->exitCode()));
+    }
+    reportResult(fields);
 }
 
 void MatchController::reportResult(QJsonObject fields) {
@@ -1093,6 +1146,7 @@ bool MatchController::startSolo(const QString& gameId, QString* error, bool prac
     solo_ = g;
     soloPractice_ = practice;
     soloFrozen_ = false;
+    practiceForSearch_ = false;  // maybeStartPractice says so when the search opened it
     connect(g, &GameProcess::exited, this, [this, g] {
         if (solo_ != g) return;
         const QString closed = soloPractice_ ? tr("Practice closed") : tr("Single player closed");
@@ -1128,6 +1182,7 @@ void MatchController::maybeStartPractice() {
     if (phase_ != Phase::Searching || solo_ || !cfg::practiceWhileWaiting()) return;
     QString err;
     if (!startSolo(request_.game, &err, true)) log(tr("Practice while you wait: %1").arg(err));
+    else practiceForSearch_ = true;
 }
 
 void MatchController::stopSolo() {
@@ -1142,8 +1197,24 @@ void MatchController::closeSolo(const QString& why) {
     solo_ = nullptr;
     soloPractice_ = false;
     soloFrozen_ = false;
+    practiceForSearch_ = false;
     soloHidden_.clear();
     disconnect(g, nullptr, this, nullptr);
+    g->quit();
+    QTimer::singleShot(6000, g, &QObject::deleteLater);
+    log(why);
+    emit gameStatusChanged(gameStatus());
+}
+
+// the match's game closed at once the same way; frozen behind single player (standby), it goes on to its quit hidden
+void MatchController::closeGame(const QString& why) {
+    GameProcess* g = game_;
+    if (!g) return;
+    if (gameFrozen_) winutil::thawProcess(g->pid(), {});  // a frozen game would not see its quit
+    gameFrozen_ = false;
+    gameHidden_.clear();
+    game_ = nullptr;
+    disconnect(g, nullptr, this, nullptr);  // its exit is no match's business
     g->quit();
     QTimer::singleShot(6000, g, &QObject::deleteLater);
     log(why);
@@ -1240,6 +1311,7 @@ void MatchController::stopGame() {
 }
 
 void MatchController::closeGameWhenIdle() {
+    lobbyGame_ = nullptr;
     closeWhenIdle_ = true;
     maybeCloseIdleGame();
 }
@@ -1247,15 +1319,7 @@ void MatchController::closeGameWhenIdle() {
 void MatchController::maybeCloseIdleGame() {
     if (!closeWhenIdle_ || phase_ != Phase::Idle || !series_.isEmpty() || !watchQueue_.isEmpty()) return;
     closeWhenIdle_ = false;
-    if (!game_ || !game_->isRunning()) return;
-    log(tr("Left the lobby: its game closes"));
-    thawGame();  // a frozen game would not see its quit
-    GameProcess* g = game_;
-    game_ = nullptr;
-    disconnect(g, nullptr, this, nullptr);  // its exit is no match's business
-    g->quit();
-    QTimer::singleShot(6000, g, &QObject::deleteLater);
-    emit gameStatusChanged(gameStatus());
+    if (game_ && game_->isRunning()) closeGame(tr("Left the lobby: its game closes"));
 }
 
 void MatchController::shutdown() {

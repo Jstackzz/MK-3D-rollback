@@ -1498,6 +1498,14 @@ class Server:
             frame = msg.get("frame")
             report: dict[str, Any] = {"outcome": outcome,
                                       "frame": frame if isinstance(frame, int) and not isinstance(frame, bool) else None}
+            if outcome == "left":
+                # how the reporter's game ended (its launcher reads it from the game's log): a game that left by itself
+                # (asked to leave, crashed) apart from one its player closed; optional, never a reason to refuse
+                why, code = msg.get("exit"), msg.get("exit_code")
+                if isinstance(why, str) and len(why) <= 40 and CRASH_TEXT.fullmatch(why):
+                    report["exit"] = why
+                if isinstance(code, int) and not isinstance(code, bool) and -2**31 <= code < 2**32:
+                    report["exit_code"] = code
         else:
             report = {
                 "winner": P.get_int(msg, "winner", lo=1, hi=2),
@@ -1647,16 +1655,18 @@ class Server:
         series.match = None
         series.played += 1
         series.last_picks = fighters
-        if fault is not None:
-            # a player whose game closed mid-match (or who vanished) left the series: in ranked, whatever the score,
-            # that loses the set, so quitting a match never saves a player from its loss
+        if fault is not None and series.ranked:
+            # a player whose game closed mid-match (or who vanished) left the set: whatever the score, that loses it,
+            # so quitting a match never saves a player from its loss
             sp = series.player_for(fault.account_id)
             if sp is not None:
-                self._end_series(series, "forfeit" if series.ranked else "left", left=sp, now=now)
+                self._end_series(series, "forfeit", left=sp, now=now)
                 return
-        if broken:  # the two games lost each other: no next match, nothing counts
-            self._end_series(series, "void" if series.ranked else "disconnected", now=now)
+        if broken and series.ranked:  # the two games lost each other: no next match, nothing counts
+            self._end_series(series, "void", now=now)
             return
+        # Kasual rematches without end: a match a game closed during, or whose games lost each other, counts for
+        # nobody and the rematch is offered again; the series ends when a player leaves it or lets the offer run out
         if status == "agreed" and winner in (1, 2):
             sp = series.player_for(m.players[winner - 1].account_id)
             if sp is not None:
@@ -1671,7 +1681,7 @@ class Server:
             self._end_series(series, "won", winner=champion, now=now)
         elif gone is not None:
             self._leave_series(series, gone, now)
-        elif series.no_contests >= self.cfg.series_max_no_contest:
+        elif series.ranked and series.no_contests >= self.cfg.series_max_no_contest:
             self._end_series(series, "void", now=now)
         else:
             self._series_between(series, now)
@@ -1694,11 +1704,12 @@ class Server:
             return
         series.match = None
         gone = [series.player_for(p.account_id) for p in m.players if p.side in blame]
-        if len(gone) == 1 and gone[0] is not None:
+        if series.ranked and len(gone) == 1 and gone[0] is not None:
             self._leave_series(series, gone[0], now)  # the one who did not show up for it
             return
+        # Kasual: offered again (a player who is gone lets the offer run out)
         series.no_contests += 1
-        if series.no_contests >= self.cfg.series_max_no_contest:
+        if series.ranked and series.no_contests >= self.cfg.series_max_no_contest:
             self._end_series(series, "void", now=now)
         else:
             self._series_between(series, now)
@@ -1756,9 +1767,10 @@ class Server:
     def _end_series(self, series: Series, outcome: str, *, winner: SeriesPlayer | None = None,
                     left: SeriesPlayer | None = None, now: float | None = None) -> None:
         """won (a set's winner reached its wins), forfeit (ranked: `left` left the set and loses it, or closed their
-        game during a match of it), left (casual, the same), timeout (casual: no rematch in time; ranked: neither
-        game came back), void (matches kept not counting, a set was left before any of its matches counted, or the
-        two games lost each other), disconnected (casual: the two games lost each other)."""
+        game during a match of it), left (casual: `left` left the series), timeout (casual: no rematch in time;
+        ranked: neither game came back), void (a set's matches kept not counting, it was left before any of its
+        matches counted, or its two games lost each other). A casual series goes on through matches that did not
+        count, as long as both want another."""
         if series.state == "over":
             return
         assert self.db is not None
@@ -1787,7 +1799,8 @@ class Server:
             log.info("SET %s over: %s, %s %d-%d %s%s", series.id, outcome, p1.name, p1.wins, p2.wins, p2.name,
                      f", {winner.name} wins it" if winner else ", no rating change")
         else:
-            log.info("series %s over: %s after %d matches", series.id, outcome, series.played)
+            log.info("series %s over: %s after %d matches%s", series.id, outcome, series.played,
+                     f" ({left.name} left)" if left else "")
         m = series.match
         series.match = None
         if m is not None and m.state in PENDING_STATES:
@@ -1820,6 +1833,8 @@ class Server:
                 raise P.ProtocolError("busy", "Leave the queue, lobby or match first.")
             p.ready = True
             p.choice = choice
+            if not series.ranked:  # who wanted a rematch, when a series ends without one
+                log.info("series %s: %s chose %s", series.id, p.name, choice)
         self._reply(s, msg, {"type": "series_ack", "series": series.id})
         if series.state != "between":
             return

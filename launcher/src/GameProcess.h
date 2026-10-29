@@ -33,6 +33,7 @@ public:
     int instance() const { return instance_; }
     QString sessionDir() const { return sessionDir_; }
     QString status() const { return status_; }  // first line of status.txt
+    int exitCode() const { return exitCode_; }  // the process's, once it has ended
     QString state() const;                     // first word of it
     bool isReady() const { return state() == QLatin1String("ready"); }
 
@@ -71,6 +72,7 @@ private:
     QElapsedTimer lastWrite_;
     bool netMode_ = true;
     bool quitting_ = false;
+    int exitCode_ = 0;
     QByteArray outBuf_;
     QHash<QString, QString> extraEnv_;
     QStringList extraArgs_;

@@ -235,10 +235,14 @@ QueuePage::QueuePage(bool ranked, ServerClient* server, MatchController* control
                        : tr("You lost to %1 %2 (confirmed by both players)").arg(opp, r.value(QStringLiteral("score")).toString());
         else if (status == QLatin1String("disputed"))
             text = tr("The two reports differ; the match does not count.");
-        else if (status == QLatin1String("abandoned"))
+        else if (status == QLatin1String("abandoned") && ranked_)
             text = r.value(QStringLiteral("left_side")).toInt() == r.value(QStringLiteral("side")).toInt()
                        ? tr("You left the match against %1: your game closed during it.").arg(opp)
                        : tr("%1 left the match: their game closed or dropped out.").arg(opp);
+        else if (status == QLatin1String("abandoned"))  // Kasual: the rematch is offered again
+            text = r.value(QStringLiteral("left_side")).toInt() == r.value(QStringLiteral("side")).toInt()
+                       ? tr("Your game closed during the match against %1: it does not count.").arg(opp)
+                       : tr("%1's game closed during the match: it does not count.").arg(opp);
         else
             text = tr("Match against %1 ended: %2 (does not count)").arg(opp, status.replace(QLatin1Char('_'), QLatin1Char(' ')));
         const QJsonObject eloObj = r.value(QStringLiteral("elo")).toObject().value(server_->accountName()).toObject();

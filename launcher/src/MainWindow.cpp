@@ -615,6 +615,11 @@ void MainWindow::onMatchFound(const QJsonObject& found) {
     });
     if (opts_.autoAcceptSeconds >= 0)
         QTimer::singleShot(opts_.autoAcceptSeconds * 1000, dlg, [dlg] { dlg->accept(); });
+    // heard over the game the player waits in (tools/py/make_chime.py)
+    if (cfg::matchSound())
+        applog::write(winutil::playWav(QStringLiteral(":/sounds/match-found.wav"))
+                          ? QStringLiteral("sound: match found chime")
+                          : QStringLiteral("sound: the match found chime could not play"));
     popUp(dlg);  // over the game the player waits in
     QApplication::alert(this);
 }
@@ -784,6 +789,11 @@ void MainWindow::cliQueue() {
     selectPage(opts_.queue == QLatin1String("ranked") ? kRanked : kCasual);
     applog::write(QStringLiteral("cli: queueing %1 %2 %3").arg(opts_.queue, gameId_, opts_.mode));
     page->startSearch(opts_.mode, opts_.character);
+    if (opts_.cancelSearchSeconds >= 0)
+        QTimer::singleShot(opts_.cancelSearchSeconds * 1000, this, [this] {
+            applog::write(QStringLiteral("cli: cancelling the search"));
+            controller_->cancelSearch();
+        });
 }
 
 // --lobby host: create the lobby; --lobby join: look for it by name until it is there, then join; both mark themselves

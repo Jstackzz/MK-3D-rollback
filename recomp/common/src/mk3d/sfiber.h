@@ -6,7 +6,7 @@
 // Windows x64: a switch saves the callee-saved registers, xmm6-15, MXCSR, the x87 control word and the thread's
 // stack bounds (TEB StackBase, StackLimit, DeallocationStack, which the exception unwinder checks) on the old stack,
 // stores the stack pointer in the old fiber's slot and loads the new one. C++ exceptions work inside a fiber as long
-// as they are caught inside it.
+// as they are caught inside it; one that is not, or a crash, goes to the unhandled exception filter (sfiber.cpp).
 #include <cstddef>
 #include <cstdint>
 #include <vector>

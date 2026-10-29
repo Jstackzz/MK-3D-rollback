@@ -16,6 +16,7 @@ server/                  Python 3.13 package, asyncio + standard library only
   tests/                 pytest suite (python -m pytest server/tests)
 launcher/                Qt 6 Widgets, C++20, CMake + Ninja + MSVC
   data/{mkda,mkd,mka}.json  rosters and modes (compiled into the exe)
+  data/sounds/match-found.wav  the match-found chime (compiled in; tools/py/make_chime.py makes it)
   src/                   MainWindow, pages, ServerClient (TLS), UdpRendezvous, GameProcess, MatchController
   tools/fake_game.py     development stand-in for a game executable (speaks cmd.txt/status.txt)
   tools/aqt_split_layout.py  aqtinstall shim for the Qt 6.11+ repository layout
@@ -138,7 +139,12 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    unless changed; a match takes the larger of the two players'),
    region, max ping, the game UDP port (default 7001), *Hide my IP address
    from opponents* (cfg `online/hide_ip`: `relay` in `queue_join` and
-   `lobby_ready`, PROTOCOL.md 1.7) and the display (window
+   `lobby_ready`, PROTOCOL.md 1.7), *Play a sound when a match is found*
+   (`online/match_sound`, on unless unticked: the MATCH FOUND window comes with
+   a one-second chime, `data/sounds/match-found.wav`, which
+   `tools/py/make_chime.py` makes, played from memory with `winutil::playWav`;
+   the log says `sound: match found chime`; `tools/online-e2e.ps1` turns it off)
+   and the display (window
    mode, resolution (the main monitor's own, `desktop`, the default, then every
    size its display modes offer, `winutil::displaySizes`; a window at the
    monitor's resolution is as large as fits on the screen), *V-sync* (*On*:
@@ -183,10 +189,19 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    losses of that game and mode (and the Elo in Ranked). After the match a
    series card shows the score against that opponent (docs/PROTOCOL.md
    1.9.1): Kasual offers *Rematch* (the same fighters, when both press it),
-   *Select* (both pick again on the select screen) and *Leave* for 60 s; the
+   *Select* (both pick again on the select screen) and *Leave* for 60 s, after
+   every match, one that did not count included (0.1.14: a Kasual series ends
+   only when a player leaves it or lets that time run out); the
    game reports the fighters with its result. A ranked set (first
    to 2) asks for its next match by itself once the game is back at its hold
    point, and *Leave set* asks first when leaving would lose the set.
+   *CANCEL SEARCH* (`MatchController::cancelSearch`; while a match is offered
+   it declines it first) closes what the search opened (0.1.14): practice it
+   started and the match's game, unless a lobby's *Ready* wants that game
+   (`prepareGame`); single player, or practice opened with *PRACTICE* before
+   the search, stays. A match's game frozen behind single player is resumed
+   hidden for its quit (`MatchController::closeGame`). `--cancel-search N`
+   presses it in tests.
 5. **Lobby**: create (optional password, best of 1/3/5, death traps), join from
    the list or by 5-letter code, pick a fighter (or *Pick in the game*), chat,
    *Ready*: both players ready start the match after the server's 3-2-1
@@ -325,8 +340,23 @@ with an exception's exit code (`0x8...`/`0xC...`, never the launcher's own kill,
 `0xF291`, nor `0xFFFFFFFF`), or whose log ends with the crash line every game
 writes on a crash (runtime `app/main.cpp` `LogCrashLine`: `crash: C0000005 at
 MKA.exe+1A2B3C on a game thread`), is reported to the server (PROTOCOL.md 1.13)
-with what was going on, and logged here. `tools/online-e2e.ps1 -CrashA N`
-crashes A's game N seconds into its match (a thread at address 0).
+with what was going on, and logged here. An abort (exit code `C0000409`) names
+where abort was called and, in brackets, the calls that led there (0.1.14,
+runtime patch 0030): `crash: abort at MKD.exe+1459A4 (MKD.exe+147ABC
+MKD.dll+5F21C) on a game thread`; the report carries everything after ` at `.
+`tools/online-e2e.ps1 -CrashA N` crashes A's game N seconds into its match (a
+thread at address 0).
+
+**How a game ended** (0.1.14, `MatchController::reportLeft`): a game that ends
+during a match reports `left` with `exit` and `exit_code` (PROTOCOL.md 1.9),
+the server logging both with the abandoned match. `exit` comes from the last
+lines of the session's `game.log` before its `Exit (` line (runtime patches
+0027 and 0029): `crash`, `asked to leave N` (the game called
+`HalReturnToFirmware`, as a console going back to its dashboard), `shut down`,
+`relaunched`, `window closed` (a clean end the game said nothing about) or
+`ended from outside` (no `Exit (` line at all: killed, or its PC's doing).
+`tools/online-e2e.ps1 -CloseA N` closes A's game window N seconds into its
+match (a clean end; `-QuitA N` kills it).
 
 **A match's opening** (0.1.12, `recomp/common/src/mk3d/netplay.cpp`
 `kIntroFrames`): its first 120 frames (the load and the first round's intro,
@@ -403,6 +433,7 @@ Command-line options for development and automation:
 | `--user NAME [--register]` | sign in (or create) with the password from `MK3D_DEV_PASSWORD` (`--password-env` picks another variable) |
 | `--queue casual\|ranked --game mkd --mode kombat --character Scorpion` | search right after signing in |
 | `--auto-accept N` | accept a found match after N seconds |
+| `--cancel-search N` | with `--queue`: cancel the search N seconds after it starts, as CANCEL SEARCH does (the games it opened close) |
 | `--rematches N` | with `--queue casual`: choose a rematch after each match, N times (a ranked set plays on by itself) |
 | `--rematch-choice rematch,select` | what each of those choices is: `rematch` (the same fighters) or `select` (both pick again); the last one repeats (default `rematch`; `tools/online-e2e.ps1 -RematchChoice`) |
 | `--leave-series` | once those are chosen, leave the series at once instead of letting its time run out |

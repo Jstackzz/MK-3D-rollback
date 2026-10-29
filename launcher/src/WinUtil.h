@@ -57,6 +57,10 @@ bool thawProcess(qint64 pid, const QList<quintptr>& hidden);
 QSize desktopSize();
 QList<QSize> displaySizes();
 
+// A WAV file (a resource of the launcher's too) played on the default sound device without waiting for it, over
+// whatever else plays; one sound at a time. False when it is missing or nothing could play it.
+bool playWav(const QString& path);
+
 // Smart App Control (Windows 11): 1 on, blocking programs without a known publisher's signature (the games, whose
 // code each PC builds for itself, never have one), 2 evaluating (it may switch itself on), 0 off, -1 not on this
 // Windows. MK3D_SMART_APP_CONTROL=<state> pretends a state, to see what the launcher says.

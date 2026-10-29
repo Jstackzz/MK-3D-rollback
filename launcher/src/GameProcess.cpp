@@ -227,6 +227,7 @@ bool GameProcess::start(const QString& exe, QString* error, bool netMode) {
         applog::write(QStringLiteral("game %1/%2: exited with code %3%4")
                           .arg(gameId_).arg(instance_).arg(code).arg(st == QProcess::CrashExit ? " (crash)" : ""));
         const QString last = quitting_ ? QStringLiteral("exited") : QStringLiteral("error exited");
+        exitCode_ = code;
         status_ = last;
         emit statusChanged(last);
         emit exited(code, st == QProcess::CrashExit);

@@ -353,7 +353,7 @@ Both launchers report what their game wrote to `status.txt`:
 C: {"type":"result","match":"5f2c9a01d4e3","winner":1,"p1_rounds":2,"p2_rounds":1,"p1_char":"12","p2_char":"7"}
 C: {"type":"result","match":"5f2c9a01d4e3","outcome":"desync","frame":1234}
 C: {"type":"result","match":"5f2c9a01d4e3","outcome":"disconnected"}
-C: {"type":"result","match":"5f2c9a01d4e3","outcome":"left"}
+C: {"type":"result","match":"5f2c9a01d4e3","outcome":"left","exit":"window closed","exit_code":0}
 S: {"type":"result_ack","match":"5f2c9a01d4e3"}
 S: {"type":"match_result","match":"5f2c9a01d4e3","status":"agreed","winner":1,
     "p1_rounds":2,"p2_rounds":1,"ranked":true,"left":null,"left_side":null}
@@ -375,14 +375,20 @@ S: {"type":"match_result","match":"5f2c9a01d4e3","status":"agreed","winner":1,
   lost each other: `disconnected` or `error`): status `unconfirmed`; nothing
   changes; logged.
 - **Left**: a launcher reports `left` when its own game closed while the
-  match ran (Alt+F4, a crash, its window closed). The match ends for both at
-  once: status `abandoned`, `left` / `left_side` naming that player. A
-  player who sent no report and is gone from the server while the other's
-  game lost them (`disconnected`) left it too. A series ends with it (1.9.1):
-  a Kasual series without a rematch, a ranked set lost by the one who left,
-  whatever its score. Two games that lost each other with neither at fault
-  (`no_contest` with `disconnected` or `error`, `unconfirmed`) end their
-  series too, with no result. A desync does not end a series.
+  match ran (Alt+F4, a crash, its window closed, the game leaving by itself).
+  The match ends for both at once: status `abandoned`, `left` / `left_side`
+  naming that player. A player who sent no report and is gone from the server
+  while the other's game lost them (`disconnected`) left it too. Optional (0.1.14),
+  how the game ended, which the server logs with the match: `exit`, the
+  launcher's word for it from the game's log (`crash`, `asked to leave N`,
+  `shut down`, `relaunched`, `window closed`, `ended from outside`; up to 40
+  characters), and `exit_code`, the process's exit code; a value it does not
+  take is dropped. A ranked set is lost by the one who left, whatever its
+  score (1.9.1); a Kasual series offers the rematch again, the match counting
+  for nobody. Two games that lost each other with neither at fault
+  (`no_contest` with `disconnected` or `error`, `unconfirmed`) end a ranked
+  set with no result; a Kasual series goes on the same way. A desync does not
+  end a series.
 - Lobby matches count as casual. After any final status the lobby returns to
   `open` and both players' `ready` flags are cleared.
 
@@ -390,7 +396,8 @@ S: {"type":"match_result","match":"5f2c9a01d4e3","status":"agreed","winner":1,
 
 After a queue match (once its `match_result` went out) the two players are in
 a series. Casual: another match whenever both want one, with the same fighters
-or after both pick again. Ranked: a set, won by the first to win 2 matches
+or after both pick again, without end (0.1.14: matches that did not count
+included); it ends only when a player leaves it or lets the time run out. Ranked: a set, won by the first to win 2 matches
 (`need`); Elo moves once, when it ends. A player is in one series at a time;
 searching again or creating/joining a lobby leaves it.
 
@@ -438,8 +445,8 @@ S: {"type":"series","series":"8d01c3e2a9f4", ...,"state":"over","outcome":"won",
     match was cancelled on their side, or they searched or went to a lobby. They
     lose the set (Elo as for `won`, the other player winning), whatever the
     score: one match won and gone gains nothing.
-  - `void`: a set where nothing counted yet was left, or 3 matches in a row did
-    not count; no rating change.
+  - `void`: a set where nothing counted yet was left, its two games lost each
+    other, or 3 matches in a row did not count; no rating change.
   - `left` (casual: a player declined or went) and `timeout` (casual: no
     rematch in time; ranked: neither came back).
 - A launcher that drops between two matches has 20 s to log in again before
@@ -594,7 +601,9 @@ S: {"type":"crash_ack"}
 
 A launcher whose game crashed says so: the game, the exit code (hex), where
 (the game log's crash line after its code: a module and an offset, and the
-thread) and what was going on (the match phase, `single player`, `practice`,
+thread; from 0.1.14 an abort, code `C0000409`, also lists in brackets the calls
+that led to it: `MKD.exe+1459A4 (MKD.exe+147ABC MKD.dll+5F21C) on a game
+thread`) and what was going on (the match phase, `single player`, `practice`,
 `preparing`, `local test`). The server logs it with the player's name
 (`CRASH <name> <game> (launcher <version>) during <what>: <code> <where>`) and
 keeps nothing; plain printable text only (`bad_request`), at most 20 a session
@@ -841,7 +850,8 @@ below); `rounds` (best of N); `ranked` (0 or
 1); `traps` (the arenas' death traps, 1 or 0; Deception and Armageddon set
 their options' DEATH TRAPS from it, and the round time and blood level to
 their defaults, whatever each PC's options and profile say); `match` (id,
-echoed in status lines). Optional: `p1_name`, `p2_name` (account names),
+echoed in status lines). Optional: `p1_name`, `p2_name` (account names; the
+games write them inside the health bars),
 `stage` (absent = the game derives it from the seed), `feed` (`127.0.0.1:port`,
 a TCP port of the launcher's: the game writes its spectator feed there, 1.10.1;
 a lobby match's), `watch=1` (a spectator: no `side`, `local_port` or `remote`;

@@ -20,6 +20,8 @@ param(
     [string]$Mode = 'kombat',    # kombat, chess, puzzle (mkd), motor (mka)
     [string]$CharA = 'Scorpion',
     [string]$CharB = 'Kobra',
+    [string]$NameA = '',         # A's and B's account names, which their games show over the fight (3 to 16 of
+    [string]$NameB = '',         # A-Z a-z 0-9 _ -); default e2eA<time>, e2eB<time>
     [string]$InputA = '',        # <GAME>_INPUT of each game (default: the same scripted attacker for both)
     [string]$InputB = '',
     [string]$EnvA = '',          # more KEY=VALUE pairs for A's launcher and game only, ';' separated
@@ -52,6 +54,8 @@ param(
                                  # meets only the same choice) asks for
     [int]$QuitA = 0,             # seconds into A's first match before A's game is closed, as Alt+F4 would (the
                                  # match ends for both at once: a Kasual series without a rematch, a ranked set lost)
+    [int]$CloseA = 0,            # as -QuitA, but A's game window is closed as a player closes it (a clean end: its log
+                                 # says so); Kasual offers the rematch again after either, which -Rematches then plays
     [int]$QuitABeforeFight = 0,  # seconds after the server starts A's match (-QuitAMatch) before A's game is closed: still at
                                  # its select screen, the players' games never meet (a spectator must not wait for it)
     [int]$CrashA = 0,            # seconds into A's first match before A's game crashes (an access violation in it)
@@ -94,6 +98,7 @@ game_port=$($p[1])
 pick_in_game=$(if ($PickInGame -and ($p[0] -eq 'a' -or -not $MixedPicks)) { 'true' } else { 'false' })
 practice_while_waiting=$(if ($PracticeA -and $p[0] -eq 'a') { 'true' } else { 'false' })
 hide_ip=$(if ($HideIpA -and $p[0] -eq 'a') { 'true' } else { 'false' })
+match_sound=false
 
 [account]
 remember=false
@@ -130,6 +135,8 @@ Set-Item "env:${x}_NET_LOG" "$work\net-{side}-{match}.log"
 $env:SDL_ASSERT = 'always_ignore'
 $launcher = if ($Launcher) { (Resolve-Path $Launcher).Path } else { Join-Path $root 'build\launcher\MK3DLauncher.exe' }
 $stamp = Get-Date -Format 'HHmmss'
+$userA = if ($NameA) { $NameA } else { "e2eA$stamp" }
+$userB = if ($NameB) { $NameB } else { "e2eB$stamp" }
 if ($Queue -eq 'casual' -and $Rematches -gt 0) { $Matches = 1 + $Rematches }
 $queueArgs = @('--queue', $Queue, '--rematches', "$Rematches")
 if ($RematchChoice) { $queueArgs += @('--rematch-choice', ($RematchChoice -join ',')) }  # one argument, no spaces
@@ -140,13 +147,13 @@ if ($DeathTraps) { $how += @('--death-traps', $DeathTraps) }
 if ($PracticeA) { $how += @('--leave-series') }
 $onlyA = @($EnvA -split ';' | Where-Object { $_ -like '*=*' })  # not -match: it would set $Matches, a parameter here
 foreach ($pair in $onlyA) { $k, $v = $pair -split '=', 2; Set-Item "env:$k" $v }
-$la = Start-Process -FilePath $launcher -ArgumentList (@('--config', "`"$work\a\mk3d-launcher.ini`"", '--user', "e2eA$stamp", '--register') + $how + @('--game', $Game, '--mode', $Mode, '--character', $CharA, '--auto-accept', '3')) -PassThru
+$la = Start-Process -FilePath $launcher -ArgumentList (@('--config', "`"$work\a\mk3d-launcher.ini`"", '--user', $userA, '--register') + $how + @('--game', $Game, '--mode', $Mode, '--character', $CharA, '--auto-accept', '3')) -PassThru
 foreach ($pair in $onlyA) { Remove-Item "env:$(($pair -split '=', 2)[0])" -ErrorAction SilentlyContinue }
 Start-Sleep -Seconds ([Math]::Max(1, $DelayB))
 Set-Item "env:${x}_INPUT" $InputB
 $how = if ($Queue -eq 'lobby') { @('--lobby', 'join', '--lobby-name', "e2e$stamp", '--lobby-matches', "$Matches") } else { $queueArgs }
 if ($DeathTraps -and $Queue -ne 'lobby') { $how += @('--death-traps', $DeathTraps) }
-$lb = Start-Process -FilePath $launcher -ArgumentList (@('--config', "`"$work\b\mk3d-launcher.ini`"", '--user', "e2eB$stamp", '--register') + $how + @('--game', $Game, '--mode', $Mode, '--character', $CharB, '--auto-accept', "$AcceptB")) -PassThru
+$lb = Start-Process -FilePath $launcher -ArgumentList (@('--config', "`"$work\b\mk3d-launcher.ini`"", '--user', $userB, '--register') + $how + @('--game', $Game, '--mode', $Mode, '--character', $CharB, '--auto-accept', "$AcceptB")) -PassThru
 $lc = $null
 if ($Watch) {
     Start-Sleep -Seconds ([Math]::Max(1, $WatchDelay))
@@ -154,7 +161,7 @@ if ($Watch) {
     $lc = Start-Process -FilePath $launcher -ArgumentList (@('--config', "`"$work\c\mk3d-launcher.ini`"", '--user', "e2eC$stamp", '--register', '--lobby', 'watch', '--lobby-name', "e2e$stamp", '--game', $Game, '--mode', $Mode)) -PassThru
 }
 foreach ($k in $vars) { Remove-Item "env:$k" -ErrorAction SilentlyContinue }
-"server pid $($server.Id), launchers $($la.Id) $($lb.Id)$(if ($lc) { " $($lc.Id)" }), accounts e2eA$stamp / e2eB$stamp$(if ($lc) { " / e2eC$stamp (watching)" })"
+"server pid $($server.Id), launchers $($la.Id) $($lb.Id)$(if ($lc) { " $($lc.Id)" }), accounts $userA / $userB$(if ($lc) { " / e2eC$stamp (watching)" })"
 $t0 = Get-Date
 $seen = @{}
 $results = 0
@@ -181,6 +188,12 @@ while (((Get-Date) - $t0).TotalSeconds -lt $Seconds) {
         $gameA = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.ParentProcessId -eq $la.Id })
         foreach ($g in $gameA) { Stop-Process -Id $g.ProcessId -Force -ErrorAction SilentlyContinue }
         "{0,6:N1}s A's game closed (pid {1}), as Alt+F4 would" -f ((Get-Date) - $t0).TotalSeconds, (($gameA | ForEach-Object { $_.ProcessId }) -join ' ')
+    }
+    if ($CloseA -gt 0 -and $inMatchA -and -not $quit -and ((Get-Date) - $inMatchA).TotalSeconds -ge $CloseA) {
+        $quit = $true
+        $gameA = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.ParentProcessId -eq $la.Id })
+        foreach ($g in $gameA) { $p = Get-Process -Id $g.ProcessId -ErrorAction SilentlyContinue; if ($p) { [void]$p.CloseMainWindow() } }
+        "{0,6:N1}s A's game window closed (pid {1})" -f ((Get-Date) - $t0).TotalSeconds, (($gameA | ForEach-Object { $_.ProcessId }) -join ' ')
     }
     if ($CrashA -gt 0 -and $inMatchA -and -not $quit -and ((Get-Date) - $inMatchA).TotalSeconds -ge $CrashA) {
         # a thread started at address 0 in A's game: an access violation its crash handler takes, as a real crash
@@ -209,7 +222,10 @@ while (((Get-Date) - $t0).TotalSeconds -lt $Seconds) {
     $done = @($serverLog | Select-String -Pattern 'RESULT match=').Count
     $finished = if ($Queue -eq 'ranked') { @($serverLog | Select-String -Pattern 'SET \S+ over').Count -ge 1 }
                 else { $results -ge 2 * $Matches -or $done -ge $Matches }
-    if ($QuitA -gt 0 -or $CrashA -gt 0) { $finished = @($serverLog | Select-String -Pattern 'ABANDONED match=').Count -ge 1 }
+    if ($QuitA -gt 0 -or $CrashA -gt 0 -or $CloseA -gt 0) {
+        # and the Kasual rematches asked for after it, each with a result
+        $finished = @($serverLog | Select-String -Pattern 'ABANDONED match=').Count -ge 1 -and $done -ge $Rematches
+    }
     if ($QuitABeforeFight -gt 0) { $finished = $done -ge ($Matches - 1) -and $quit }  # the first one never plays
     if ($Watch) { $finished = $finished -and $watched -ge $(if ($QuitABeforeFight -gt 0) { $Matches - 1 } else { $Matches }) }  # the spectator runs behind
     if ($finished) { Start-Sleep -Seconds 12; break }

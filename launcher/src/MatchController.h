@@ -8,6 +8,7 @@
 #include <QHash>
 #include <QJsonObject>
 #include <QObject>
+#include <QPointer>
 #include <QTimer>
 
 class ServerClient;
@@ -133,6 +134,7 @@ private:
     QString startLine(const QJsonObject& go) const;
     void tryStart();
     void reportResult(QJsonObject fields);
+    void reportLeft();  // the game ended during the match: "left", with how it ended
     void finishMatch();
     void sendSeriesReady();
     void releaseUdp();
@@ -147,7 +149,8 @@ private:
     void log(const QString& text);
     void freezeSolo();
     void thawSolo();
-    void closeSolo(const QString& why);  // practice, once its search's match is accepted
+    void closeSolo(const QString& why);  // practice, once its search's match is accepted (or the search cancelled)
+    void closeGame(const QString& why);  // the match's game, once nothing wants it
     void freezeGame();
     void thawGame();
     void maybeBackToSolo();    // standby: nothing more to play online, single player again
@@ -173,6 +176,8 @@ private:
     QList<quintptr> soloHidden_, gameHidden_;  // the windows freezing hid, shown again by thawing
     bool showWhenReady_ = false;  // standby: the match's game started on accepting; to the front once it is up
     bool closeWhenIdle_ = false;  // a lobby was left: game_ goes once idle (closeGameWhenIdle)
+    QPointer<GameProcess> lobbyGame_;  // the game a lobby's Ready wants (prepareGame): a cancelled search leaves it be
+    bool practiceForSearch_ = false;   // practice the search opened (maybeStartPractice): a cancelled search closes it
     GameProcess* localA_ = nullptr;
     GameProcess* localB_ = nullptr;
     Phase phase_ = Phase::Idle;

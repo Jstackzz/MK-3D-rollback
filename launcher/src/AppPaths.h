@@ -37,6 +37,7 @@ bool pickInGame();
 // a Ranked or Kasual search starts the game's practice to play while it waits (MatchController::maybeStartPractice)
 bool practiceWhileWaiting();
 bool deathTraps();  // the arenas' death traps in Kasual matches (a search meets only the same choice; Ranked never)
+bool matchSound();  // a chime when a Ranked or Kasual match is found (the MATCH FOUND window comes up)
 int inputDelay();
 int gamePort();
 QString displayMode();

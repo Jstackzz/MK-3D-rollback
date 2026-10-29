@@ -1,0 +1,46 @@
+diff --git a/runtime/kernel/xboxkrnl.cpp b/runtime/kernel/xboxkrnl.cpp
+--- a/runtime/kernel/xboxkrnl.cpp
++++ b/runtime/kernel/xboxkrnl.cpp
+@@ -1206,7 +1206,9 @@ KERNEL_EXPORT(95, KeBugCheck, 1) {
+ }
+ 
+ KERNEL_EXPORT(49, HalReturnToFirmware, 1) {
+-    LOGI("HalReturnToFirmware(%u): the title asked to leave", a[0]);
++    // in every log: a game that leaves by itself (a console would go back to its dashboard) otherwise ends with no
++    // word of why, as if its window had been closed
++    LOGR("the game asked to leave (HalReturnToFirmware %u)", a[0]);
+     // quick reboot into a recompiled image, the XAPI wrote the launch data page: restart into its executable with it
+     uint32_t page = R32(g_launch_data_page_va);
+     if (a[0] == 2 && page) {
+@@ -1216,7 +1218,7 @@ KERNEL_EXPORT(49, HalReturnToFirmware, 1) {
+                 std::fwrite(HostPtr(page), 1, 0x1000, f);
+                 std::fclose(f);
+             }
+-            LOGI("relaunching into %s", path.c_str());
++            LOGR("relaunching into %s", path.c_str());
+             Relaunch(exe);
+         }
+         LOGW("HalReturnToFirmware: %s is no recompiled image", path.c_str());
+@@ -1225,7 +1227,10 @@ KERNEL_EXPORT(49, HalReturnToFirmware, 1) {
+     Shutdown(0);
+ }
+ 
+-KERNEL_EXPORT(360, HalInitiateShutdown, 0) { Shutdown(0); }
++KERNEL_EXPORT(360, HalInitiateShutdown, 0) {
++    LOGR("the game asked to shut down (HalInitiateShutdown)");
++    Shutdown(0);
++}
+ KERNEL_EXPORT(358, HalIsResetOrShutdownPending, 0) { return 0; }
+ KERNEL_EXPORT(47, HalRegisterShutdownNotification, 2) { return 0; }
+ // the file cache in pages: nothing is cached here, the size only goes back to the title
+diff --git a/runtime/xdk/xapi.cpp b/runtime/xdk/xapi.cpp
+--- a/runtime/xdk/xapi.cpp
++++ b/runtime/xdk/xapi.cpp
+@@ -157,6 +157,7 @@ X86_EXTERN_FUNC(GUEST_ORIG(XLaunchNewImageA));
+ X86_FUNC(GUEST(XLaunchNewImageA)) {
+     std::string path = ReadCString(R32(ctx.esp + 4));
+     if (ImageExe(path)) {
++        LOGR("xapi: the game launches %s", path.c_str());
+         GUEST_ORIG(XLaunchNewImageA)(ctx, base);
+         return;
+     }

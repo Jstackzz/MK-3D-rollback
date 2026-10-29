@@ -85,24 +85,32 @@ whether to trust it: compare it with your host's.
   game right now: searching (and how many of them in the mode you picked, the
   ones you can meet), in matches and in lobbies, then who is searching right
   now in each of the three games (point at the line to see whether each one
-  searches Kasual or Ranked, and which mode). When a match is found, its
-  ACCEPT window comes up over the game; once you accept, you are back in the
-  game.
+  searches Kasual or Ranked, and which mode). When a match is found, a short
+  chime plays and its ACCEPT window comes up over the game; once you accept,
+  you are back in the game. Untick "Play a sound when a match is found" in
+  Settings (Online) for no chime.
 - After a Kasual match, once the game has played its ending, a window comes up
   over the game with the score between you and two ways to play on, same
   sides, no search: REMATCH (when you both press it: the same fighters again,
   straight into the fight) or SELECT (from either of you: both go back to
   character select and pick again). You have 60 seconds from the match's end.
-  LEAVE (or Find match) ends it. The Kasual page shows the same choices.
+  Kasual rematches never run out: the series goes on until one of you presses
+  LEAVE (or Find match), or lets the 60 seconds pass. The Kasual page shows the
+  same choices.
 - Ranked is played in sets against one opponent: the first to win 2 matches
   takes the set, and your Elo changes once, when it ends. The set's next match
   starts by itself once both games are ready. Leaving a set after one of its
   matches has counted (LEAVE SET, searching again, quitting, or not being back
   within 90 seconds) loses it: one match won and gone gains nothing.
 - Closing your game during a match (Alt+F4, or it crashes) ends the match for
-  both of you at once. In Kasual the series ends there, with no rematch; in
-  Ranked it loses you the set, whatever the score. If the connection between
-  the two games breaks instead, the match does not count and the series ends.
+  both of you at once. In Kasual that match does not count and the rematch
+  window comes up again (your game starts again for it; LEAVE if you are done);
+  in Ranked it loses you the set, whatever the score. If the connection between
+  the two games breaks instead, the match does not count: Kasual offers the
+  rematch again, and a ranked set ends there with no rating change.
+- CANCEL SEARCH closes what the search opened: the game that waited for the
+  match, or practice while you wait. A single-player game you started yourself,
+  or the game a lobby you are ready in waits with, stays open.
 - Lobby, to play someone you know: one of you presses Create lobby and gives the
   other the 5-letter code; the other presses Join code and types it. Both choose
   a fighter (or "Pick in the game") and press Ready. Once both are ready the
@@ -176,6 +184,11 @@ whether to trust it: compare it with your host's.
   **F7** shows or hides the panel; **Settings → Frame data in practice** sets
   whether it is shown when practice starts. None of it is ever in an online
   match.
+- Player names (all three games): in an online match, and in a lobby match you
+  watch, each player's account name is written inside their health bar, next
+  to the timer (the fighter's name keeps the other end of the bar). They come
+  and go with the bars and fade with the screen, and a long name is drawn a
+  little smaller so it never reaches the fighter's name.
 
 Both players need the same package: VERSION.txt lists fingerprints of its programs
 to compare.

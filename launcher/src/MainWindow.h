@@ -36,6 +36,7 @@ struct LaunchOptions {
     QString character;
     QString page;
     int autoAcceptSeconds = -1;
+    int cancelSearchSeconds = -1;  // --queue: cancel the search after this many seconds (what it opened closes)
     bool localTest = false;  // start the two-instance loopback test right away
     QString extractImage;    // open "Build game" and extract this disc image right away
     QString lobby;           // "host": create a lobby and start it once both are ready; "join": join it by name

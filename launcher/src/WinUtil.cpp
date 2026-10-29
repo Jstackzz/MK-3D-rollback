@@ -2,6 +2,8 @@
 
 #include <QDir>
 #include <QElapsedTimer>
+#include <QFile>
+#include <QHash>
 #include <QThread>
 #include <QWidget>
 
@@ -10,6 +12,7 @@
 
 #include <windows.h>
 #include <dwmapi.h>
+#include <mmsystem.h>
 #include <tlhelp32.h>
 
 namespace winutil {
@@ -243,6 +246,19 @@ QList<QSize> displaySizes() {
                    : a.width() > b.width();
     });
     return sizes;
+}
+
+bool playWav(const QString& path) {
+    // played from memory, which must outlive the sound: each file is read once and kept
+    static QHash<QString, QByteArray> loaded;
+    auto it = loaded.find(path);
+    if (it == loaded.end()) {
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly)) return false;
+        it = loaded.insert(path, file.readAll());
+    }
+    return !it->isEmpty() &&
+           PlaySoundW(reinterpret_cast<LPCWSTR>(it->constData()), nullptr, SND_MEMORY | SND_ASYNC | SND_NODEFAULT);
 }
 
 int smartAppControl() {

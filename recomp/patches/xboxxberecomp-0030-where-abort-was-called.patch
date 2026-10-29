@@ -1,0 +1,97 @@
+diff --git a/runtime/app/main.cpp b/runtime/app/main.cpp
+--- a/runtime/app/main.cpp
++++ b/runtime/app/main.cpp
+@@ -13,6 +13,7 @@
+ #include <algorithm>
+ #include <chrono>
+ #include <csignal>
++#include <cstdio>
+ #include <cwchar>
+ #include <thread>
+ 
+@@ -40,26 +41,73 @@ bool g_apply_posted = false;  // a display apply is waiting in the queue or runn
+ std::atomic<bool> g_apply_on_activate{false};  // ApplyDisplayWhenActive: the next activation applies the display
+ DWORD g_window_thread = 0;     // the thread the window and its messages run on (wWinMain's)
+ 
++const wchar_t* BaseName(const wchar_t* path) { return std::wcsrchr(path, L'\\') ? std::wcsrchr(path, L'\\') + 1 : path; }
++
++// the module an address is in and its file name ("?" for none)
++HMODULE ModuleOf(const void* at, wchar_t (&path)[MAX_PATH]) {
++    HMODULE mod = nullptr;
++    path[0] = L'?';
++    path[1] = 0;
++    if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
++                           static_cast<LPCWSTR>(at), &mod))
++        GetModuleFileNameW(mod, path, MAX_PATH);
++    return mod;
++}
++
++const char* ThreadKind() {
++    const kernel::Thread* t = kernel::Current();
++    return t && t->ctx ? "a game thread" : GetCurrentThreadId() == g_window_thread ? "the window thread" : "a host thread";
++}
++
++// abort() comes without an exception record. Where it was called from: the first return addresses on the stack in
++// the game's own modules (the executable and its code DLL, which share a name) past this handler and the C runtime's
++// raise, abort and terminate, e.g. "MKD.exe+1459A4 (MKD.exe+147ABC MKD.dll+5F21C)"
++void AbortCaller(char* out, size_t size) {
++    void* frames[48];
++    const USHORT n = RtlCaptureStackBackTrace(0, 48, frames, nullptr);
++    wchar_t exe[MAX_PATH] = L"";
++    GetModuleFileNameW(nullptr, exe, MAX_PATH);
++    const wchar_t* exe_name = BaseName(exe);
++    const wchar_t* dot = std::wcsrchr(exe_name, L'.');
++    const size_t stem = dot ? size_t(dot - exe_name) : std::wcslen(exe_name);
++    size_t len = 0;
++    int found = 0;
++    bool past_handler = false;
++    out[0] = 0;
++    for (USHORT i = 0; i < n && found < 3 && len + 64 < size; i++) {
++        wchar_t path[MAX_PATH];
++        HMODULE mod = ModuleOf(frames[i], path);
++        const wchar_t* name = BaseName(path);
++        if (!mod || _wcsnicmp(name, exe_name, stem) != 0 || name[stem] != L'.') {
++            past_handler = true;
++            continue;
++        }
++        if (!past_handler) continue;
++        const auto off = (unsigned long long)(reinterpret_cast<uintptr_t>(frames[i]) - reinterpret_cast<uintptr_t>(mod));
++        len += size_t(std::snprintf(out + len, size - len, found == 0 ? "%ls+%llX" : found == 1 ? " (%ls+%llX" : " %ls+%llX",
++                                    name, off));
++        found++;
++    }
++    if (found > 1) std::snprintf(out + len, size - len, ")");
++    if (!found) std::snprintf(out, size, "?");
++}
++
+ // One line for every crash, the first thing written: the exception and where, as a module and offset (an address
+ // alone means nothing on another PC), and the thread. A front end passes it on, so crashes on many PCs can be told
+ // apart.
+ void LogCrashLine(EXCEPTION_POINTERS* e) {
+     if (!e) {
+-        LOGE("crash: abort");
++        char caller[256];
++        AbortCaller(caller, sizeof(caller));
++        LOGE("crash: abort at %s on %s", caller, ThreadKind());
+         return;
+     }
+     const auto* r = e->ExceptionRecord;
+-    const uintptr_t at = reinterpret_cast<uintptr_t>(r->ExceptionAddress);
+-    HMODULE mod = nullptr;
+-    wchar_t path[MAX_PATH] = L"?";
+-    if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+-                           reinterpret_cast<LPCWSTR>(at), &mod))
+-        GetModuleFileNameW(mod, path, MAX_PATH);
+-    const wchar_t* name = std::wcsrchr(path, L'\\') ? std::wcsrchr(path, L'\\') + 1 : path;
+-    const kernel::Thread* t = kernel::Current();
+-    LOGE("crash: %08lX at %ls+%llX on %s", r->ExceptionCode, name,
+-         (unsigned long long)(at - reinterpret_cast<uintptr_t>(mod)),
+-         t && t->ctx ? "a game thread" : GetCurrentThreadId() == g_window_thread ? "the window thread" : "a host thread");
++    wchar_t path[MAX_PATH];
++    HMODULE mod = ModuleOf(r->ExceptionAddress, path);
++    LOGE("crash: %08lX at %ls+%llX on %s", r->ExceptionCode, BaseName(path),
++         (unsigned long long)(reinterpret_cast<uintptr_t>(r->ExceptionAddress) - reinterpret_cast<uintptr_t>(mod)),
++         ThreadKind());
+ }
+ 
+ // crash dump in CrashDumps beside the exe

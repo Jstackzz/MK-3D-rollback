@@ -74,14 +74,38 @@ __asm__(
     ".globl sf_start\n"
     ".def sf_start; .scl 2; .type 32; .endef\n"
     "sf_start:\n"
-    "  mov rcx, r12\n"
+    "  mov rcx, r13\n"                  // sf_main(entry, param)
+    "  mov rdx, r12\n"
     "  sub rsp, 32\n"                   // shadow space; rsp stays 16-aligned, so the callee starts at 8 mod 16
-    "  call r13\n"
+    "  call sf_main\n"
     "  int3\n"                          // an entry never returns
     ".att_syntax prefix\n");
 
 extern "C" void sf_switch(void** save_sp, void* new_sp);
 extern "C" void sf_start();
+
+namespace {
+
+// Windows calls the unhandled exception filter (the runtime's crash line and dump) from the bottom of a thread's own
+// stack, which an exception raised on a fiber never reaches: the search for a handler ends where the fiber's stack
+// does and the game was gone without a word. The filter is called from here instead, and the game ends at once, with
+// the exception's code, as it would have on the thread's own stack.
+LONG FiberCrash(EXCEPTION_POINTERS* e) {
+    if (IsDebuggerPresent()) return EXCEPTION_CONTINUE_SEARCH;
+    UnhandledExceptionFilter(e);
+    TerminateProcess(GetCurrentProcess(), e->ExceptionRecord->ExceptionCode);
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
+}  // namespace
+
+// the bottom of every fiber's stack
+extern "C" void sf_main(sfiber::Entry entry, void* param) {
+    __try {
+        entry(param);
+    } __except (FiberCrash(GetExceptionInformation())) {
+    }
+}
 
 namespace sfiber {
 namespace {

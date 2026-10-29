@@ -216,21 +216,53 @@ async def test_casual_rematch_offer_runs_out(server, connect, udp_peers):
     assert (await c1.request(queue_msg()))["type"] == "queued"
 
 
-async def test_closing_the_game_mid_match_ends_a_casual_series(server, connect, udp_peers):
+async def test_closing_the_game_mid_match_offers_the_kasual_rematch_again(server, connect, udp_peers):
     sides, gos = await first_match(server, connect, udp_peers, ["BoRai", "Kotal"], ranked=False)
     (c1, _), (c2, _) = sides[1], sides[2]
     p1 = gos[1]["p1_name"]
     match = gos[1]["match"]
-    # P1's game closes during the match: the match ends for both at once, no rematch is offered
+    # P1's game closes during the match: the match ends for both at once and counts for nobody; Kasual rematches
+    # have no end, so the rematch is offered again
     await c1.request({"type": "result", "match": match, "outcome": "left"})
     for c in (c1, c2):
         res = await c.expect("match_result", match=match)
         assert res["status"] == "abandoned" and res["left"] == p1 and res["left_side"] == 1
-        over = await c.expect("series", state="over")
-        assert over["outcome"] == "left" and over["left"] == p1
-    # the other game's late report changes nothing
+        between = await c.expect("series", state="between")
+        assert between["you"] == 0 and between["them"] == 0 and between["played"] == 1
+    # the other game's late report changes nothing, and both can play on
     ack = await c2.request({"type": "result", "match": match, "outcome": "disconnected"})
     assert ack["type"] == "result_ack"
+    gos = await next_match(server, sides, between["series"])
+    assert gos[1]["match"] != match
+
+
+async def test_a_game_that_left_says_how_it_ended(server, connect, udp_peers, caplog):
+    """A launcher whose game ended mid-match says how (from the game's log): the server's log keeps it with the match,
+    and names who left the series; junk in those fields is dropped, never refused."""
+    sides, gos = await first_match(server, connect, udp_peers, ["Jarek", "Tanya"], ranked=False)
+    (c1, _), (c2, _) = sides[1], sides[2]
+    p1 = gos[1]["p1_name"]
+    with caplog.at_level("INFO", logger="mk3d.server"):
+        await c1.request({"type": "result", "match": gos[1]["match"], "outcome": "left",
+                          "exit": "asked to leave 2", "exit_code": 0})
+        between = await c2.expect("series", state="between")
+        assert (await c1.request({"type": "series_ready", "series": between["series"], "ready": False}))["type"] \
+            == "series_left"
+        await c2.expect("series", state="over")
+    abandoned = next(r.getMessage() for r in caplog.records if "ABANDONED" in r.getMessage())
+    assert "'exit': 'asked to leave 2'" in abandoned and "'exit_code': 0" in abandoned
+    assert any(f"over: left after 1 matches ({p1} left)" in r.getMessage() for r in caplog.records)
+
+    sides, gos = await first_match(server, connect, udp_peers, ["Kenshi", "Hsu"], ranked=False)
+    (c1, _), (c2, _) = sides[1], sides[2]
+    caplog.clear()
+    with caplog.at_level("INFO", logger="mk3d.server"):
+        ack = await c1.request({"type": "result", "match": gos[1]["match"], "outcome": "left",
+                                "exit": "x" * 41, "exit_code": "0"})
+        assert ack["type"] == "result_ack"
+        await c2.expect("series", state="between")
+    abandoned = next(r.getMessage() for r in caplog.records if "ABANDONED" in r.getMessage())
+    assert "'exit'" not in abandoned and "'exit_code'" not in abandoned
 
 
 async def test_closing_the_game_mid_match_loses_a_ranked_set_even_at_nil(server, connect, udp_peers):
@@ -255,12 +287,17 @@ async def test_a_player_who_vanishes_mid_match_loses_the_set(server, connect, ud
     assert over["outcome"] == "forfeit" and over["left"] == p2 and over["winner"] == p1
 
 
-async def test_games_that_lose_each_other_end_the_series(server, connect, udp_peers):
+async def test_kasual_rematches_go_on_through_matches_that_do_not_count(server, connect, udp_peers):
+    """Games that lose each other end the match without a result; a Kasual series offers the rematch again however
+    often that happens (a ranked set would end without a rating change after series_max_no_contest of them)."""
     sides, gos = await first_match(server, connect, udp_peers, ["Jax", "Sonya"], ranked=False)
     (c1, _), (c2, _) = sides[1], sides[2]
-    for c in (c1, c2):
-        await c.request({"type": "result", "match": gos[1]["match"], "outcome": "disconnected"})
-    res = await c1.expect("match_result", match=gos[1]["match"])
-    assert res["status"] == "no_contest" and res["left"] is None
-    over = await c1.expect("series", state="over")
-    assert over["outcome"] == "disconnected" and over["left"] is None
+    for _ in range(server.cfg.series_max_no_contest + 1):
+        for c in (c1, c2):
+            await c.request({"type": "result", "match": gos[1]["match"], "outcome": "disconnected"})
+        res = await c1.expect("match_result", match=gos[1]["match"])
+        assert res["status"] == "no_contest" and res["left"] is None
+        between = await c1.expect("series", state="between")
+        c2.take_all("series")
+        gos = await next_match(server, sides, between["series"])
+    assert between["played"] == server.cfg.series_max_no_contest + 1
