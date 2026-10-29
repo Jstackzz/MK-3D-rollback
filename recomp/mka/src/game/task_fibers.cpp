@@ -392,7 +392,8 @@ void ExitTask(X86Context& ctx) {
         LOGE("tasks: exit of %08X outside its function, the scheduler at %08X", task, ret);
         return;
     }
-    if (g_outside_exits++ < 4) LOGI("tasks: exit of %08X outside its function: back to the scheduler", task);
+    // the first few in every log (the path that aborted the game before patch 0033: the walk resumed inside its handler)
+    if (g_outside_exits++ < 4) LOGR("tasks: exit of %08X outside its function: back to the scheduler", task);
     const uint32_t sched_esp = R32(kSchedEsp);
     if (alive) Destroy(ctx, sched_esp);
     ctx.esp = sched_esp;

@@ -174,6 +174,23 @@ for p in recomp/patches/xboxxberecomp-*.patch; do git -C external/XboxXBERecomp 
   then the first half again: the music stopped and started over on every
   screen and when the announcer spoke (arcade recordings: Deception 2.0 s,
   Armageddon 2.0 s, Deadly Alliance 1.5 s, gone with it).
+- `0033-resume-after-the-handler` (0.1.16): a frame that catches an
+  `X86Resume` (0003) copies it, leaves the catch block, and only then runs
+  the continuation, in a loop in the function's body. Before, the
+  continuation ran inside the handler: after a longjmp the whole game ran
+  inside main's catch block, and after a task's exit outside its function
+  the rest of the task walk ran inside the walk's. The Visual C++ runtime
+  keeps one list of open catch blocks a thread; it links a new one onto the
+  list only when its record sits lower on the stack than the list's head,
+  else it starts the list over, and it aborts when a catch block that ends
+  is not the head (`_CreateFrameInfo`, `_FindAndUnlinkFrame`). The task
+  fibers (`recomp/common/src/mk3d/sfiber.*`) share the thread, and their
+  stacks lie above it: a task that caught anything (a `TaskReturn`) while
+  the walk's handler was open dropped the walk's record, and the walk's
+  catch block then aborted (`C0000409`, the 0.1.14+ crash line
+  `MKD.dll+2E01CE`, `MKA.dll+4361C6`, `MKDA.dll+2169D5`: death traps,
+  fatalities, Quan Chi). No catch block may stay open while game code runs;
+  `sfiber::SwitchTo` logs it once if one ever does.
 
 `tools/py/lib_audit.py <game dir> <xbsdb symbols>` lists the XDK library
 functions the game calls that still run console code against host objects,

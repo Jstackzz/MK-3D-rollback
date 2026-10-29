@@ -1,0 +1,34 @@
+diff --git a/tools/recomp/codegen_emit.cpp b/tools/recomp/codegen_emit.cpp
+--- a/tools/recomp/codegen_emit.cpp
++++ b/tools/recomp/codegen_emit.cpp
+@@ -110,20 +110,23 @@ std::string CodeGen::EmitFunction(uint32_t entry) {
+     }
+     std::string out;
+     out += F("X86_FUNC(__imp__%s) {\n", FuncName(entry).c_str());
+-    if (seh) out += "\tconst uint32_t x86_frame = ctx.esp;\n\ttry {\n";
++    if (seh) out += "\tconst uint32_t x86_frame = ctx.esp;\n\tX86Resume x86_to{};\n\tbool x86_resuming = false;\n\ttry {\n";
+     out += "\tX86_LOAD_FLAGS();\n\tuint32_t ca = 0, cb = 0;\n\t(void)ca; (void)cb;\n";
+     // code below the entry (a shared tail reached by a jump) is emitted first, so enter by label
+     bool entry_first = !body.empty() && body.front() == entry;
+     if (!entry_first) out += F("\tgoto loc_%08X;\n", entry);
+     if (labels_.count(entry) && entry_first) out += F("loc_%08X:;\n", entry);
+     out += body_;
+-    // the continuation may itself be left by another resume into this frame (a game that longjmps back into main
+-    // each time it restarts a sequence), which a single catch cannot take, as it runs inside the handler: loop
++    // the continuation runs once the handler is left, never inside it: the C++ runtime keeps one list of open catch
++    // blocks a thread, and a game that switches its task fibers (which share the thread) while one is open breaks
++    // that list, so ending a catch block then aborts (vcruntime _FindAndUnlinkFrame, C0000409). It may itself be left
++    // by another resume into this frame (a game that longjmps back into main each time it restarts a sequence): loop
+     if (seh)
+-        out += "\t} catch (const X86Resume& first) {\n\t\tif (first.esp >= x86_frame) throw;\n\t\tX86Resume r = first;\n"
+-               "\t\tfor (;;) {\n\t\t\ttry {\n\t\t\t\tx86_resume(ctx, base, r);\n\t\t\t\tbreak;\n"
+-               "\t\t\t} catch (const X86Resume& again) {\n\t\t\t\tif (again.esp >= x86_frame) throw;\n"
+-               "\t\t\t\tr = again;\n\t\t\t}\n\t\t}\n\t}\n";
++        out += "\t} catch (const X86Resume& first) {\n\t\tif (first.esp >= x86_frame) throw;\n\t\tx86_to = first;\n"
++               "\t\tx86_resuming = true;\n\t}\n"
++               "\twhile (x86_resuming) {\n\t\ttry {\n\t\t\tx86_resume(ctx, base, x86_to);\n\t\t\tx86_resuming = false;\n"
++               "\t\t} catch (const X86Resume& again) {\n\t\t\tif (again.esp >= x86_frame) throw;\n"
++               "\t\t\tx86_to = again;\n\t\t}\n\t}\n";
+     out += "}\n";
+     if (an_.cfg.trace.count(entry))
+         out += F("X86_TRACED_FUNC(%s, __imp__%s, 0x%XU)\n\n", FuncName(entry).c_str(), FuncName(entry).c_str(), entry);

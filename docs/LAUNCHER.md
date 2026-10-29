@@ -344,6 +344,10 @@ with what was going on, and logged here. An abort (exit code `C0000409`) names
 where abort was called and, in brackets, the calls that led there (0.1.14,
 runtime patch 0030): `crash: abort at MKD.exe+1459A4 (MKD.exe+147ABC
 MKD.dll+5F21C) on a game thread`; the report carries everything after ` at `.
+The one abort every game had through 0.1.15 (`MKD.dll+2E01CE`, `MKA.dll+4361C6`,
+`MKDA.dll+2169D5`: death traps, fatalities, Quan Chi) is fixed in 0.1.16
+(recompiler patch 0033, `recomp/README.md`); a game logs `sfiber: switch to
+fiber N inside a catch block` if what caused it ever comes back.
 `tools/online-e2e.ps1 -CrashA N` crashes A's game N seconds into its match (a
 thread at address 0).
 

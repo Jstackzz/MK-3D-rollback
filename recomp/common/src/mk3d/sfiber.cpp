@@ -6,6 +6,7 @@
 #include "mk3d/sfiber.h"
 
 #include <cstring>
+#include <exception>
 
 #include "core/log.h"
 
@@ -186,6 +187,15 @@ void Destroy(int fiber) {
 
 void SwitchTo(int fiber) {
     if (fiber == g_current) return;
+    // the C++ runtime keeps its exception state (the open catch blocks) per thread, which every fiber shares: a switch
+    // inside a catch block leaves it open under another fiber's frames, and ending it later aborts (C0000409 in
+    // vcruntime _FindAndUnlinkFrame). The recompiled code runs a resume only after its handler; this says if anything
+    // switches inside one again.
+    static bool warned = false;
+    if (!warned && std::current_exception()) {
+        warned = true;
+        LOGE("sfiber: switch to fiber %d inside a catch block", fiber);
+    }
     void** save = g_current < 0 ? &g_main_sp : &g_slots[g_current].sp;
     void* to = fiber < 0 ? g_main_sp : g_slots[fiber].sp;
     if (fiber >= 0 && !g_slots[fiber].alive) {
