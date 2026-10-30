@@ -1,0 +1,2 @@
+// The launcher's file icon (Explorer, shortcuts, the taskbar until Qt sets the window's): the MK3D logo
+IDI_ICON1 ICON "mk3d.ico"

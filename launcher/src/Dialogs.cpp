@@ -155,7 +155,7 @@ MatchFoundDialog::MatchFoundDialog(const QJsonObject& found, const QString& game
     v->setContentsMargins(28, 22, 28, 22);
     v->setSpacing(10);
     auto* emblem = new QLabel;
-    emblem->setPixmap(style::emblem(64));
+    emblem->setPixmap(style::logo(64));
     emblem->setAlignment(Qt::AlignCenter);
     v->addWidget(emblem);
     auto* big = ui::label(tr("MATCH FOUND"), "MatchFound");
@@ -248,7 +248,7 @@ RematchDialog::RematchDialog(QWidget* parent) : QDialog(parent) {
     v->setContentsMargins(28, 22, 28, 22);
     v->setSpacing(10);
     auto* emblem = new QLabel;
-    emblem->setPixmap(style::emblem(64));
+    emblem->setPixmap(style::logo(64));
     emblem->setAlignment(Qt::AlignCenter);
     v->addWidget(emblem);
     title_ = ui::label(QString(), "CardTitle");
@@ -307,7 +307,7 @@ UpdateDialog::UpdateDialog(const QJsonObject& release, bool required, const QStr
     v->setContentsMargins(28, 22, 28, 22);
     v->setSpacing(10);
     auto* emblem = new QLabel;
-    emblem->setPixmap(style::emblem(64));
+    emblem->setPixmap(style::logo(64));
     emblem->setAlignment(Qt::AlignCenter);
     v->addWidget(emblem);
     auto* title = ui::label(required ? tr("UPDATE NEEDED") : tr("UPDATE AVAILABLE"), "CardTitle");

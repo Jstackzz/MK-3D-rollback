@@ -1,10 +1,7 @@
 #include "Style.h"
 
-#include <QFont>
 #include <QGuiApplication>
 #include <QPainter>
-#include <QPainterPath>
-#include <QRadialGradient>
 
 namespace style {
 
@@ -205,51 +202,19 @@ QString linkName(const QString& link) {
     return QObject::tr("Connection type unknown");
 }
 
-QPixmap emblem(int size) {
-    QPixmap pm(size, size);
-    pm.fill(Qt::transparent);
-    QPainter p(&pm);
-    p.setRenderHint(QPainter::Antialiasing);
-    const qreal s = size;
-    const QRectF outer(s * 0.04, s * 0.04, s * 0.92, s * 0.92);
-
-    QRadialGradient fill(outer.center() - QPointF(s * 0.12, s * 0.14), s * 0.62);
-    fill.setColorAt(0.0, QColor(0xee, 0x2a, 0x36));
-    fill.setColorAt(0.55, QColor(0x9a, 0x0f, 0x1d));
-    fill.setColorAt(1.0, QColor(0x33, 0x04, 0x08));
-    p.setPen(QPen(QColor(0xe8, 0xc9, 0x8e), s * 0.035));
-    p.setBrush(fill);
-    p.drawEllipse(outer);
-
-    p.setPen(QPen(QColor(0, 0, 0, 150), s * 0.05));
-    p.setBrush(Qt::NoBrush);
-    p.drawEllipse(outer.adjusted(s * 0.09, s * 0.09, -s * 0.09, -s * 0.09));
-
-    // a blade-like slash behind the monogram
-    QPainterPath blade;
-    blade.moveTo(s * 0.20, s * 0.86);
-    blade.lineTo(s * 0.86, s * 0.16);
-    blade.lineTo(s * 0.80, s * 0.30);
-    blade.lineTo(s * 0.26, s * 0.90);
-    blade.closeSubpath();
-    p.setPen(Qt::NoPen);
-    p.setBrush(QColor(0x14, 0x02, 0x04, 210));
-    p.drawPath(blade);
-
-    QFont f(QStringLiteral("Bahnschrift"));
-    f.setPixelSize(qMax(6, int(s * 0.40)));
-    f.setWeight(QFont::Black);
-    p.setFont(f);
-    p.setPen(QColor(0, 0, 0, 160));
-    p.drawText(outer.translated(s * 0.02, s * 0.025), Qt::AlignCenter, QStringLiteral("3D"));
-    p.setPen(QColor(0xff, 0xf3, 0xe4));
-    p.drawText(outer, Qt::AlignCenter, QStringLiteral("3D"));
+QPixmap logo(int height) {
+    // drawn at the screen's scale (150 % makes a 76 px logo 114 pixels), from the 320 px tall resource
+    const qreal dpr = qGuiApp ? qGuiApp->devicePixelRatio() : 1.0;
+    const QImage img(QStringLiteral(":/logo/mk3d-logo.png"));
+    QPixmap pm = QPixmap::fromImage(img.scaledToHeight(qRound(height * dpr), Qt::SmoothTransformation));
+    pm.setDevicePixelRatio(dpr);
     return pm;
 }
 
 QIcon appIcon() {
     QIcon icon;
-    for (int size : {16, 24, 32, 48, 64, 128, 256}) icon.addPixmap(emblem(size));
+    for (int size : {16, 24, 32, 48, 64, 128, 256})
+        icon.addFile(QStringLiteral(":/logo/icon-%1.png").arg(size), QSize(size, size));
     return icon;
 }
 

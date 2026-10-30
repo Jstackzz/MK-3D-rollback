@@ -176,6 +176,12 @@ bool g_pending_close = false;
 // the launcher ended the match (Disable while it runs: the other player left it, the server says): what waits for the
 // other game gives up at once instead of after its timeout
 std::atomic<bool> g_abort{false};
+// the main thread waits on the other game or the feed now (Waiting)
+std::atomic<bool> g_waiting{false};
+struct WaitScope {
+    WaitScope() { g_waiting = true; }
+    ~WaitScope() { g_waiting = false; }
+};
 
 void SetStatus(Status st) { g_status = int(st); }
 
@@ -1035,6 +1041,7 @@ void WatchMeet(X86Context& ctx) {
     LOGI("netplay: match %u about to be set up (%s), waiting for the players' meeting point", g_seq + 1,
          game::Describe().c_str());
     auto t0 = Clock::now();
+    WaitScope waiting;
     while (!g_watch[0].meet_in || !g_watch[1].meet_in) {
         Receive();
         if (g_abort || Clock::now() - t0 > std::chrono::seconds(120)) {
@@ -1076,6 +1083,7 @@ void MeetBeforeSetup(X86Context& ctx) {
     g_peer_ready = false;
     LOGI("netplay: match %u about to be set up (%s), waiting for the other game", g_seq + 1, game::Describe().c_str());
     auto t0 = Clock::now(), last = Clock::time_point{};
+    WaitScope waiting;
     while (!g_peer_ready) {
         if (Clock::now() - last > std::chrono::milliseconds(100)) {
             SendReady();
@@ -1153,6 +1161,7 @@ void AdvanceConfirmed(uint32_t end) {
 bool Throttle(uint32_t next) {
     auto t0 = Clock::now(), last_send = t0;
     bool waited = false, warned = false;
+    WaitScope waiting;
     while (next >= g_confirmed + kMaxPredict && FirstMispredicted(next) == next) {
         waited = true;
         Receive();
@@ -1236,6 +1245,7 @@ void NoteTiming(uint32_t next) {
 bool WaitForRealInput(uint32_t next) {
     auto t0 = Clock::now(), last_send = t0;
     bool waited = false;
+    WaitScope waiting;
     for (;;) {
         Receive();
         if (FirstMispredicted(next) < next) break;
@@ -1456,6 +1466,7 @@ void LockstepPads() {
     WatchFocus();
     auto t0 = Clock::now(), last = t0;
     bool warned = false;
+    WaitScope waiting;
     while (!g_theirs.count(g_frame)) {
         Receive();
         if (g_theirs.count(g_frame)) break;
@@ -1512,6 +1523,7 @@ uint32_t WatchHave() { return std::min(g_watch[0].contiguous, g_watch[1].contigu
 bool WaitForFeed(uint32_t f) {
     auto t0 = Clock::now();
     bool waited = false, warned = false;
+    WaitScope waiting;
     for (;;) {
         Receive();
         const uint32_t have = WatchHave();
@@ -1714,6 +1726,7 @@ void Disable() {
 Status GetStatus() { return Status(g_status.load()); }
 uint32_t DesyncFrame() { return g_desync_frame.load(); }
 uint32_t LockstepFrame() { return g_lockstep_frame.load(); }
+bool Waiting() { return g_waiting.load(); }
 
 bool GetSettled(Settled& out) {
     std::lock_guard<std::mutex> lock(g_settled_lock);

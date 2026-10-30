@@ -52,6 +52,8 @@ public:
     // a game built before (its code DLL beside it) whose code no longer matches its executable, as after an update:
     // its next start builds the code again (runtime app/game_code.cpp, compiler\work\<exe>\built.txt)
     static bool codeStale(const QString& exe);
+    // the game's extracted default.xbe, in the assets folder the game itself reads; empty before it is extracted
+    static QString xbeFile(const QString& exe);
 
 signals:
     void statusChanged(const QString& line);

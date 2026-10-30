@@ -29,6 +29,14 @@ uint32_t g_puzzle_base = 0;  // Puzzle Kombat matches finished before this one
 // launcher match (the autopilot's Unlock), so that is the arena.
 constexpr uint32_t kArenaList = 0x3E4D30, kArenaCycle = 0x620F44;
 
+// The versus select screen also has an arena choice of its own: a player who opens it (sub_0017BF70, then
+// sub_0017BFD0 per entry of the list 0x3F9000) leaves their arena in 0x62031C, which the fight's arena setup
+// (sub_000834C0, the versus fight task's first step) takes over the cycle's. Online each game has only its own
+// player's choice, so the two loaded different arenas and parted at the match's first check ("the arenas differ" at
+// the meeting point: one game had the seed's arena, the other its player's); the match's arena is the arena then.
+constexpr uint32_t kArenaChoice = 0x62031C;
+bool g_online_match = false;  // the launcher match now is online, or watched
+
 // A fight's round end (sub_00083960) ends the match once the round's winner has as many round wins as 0x5FC9A4 (the
 // options' rounds, 2 by default) when no profile is in use (0x620F24 bit 0, as in a launcher match; a profile makes
 // it 2): the launcher's best of N.
@@ -107,6 +115,7 @@ bool Begin(const Start& start) {
     const bool picks = start.mode == "kombat" || start.mode == "puzzle" || start.mode == "chess";
     for (int i = 0; i < 2; i++) req.by_player[i] = start.online && picks && start.picks[i].empty();
     g_request = req;
+    g_online_match = start.online;
     PickArena(start.seed, start.stage);
     SetOptions(start);
     return autopilot::Begin(req);
@@ -168,6 +177,7 @@ X86_EXTERN_FUNC(__imp__sub_001B4640);
 X86_EXTERN_FUNC(__imp__sub_001B4430);
 X86_EXTERN_FUNC(__imp__sub_001B3DC0);
 X86_EXTERN_FUNC(__imp__sub_001BF070);
+X86_EXTERN_FUNC(__imp__sub_000834C0);
 
 // the front end sets the game options (their defaults, or one menu item): a launcher match's go back over them
 X86_FUNC(sub_001B4640) {
@@ -190,4 +200,15 @@ X86_FUNC(sub_001BF070) {
     if (!mkd::g_options.set) return __imp__sub_001BF070(ctx, base);
     ctx.eax = mkd::g_options.death_traps ? 1u : 0u;
     ctx.esp += 4;  // ret
+}
+
+// the versus fight's arena setup (no arguments): online, the select screen's own arena choice gives way to the match's
+X86_FUNC(sub_000834C0) {
+    const int32_t choice = int32_t(kernel::R32(mkd::kArenaChoice));
+    if (mkd::g_online_match && choice >= 0) {
+        LOGR("link: the select screen's arena choice %d left out, the match's arena is %u", choice,
+             kernel::R32(mkd::kArena));
+        kernel::W32(mkd::kArenaChoice, 0xFFFFFFFFu);
+    }
+    __imp__sub_000834C0(ctx, base);
 }

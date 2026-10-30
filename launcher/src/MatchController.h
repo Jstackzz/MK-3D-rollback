@@ -156,6 +156,7 @@ private:
     void thawGame();
     void maybeBackToSolo();    // standby: nothing more to play online, single player again
     void maybeStartPractice();  // a search waits with the match's game at its hold point: practice meanwhile
+    void maybePracticeAfterSeries();  // a Kasual series or ranked set over: back to practice once the game parked
     void maybeCloseIdleGame();  // closeGameWhenIdle, once idle
     void openFeed(const QJsonObject& go);  // a lobby match: what its spectators need, from the game to the server
     // no UDP from here reaches the server: the match goes through its connection (docs/PROTOCOL.md 2.4.1)
@@ -179,6 +180,7 @@ private:
     bool closeWhenIdle_ = false;  // a lobby was left: game_ goes once idle (closeGameWhenIdle)
     QPointer<GameProcess> lobbyGame_;  // the game a lobby's Ready wants (prepareGame): a cancelled search leaves it be
     bool practiceForSearch_ = false;   // practice the search opened (maybeStartPractice): a cancelled search closes it
+    QString practiceAfterSeries_;      // the game of a series just over, to practise in once idle (empty: none)
     GameProcess* localA_ = nullptr;
     GameProcess* localB_ = nullptr;
     Phase phase_ = Phase::Idle;

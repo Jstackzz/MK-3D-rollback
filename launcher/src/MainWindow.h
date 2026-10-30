@@ -65,6 +65,7 @@ protected:
 
 private:
     QWidget* buildHeader();
+    void updateGameLogos();  // each game button's logo, from that game's own files once extracted (TitleImage.h)
     QWidget* buildNav();
     QWidget* buildFooter();
     void selectGame(const QString& id);

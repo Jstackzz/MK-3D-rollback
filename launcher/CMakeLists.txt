@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(mk3d_launcher VERSION 0.1.16 LANGUAGES CXX)
+project(mk3d_launcher VERSION 0.1.17 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -41,15 +41,26 @@ qt_add_executable(MK3DLauncher WIN32
     src/Controls.cpp src/Controls.h
     src/ControlsPage.cpp src/ControlsPage.h
     src/Xiso.cpp src/Xiso.h
+    src/TitleImage.cpp src/TitleImage.h
     src/Upnp.cpp src/Upnp.h
     src/Updater.cpp src/Updater.h
     src/MainWindow.cpp src/MainWindow.h
+    data/logo/MK3DLauncher.rc  # the exe's icon
 )
 
 qt_add_resources(MK3DLauncher "gamedata"
     PREFIX "/data"
     BASE data
     FILES data/mkda.json data/mkd.json data/mka.json
+)
+
+# the MK3D logo: the header and dialogs (mk3d-logo.png) and the window icon (icon-N.png); tools/py/make_logo.py makes
+# them and mk3d.ico from the logo art
+qt_add_resources(MK3DLauncher "logo"
+    PREFIX "/logo"
+    BASE data/logo
+    FILES data/logo/mk3d-logo.png data/logo/icon-16.png data/logo/icon-24.png data/logo/icon-32.png
+          data/logo/icon-48.png data/logo/icon-64.png data/logo/icon-128.png data/logo/icon-256.png
 )
 
 qt_add_resources(MK3DLauncher "sounds"

@@ -191,6 +191,13 @@ for p in recomp/patches/xboxxberecomp-*.patch; do git -C external/XboxXBERecomp 
   `MKD.dll+2E01CE`, `MKA.dll+4361C6`, `MKDA.dll+2169D5`: death traps,
   fatalities, Quan Chi). No catch block may stay open while game code runs;
   `sfiber::SwitchTo` logs it once if one ever does.
+- `0034-window-icon-from-the-title-image` (0.1.17): the game window's icon
+  (title bar, taskbar, Alt+Tab) is the game's own logo: the title image its
+  xbe carries for the Xbox dashboard (`$$XTIMAGE`, an XPR0 texture, 128x128
+  DXT1 in all three games), decoded and box-filtered to the system's icon
+  sizes (`app/title_image.cpp`). The player's own copy supplies it, so no
+  release carries it; an xbe without one keeps the executable's icon. The
+  launcher shows the same image on its game buttons (`TitleImage.cpp`).
 
 `tools/py/lib_audit.py <game dir> <xbsdb symbols>` lists the XDK library
 functions the game calls that still run console code against host objects,

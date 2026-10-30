@@ -168,7 +168,10 @@ whether to trust it: compare it with your host's.
   over it; accept it and practice closes while the match's game opens (it
   takes a few seconds to start). If the match falls through (your opponent
   declines or does not answer), you are back in the queue and in practice.
-  Untick the box to wait at the game's menu instead.
+  Once the Kasual series or the ranked set is over (you or your opponent
+  left, the rematch timed out, or the set was won), the match's game plays its
+  ending, then closes and practice opens again. Untick the box to wait at the
+  game's menu instead.
 - Frame data in practice (all three games): a small panel at the left shows
   player 1's last attack, counted in frames (60 a second) from the press as
   frame 1. **Startup** is the frame the attack can first hit, **Active** how

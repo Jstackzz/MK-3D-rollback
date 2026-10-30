@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 
 from server import protocol as P
 from server.app import ServerConfig
@@ -186,6 +187,32 @@ async def test_relay_route_ends_with_the_match(server, connect, udp_peers):
     ua.transport.sendto(b"MKDR\x03\x01\x00\x00", ("127.0.0.1", server.udp_port))
     await asyncio.sleep(0.3)
     assert ub.raw.empty()
+
+
+async def test_relay_carries_the_match_end_after_the_results(server, connect, udp_peers):
+    # the games report the result at the round that decides the match and play its end on through the relay (the
+    # finisher, a fatality, the winner's pose) for up to 30 s before their launchers park them
+    server.cfg.relay_only = True
+    a, b = await connect("Shujinko"), await connect("Onaga")
+    ua, ub = await udp_peers(), await udp_peers()
+    await a.request(queue_msg())
+    await b.request(queue_msg())
+    fa, fb = await a.expect("match_found"), await b.expect("match_found")
+    await hello_and_accept(server, a, ua, fa)
+    await hello_and_accept(server, b, ub, fb)
+    pa, pb = await a.expect("match_peer"), await b.expect("match_peer")
+    ga, _ = await relay_to_go(server, a, b, ua, ub, pa, pb)
+    for conn in (a, b):
+        await conn.request({"type": "result", "match": ga["match"], "winner": 1, "p1_rounds": 2, "p2_rounds": 0})
+    await a.expect("match_result")
+    server._tick(time.time() + 35)  # a fatality still playing at the launchers' 30 s
+    packet = b"MKDR\x03\x01\x01\x00" + bytes(range(40))
+    assert ua.transport is not None
+    ua.transport.sendto(packet, ("127.0.0.1", server.udp_port))
+    data, _ = await asyncio.wait_for(ub.raw.get(), 2)
+    assert data == packet
+    server._tick(time.time() + server.cfg.relay_linger + 1)
+    assert not server.relay_routes
 
 
 async def test_relay_is_rate_limited(server, connect, udp_peers):

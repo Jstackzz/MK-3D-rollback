@@ -101,7 +101,10 @@ class ServerConfig:
     relay_only: bool = False
     relay_rate: float = 400.0     # packets a second each player may send through the relay (a game sends ~120)
     relay_burst: float = 800.0
-    relay_linger: float = 15.0    # seconds a route outlives its match: the last packets of the end still arrive
+    # seconds a route outlives its match: the games report the result at the round that decides it and play the
+    # match's end on through the relay after it (the finisher, a fatality, the winner's pose: up to 30 s, then 2 s
+    # before they park, link.cpp RequestPark); 15 s cut a fatality off and both games stood still until then
+    relay_linger: float = 60.0
     max_spectators: int = 8       # a lobby's spectators, besides its two players
     feed_max_bytes: int = 8 << 20  # a lobby match's spectator feed, at most (a long chess game writes ~2 MB)
     feed_linger: float = 180.0    # seconds a feed outlives its match: its end still plays, spectators run behind

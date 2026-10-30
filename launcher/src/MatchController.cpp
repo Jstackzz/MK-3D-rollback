@@ -345,9 +345,13 @@ void MatchController::setPhase(Phase p, const QString& text) {
     emit phaseChanged(p, text);
     if (p == Phase::Idle) sendSeriesReady();
     maybeBackToSolo();
-    if (p == Phase::Searching) maybeStartPractice();
+    if (p == Phase::Searching) {
+        practiceAfterSeries_.clear();  // the search brings its own practice
+        maybeStartPractice();
+    }
     if (p == Phase::Idle) startWatch();  // a lobby match waiting to be watched
     maybeCloseIdleGame();
+    maybePracticeAfterSeries();
 }
 
 void MatchController::freezeSolo() {
@@ -776,11 +780,15 @@ void MatchController::onServerMessage(const QJsonObject& msg) {
         if (state == QLatin1String("between") && msg.value(QStringLiteral("ranked")).toBool() &&
             !msg.value(QStringLiteral("you_ready")).toBool())
             wantNext_ = true;
-        if (state == QLatin1String("over")) wantNext_ = false;
+        if (state == QLatin1String("over")) {
+            wantNext_ = false;
+            if (cfg::practiceWhileWaiting()) practiceAfterSeries_ = str(msg, "game");
+        }
         emit seriesChanged(msg);
         if (state == QLatin1String("over")) series_ = {};
         sendSeriesReady();
         maybeBackToSolo();
+        maybePracticeAfterSeries();
     } else if (type == QLatin1String("result_ack")) {
         log(tr("Result of %1 acknowledged by the server").arg(match));
     } else if (type == QLatin1String("spectate")) {
@@ -1275,6 +1283,22 @@ void MatchController::maybeStartPractice() {
     QString err;
     if (!startSolo(request_.game, &err, true)) log(tr("Practice while you wait: %1").arg(err));
     else practiceForSearch_ = true;
+}
+
+// Practice while you wait, after the match too: once a Kasual series or a ranked set is over (a player left it, the
+// rematch timed out, the set was won) and the match's game is back at its hold point (its ending played), that game
+// closes and practice starts again, as before the search. Single player set aside for the match comes back instead
+// (maybeBackToSolo); a new series, a lobby's game or a match to watch keep the match's game.
+void MatchController::maybePracticeAfterSeries() {
+    if (practiceAfterSeries_.isEmpty() || phase_ != Phase::Idle) return;
+    const QString gameId = practiceAfterSeries_;
+    practiceAfterSeries_.clear();
+    if (solo_ || !series_.isEmpty() || (game_ && game_ == lobbyGame_) || !watch_.isEmpty() || !watchQueue_.isEmpty() ||
+        !cfg::practiceWhileWaiting())
+        return;
+    QString err;
+    if (startSolo(gameId, &err, true)) log(tr("The series is over: back to practice"));
+    else log(tr("Back to practice: %1").arg(err));
 }
 
 void MatchController::stopSolo() {

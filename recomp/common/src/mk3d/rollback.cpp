@@ -520,11 +520,18 @@ bool Restore(uint32_t frame, X86Context& ctx) {
                 touched.push_back(p);
             }
             if (g_shared[p >> 12]) {
-                // the other thread's bytes keep their values now
-                alignas(8) uint8_t now[kPage];
-                std::memcpy(now, g_base + p, kPage);
-                std::memcpy(g_base + p, f->data.data() + i * kPage, kPage);
-                ForVolatile(p, [&](uint32_t off, uint32_t n) { std::memcpy(g_base + p + off, now + off, n); });
+                // the other thread's bytes keep their values now: only the rest goes back, and its bytes are not
+                // written at all, as that thread runs meanwhile. Copied back from a copy of the page taken a moment
+                // before, a write it made in between was undone: Deception's I/O worker left the lock of its manager
+                // (0x5F0E08) there, the lock read as still taken by it, and the main thread waited on it for ever
+                // (a game stood still mid-fight, more often the more it rolled back)
+                const uint8_t* from = f->data.data() + i * kPage;
+                uint32_t at = 0;
+                ForVolatile(p, [&](uint32_t off, uint32_t n) {
+                    if (off > at) std::memcpy(g_base + p + at, from + at, off - at);
+                    at = off + n;
+                });
+                if (at < kPage) std::memcpy(g_base + p + at, from + at, kPage - at);
             } else {
                 std::memcpy(g_base + p, f->data.data() + i * kPage, kPage);
             }

@@ -172,7 +172,14 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    on this PC opens the window by itself, on *create account*, once a run when
    it first connects (not with `--user`, `--local-test` or `--extract`).
 3. **Game selector** (Deadly Alliance / Deception / Armageddon) switches every
-   page; modes and rosters come from `launcher/data/<game>.json`.
+   page; modes and rosters come from `launcher/data/<game>.json`. Each button
+   shows the game's own logo once the game is extracted: the title image its
+   `default.xbe` carries for the Xbox dashboard (`TitleImage.cpp`, read again
+   when a build finishes), the same the game's window shows as its icon
+   (runtime patch 0034), so the release ships none of it. The header's logo
+   and the launcher's icon (window and `MK3DLauncher.exe`) are the MK3D logo,
+   `launcher/data/logo` (`style::logo`, `style::appIcon`, `MK3DLauncher.rc`),
+   which `tools/py/make_logo.py` makes from the logo art.
 4. **Ranked / Kasual** (Kasual is the casual queue, `casual` in the protocol and
    the settings): pick the mode and fighter, *Find match*. With *Pick my
    fighter on the game's own select screen* (`[online] pick_in_game`, on by
@@ -248,7 +255,11 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    it (one still up from before closes); accepting a match closes practice
    (`MatchController::closeSolo`) and starts the match's game, brought to the
    front once it is at its hold point, and a match that falls through puts the
-   search back, which starts practice again and closes the match's game.
+   search back, which starts practice again and closes the match's game. A
+   series that ends (the server's `series` with state `over`: Kasual or a
+   ranked set) starts practice again too, in the series' game, once the
+   match's game parked (`MatchController::maybePracticeAfterSeries`, 0.1.17;
+   not with single player set aside, a lobby's game or a match to watch).
    Practice opened with *PRACTICE* before a search goes the same way; single
    player is frozen as above. In a source build the **Local test** box
    starts two instances on this PC (UDP 7001/7002) with matching start lines,

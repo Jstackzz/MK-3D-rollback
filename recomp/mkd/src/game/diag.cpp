@@ -327,6 +327,10 @@ const bool g_hang_dump = [] {
 
 }  // namespace mkd
 
+namespace mk3d {
+void DumpThreads(const char* why) { mkd::DumpAllThreads(why); }  // mk3d/game.h
+}  // namespace mk3d
+
 // ---- hardware write watchpoints, for finding what writes a guest address ----
 namespace {
 

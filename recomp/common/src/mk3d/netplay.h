@@ -56,6 +56,9 @@ void Disable();
 Status GetStatus();
 uint32_t DesyncFrame();
 uint32_t LockstepFrame();  // the frame in sync now (either mode)
+// true while the main thread waits on the other game (its inputs, the meeting point) or a spectator's feed: a frame
+// that stands still for that keeps sending and ends by itself
+bool Waiting();
 
 // What the last frame both games agree on shows (with rollback the present frame may still rest on a prediction),
 // kept after the match in sync ends until the next one starts. The values are the game's (net::game::Settle); the

@@ -133,6 +133,13 @@ bool GameProcess::codeStale(const QString& exe) {
     return fields[0] != QByteArray::number(size) || fields[1] != QByteArray::number(time);
 }
 
+QString GameProcess::xbeFile(const QString& exe) {
+    if (exe.isEmpty()) return {};
+    const QString assets = assetsDir(QFileInfo(exe).absolutePath());
+    const QString xbe = assets.isEmpty() ? QString() : QDir(assets).filePath(QStringLiteral("default.xbe"));
+    return !xbe.isEmpty() && QFileInfo::exists(xbe) ? xbe : QString();
+}
+
 bool GameProcess::start(const QString& exe, QString* error, bool netMode) {
     if (isRunning()) return true;
     const QFileInfo fi(exe);

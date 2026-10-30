@@ -29,6 +29,7 @@
 #include "PlayPages.h"
 #include "ServerClient.h"
 #include "Style.h"
+#include "TitleImage.h"
 #include "ToolPages.h"
 #include "Updater.h"
 #include "Widgets.h"
@@ -163,6 +164,9 @@ MainWindow::MainWindow(const LaunchOptions& opts, QWidget* parent)
     connect(controller_, &MatchController::phaseChanged, this, whenFree);
     connect(controller_, &MatchController::gameStatusChanged, this, whenFree);
     connect(build_, &BuildPage::busyChanged, this, whenFree);
+    connect(build_, &BuildPage::busyChanged, this, [this](bool busy) {
+        if (!busy) updateGameLogos();  // a game just extracted brings its logo
+    });
     Updater::cleanUp();  // what an update set aside, once free; the old launcher may still be closing:
     if (!opts_.updatedFrom.isEmpty())
         for (int s : {2, 5, 10, 20}) QTimer::singleShot(s * 1000, this, [] { Updater::cleanUp(); });
@@ -311,7 +315,7 @@ QWidget* MainWindow::buildHeader() {
     h->setSpacing(16);
     auto* emblem = new QLabel;
     emblem->setObjectName(QStringLiteral("Emblem"));
-    emblem->setPixmap(style::emblem(76));
+    emblem->setPixmap(style::logo(76));
     h->addWidget(emblem);
 
     auto* titles = new QVBoxLayout;
@@ -360,9 +364,21 @@ QWidget* MainWindow::buildHeader() {
     connect(gameGroup_, &QButtonGroup::buttonClicked, this, [this](QAbstractButton* b) {
         selectGame(b->property("gameId").toString());
     });
+    updateGameLogos();
     right->addLayout(games);
     h->addLayout(right);
     return header;
+}
+
+void MainWindow::updateGameLogos() {
+    for (QAbstractButton* b : gameGroup_->buttons()) {
+        const QImage logo = titleimage::forGame(b->property("gameId").toString());
+        const Game* g = GameData::instance().game(b->property("gameId").toString());
+        const QString name = g ? g->shortName.toUpper() : b->text().trimmed();
+        b->setIcon(logo.isNull() ? QIcon() : QIcon(QPixmap::fromImage(logo)));
+        b->setIconSize(QSize(22, 22));
+        b->setText(logo.isNull() ? name : QStringLiteral(" ") + name);  // a little room after the logo
+    }
 }
 
 QWidget* MainWindow::buildNav() {

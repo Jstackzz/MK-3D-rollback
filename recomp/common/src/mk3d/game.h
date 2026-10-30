@@ -29,6 +29,8 @@ void OnPadsRead(FrameListener f);
 
 // a code address as module!symbol and the guest address when it is recompiled code (diag.cpp)
 void DescribeCode(uintptr_t addr, char* out, size_t n);
+// every thread's stack into the log, for a game that hangs (diag.cpp)
+void DumpThreads(const char* why);
 
 // "A+B+LEFT" style names (A B X Y BLACK WHITE LT RT UP DOWN LEFT RIGHT START BACK LS RS) to digital buttons and the
 // analog buttons pressed fully (bits of input::Pad::analog); false on an unknown name

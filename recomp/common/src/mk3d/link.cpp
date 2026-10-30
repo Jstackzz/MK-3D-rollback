@@ -302,6 +302,36 @@ void Update() {
     }
 }
 
+// An online match whose game stands still: no main loop frame for kStill while netplay does not wait on the other game
+// (its waits keep sending and end by themselves). Where every thread is goes into the log, once a match, so a player's
+// log says where it hung: a Deception game stood still inside one frame of a match's load until its player closed it
+// (2026-10-29), and its log said nothing more. Link thread only, as the match's state it reads.
+constexpr auto kStill = std::chrono::seconds(10);
+
+void WatchFrames() {
+    using SteadyClock = std::chrono::steady_clock;
+    static uint64_t frame = 0;
+    static SteadyClock::time_point since, last;
+    static bool dumped = false;
+    const auto now = SteadyClock::now();
+    const uint64_t f = Frame();
+    // a gap between two looks: the whole process stood still (frozen by the launcher, a debugger), not its main thread
+    const bool gap = now - last > std::chrono::seconds(1);
+    last = now;
+    if (f != frame || gap || !g_in_match || !g_online || net::Waiting()) {
+        frame = f;
+        since = now;
+        if (!g_in_match) dumped = false;
+        return;
+    }
+    if (dumped || now - since < kStill) return;
+    dumped = true;
+    LOGR("link: no frame for %lld s in match %s (frame %llu, netplay %d)",
+         (long long)std::chrono::duration_cast<std::chrono::seconds>(now - since).count(), g_match.c_str(),
+         (unsigned long long)f, int(net::GetStatus()));
+    DumpThreads("the game stands still");
+}
+
 void Loop() {
     WriteStatus("booting");
     for (;;) {
@@ -322,6 +352,7 @@ void Loop() {
             std::lock_guard<std::mutex> lock(g_lock);
             Update();
         }
+        WatchFrames();
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
 }

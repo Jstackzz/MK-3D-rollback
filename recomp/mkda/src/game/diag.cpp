@@ -365,3 +365,7 @@ const bool g_capture_hook = [] {
 }  // namespace
 
 }  // namespace mkda
+
+namespace mk3d {
+void DumpThreads(const char* why) { mkda::DumpAllThreads(why); }  // mk3d/game.h
+}  // namespace mk3d

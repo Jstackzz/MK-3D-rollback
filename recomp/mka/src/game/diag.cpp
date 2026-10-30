@@ -340,3 +340,7 @@ const bool g_hang_dump = [] {
 }  // namespace
 
 }  // namespace mka
+
+namespace mk3d {
+void DumpThreads(const char* why) { mka::DumpAllThreads(why); }  // mk3d/game.h
+}  // namespace mk3d

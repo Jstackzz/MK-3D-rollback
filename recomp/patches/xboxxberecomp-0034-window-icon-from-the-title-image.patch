@@ -1,0 +1,205 @@
+diff --git a/runtime/app/app.h b/runtime/app/app.h
+--- a/runtime/app/app.h
++++ b/runtime/app/app.h
+@@ -66,6 +66,9 @@ std::string Sha1(const std::vector<uint8_t>& data);  // lower case hex
+ bool PrepareGameCode(const GameFiles& game, bool only = false);
+ int Instance();  // --instance N on the command line, 0 without: a second copy on this PC for system link tests
+ void* Window();  // HWND
++// the game's own icon, size x size: the xbe's title image, the one the dashboard shows (title_image.cpp); an HICON,
++// null when the xbe has none in a format it reads
++void* TitleImageIcon(const std::vector<uint8_t>& xbe, int size);
+ // boot splash: GameInfo::splash .bmp or .png beside the exe, up before the game window
+ bool OpenSplash();        // window thread, at launch; false without one, and the game window opens at once
+ void SplashFirstFrame();  // the game's first Swap: waits out the splash's minimum, then opens the game window
+diff --git a/runtime/app/main.cpp b/runtime/app/main.cpp
+--- a/runtime/app/main.cpp
++++ b/runtime/app/main.cpp
+@@ -389,7 +389,10 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
+     wc.style = CS_HREDRAW | CS_VREDRAW;
+     wc.lpfnWndProc = app::WndProc;
+     wc.hInstance = inst;
+-    wc.hIcon = LoadIconW(inst, MAKEINTRESOURCEW(1));
++    // the window and the taskbar show the game's own logo, from its xbe; else the executable's icon
++    wc.hIcon = static_cast<HICON>(app::TitleImageIcon(game.xbe, GetSystemMetrics(SM_CXICON)));
++    wc.hIconSm = static_cast<HICON>(app::TitleImageIcon(game.xbe, GetSystemMetrics(SM_CXSMICON)));
++    if (!wc.hIcon) wc.hIcon = LoadIconW(inst, MAKEINTRESOURCEW(1));
+     wc.hbrBackground = static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH));
+     wc.lpszClassName = app::kGame.name;
+     RegisterClassExW(&wc);
+diff --git a/runtime/app/title_image.cpp b/runtime/app/title_image.cpp
+new file mode 100644
+--- /dev/null
++++ b/runtime/app/title_image.cpp
+@@ -0,0 +1,172 @@
++// The game's own icon: the title image every xbe carries for the dashboard's game list ($$XTIMAGE, an XPR0 texture,
++// 128x128 DXT1 in the games so far), decoded and scaled to an icon. The player's own copy supplies it, so the window
++// and the taskbar show the game's logo without the release carrying any of it.
++#ifndef WIN32_LEAN_AND_MEAN
++#define WIN32_LEAN_AND_MEAN
++#endif
++#ifndef NOMINMAX
++#define NOMINMAX
++#endif
++#include <windows.h>
++
++#include <algorithm>
++#include <cstring>
++#include <vector>
++
++#include "app/app.h"
++
++namespace app {
++
++namespace {
++
++uint32_t U32(const std::vector<uint8_t>& d, size_t at) {
++    uint32_t v = 0;
++    if (at + 4 <= d.size()) std::memcpy(&v, d.data() + at, 4);
++    return v;
++}
++
++// the bytes of the named section, by the xbe's section headers (header addresses are file offsets from the base)
++bool Section(const std::vector<uint8_t>& xbe, const char* want, size_t& start, size_t& size) {
++    if (xbe.size() < 0x124 || std::memcmp(xbe.data(), "XBEH", 4) != 0) return false;
++    const uint32_t base = U32(xbe, 0x104), count = U32(xbe, 0x11C), headers = U32(xbe, 0x120) - base;
++    for (uint32_t i = 0; i < count && i < 256; i++) {
++        const size_t h = size_t(headers) + i * 0x38;
++        const uint32_t raw = U32(xbe, h + 12), raw_size = U32(xbe, h + 16), name = U32(xbe, h + 20) - base;
++        if (name >= xbe.size() || std::strncmp(reinterpret_cast<const char*>(xbe.data() + name), want,
++                                               std::min<size_t>(16, xbe.size() - name)) != 0)
++            continue;
++        if (size_t(raw) + raw_size > xbe.size()) return false;
++        start = raw;
++        size = raw_size;
++        return true;
++    }
++    return false;
++}
++
++uint32_t Rgb565(uint16_t c) {  // as 0xAARRGGBB, opaque
++    const uint32_t r = (c >> 11) & 31, g = (c >> 5) & 63, b = c & 31;
++    return 0xFF000000u | ((r * 255 / 31) << 16) | ((g * 255 / 63) << 8) | (b * 255 / 31);
++}
++
++uint32_t Mix(uint32_t a, uint32_t b, int wa, int wb) {  // per channel (a*wa + b*wb) / (wa+wb)
++    uint32_t out = 0;
++    for (int s = 0; s < 32; s += 8)
++        out |= ((((a >> s) & 255) * wa + ((b >> s) & 255) * wb) / (wa + wb)) << s;
++    return out;
++}
++
++// DXT1, DXT3 or DXT5 blocks into 0xAARRGGBB pixels; Xbox compressed textures are not swizzled
++bool DecodeDxt(const uint8_t* src, size_t bytes, int format, int w, int h, std::vector<uint32_t>& px) {
++    const int block = format == 0x0C ? 8 : 16;
++    if (size_t(w / 4) * (h / 4) * block > bytes) return false;
++    px.assign(size_t(w) * h, 0);
++    for (int by = 0; by < h / 4; by++)
++        for (int bx = 0; bx < w / 4; bx++, src += block) {
++            const uint8_t* c = format == 0x0C ? src : src + 8;
++            uint16_t c0, c1;
++            uint32_t bits;
++            std::memcpy(&c0, c, 2);
++            std::memcpy(&c1, c + 2, 2);
++            std::memcpy(&bits, c + 4, 4);
++            uint32_t col[4] = {Rgb565(c0), Rgb565(c1), 0, 0};
++            if (c0 > c1 || format != 0x0C) {
++                col[2] = Mix(col[0], col[1], 2, 1);
++                col[3] = Mix(col[0], col[1], 1, 2);
++            } else {
++                col[2] = Mix(col[0], col[1], 1, 1);
++                col[3] = 0;  // DXT1's punch-through transparent
++            }
++            uint8_t alpha[16];
++            for (int i = 0; i < 16; i++) alpha[i] = 255;
++            if (format == 0x0E) {  // DXT3: 4-bit alpha
++                for (int i = 0; i < 16; i++) alpha[i] = uint8_t(((src[i / 2] >> ((i & 1) * 4)) & 15) * 17);
++            } else if (format == 0x0F) {  // DXT5: interpolated alpha
++                const int a0 = src[0], a1 = src[1];
++                uint64_t ab = 0;
++                for (int i = 0; i < 6; i++) ab |= uint64_t(src[2 + i]) << (8 * i);
++                for (int i = 0; i < 16; i++) {
++                    const int k = int((ab >> (3 * i)) & 7);
++                    int a;
++                    if (k == 0) a = a0;
++                    else if (k == 1) a = a1;
++                    else if (a0 > a1) a = ((8 - k) * a0 + (k - 1) * a1) / 7;
++                    else if (k < 6) a = ((6 - k) * a0 + (k - 1) * a1) / 5;
++                    else a = k == 6 ? 0 : 255;
++                    alpha[i] = uint8_t(a);
++                }
++            }
++            for (int i = 0; i < 16; i++) {
++                uint32_t p = col[(bits >> (2 * i)) & 3];
++                if (format != 0x0C) p = (p & 0x00FFFFFFu) | (uint32_t(alpha[i]) << 24);
++                px[size_t(by * 4 + i / 4) * w + bx * 4 + i % 4] = p;
++            }
++        }
++    return true;
++}
++
++// box filter down to size x size, colours weighted by their alpha
++std::vector<uint32_t> Scale(const std::vector<uint32_t>& src, int w, int h, int size) {
++    std::vector<uint32_t> out(size_t(size) * size);
++    for (int y = 0; y < size; y++)
++        for (int x = 0; x < size; x++) {
++            const int x0 = x * w / size, x1 = std::max(x0 + 1, (x + 1) * w / size);
++            const int y0 = y * h / size, y1 = std::max(y0 + 1, (y + 1) * h / size);
++            uint64_t r = 0, g = 0, b = 0, a = 0, n = 0;
++            for (int sy = y0; sy < y1; sy++)
++                for (int sx = x0; sx < x1; sx++, n++) {
++                    const uint32_t p = src[size_t(sy) * w + sx], pa = p >> 24;
++                    a += pa;
++                    r += ((p >> 16) & 255) * pa;
++                    g += ((p >> 8) & 255) * pa;
++                    b += (p & 255) * pa;
++                }
++            out[size_t(y) * size + x] = a ? uint32_t(a / n) << 24 | uint32_t(r / a) << 16 | uint32_t(g / a) << 8 |
++                                                uint32_t(b / a)
++                                          : 0;
++        }
++    return out;
++}
++
++}  // namespace
++
++void* TitleImageIcon(const std::vector<uint8_t>& xbe, int size) {
++    size_t at = 0, bytes = 0;
++    if (size <= 0 || !Section(xbe, "$$XTIMAGE", at, bytes) || bytes < 32 || std::memcmp(xbe.data() + at, "XPR0", 4) != 0)
++        return nullptr;
++    // XPR0: total size, header size; then the texture's header (common, data offset, lock, format, size)
++    const uint32_t header = U32(xbe, at + 8), data = U32(xbe, at + 16), format = U32(xbe, at + 24);
++    const int fmt = int((format >> 8) & 0xFF);
++    const int w = 1 << ((format >> 20) & 15), h = 1 << ((format >> 24) & 15);
++    if ((fmt != 0x0C && fmt != 0x0E && fmt != 0x0F) || w < 4 || h < 4 || w > 1024 || h > 1024) return nullptr;
++    const size_t start = size_t(header) + data;
++    if (start >= bytes) return nullptr;
++    std::vector<uint32_t> px;
++    if (!DecodeDxt(xbe.data() + at + start, bytes - start, fmt, w, h, px)) return nullptr;
++    const std::vector<uint32_t> icon = Scale(px, w, h, size);
++
++    BITMAPV5HEADER bi{};
++    bi.bV5Size = sizeof(bi);
++    bi.bV5Width = size;
++    bi.bV5Height = -size;  // top-down
++    bi.bV5Planes = 1;
++    bi.bV5BitCount = 32;
++    bi.bV5Compression = BI_BITFIELDS;
++    bi.bV5RedMask = 0x00FF0000;
++    bi.bV5GreenMask = 0x0000FF00;
++    bi.bV5BlueMask = 0x000000FF;
++    bi.bV5AlphaMask = 0xFF000000;
++    void* bits = nullptr;
++    HDC dc = GetDC(nullptr);
++    HBITMAP color = CreateDIBSection(dc, reinterpret_cast<BITMAPINFO*>(&bi), DIB_RGB_COLORS, &bits, nullptr, 0);
++    ReleaseDC(nullptr, dc);
++    if (!color) return nullptr;
++    std::memcpy(bits, icon.data(), icon.size() * 4);
++    HBITMAP mask = CreateBitmap(size, size, 1, 1, nullptr);
++    ICONINFO info{TRUE, 0, 0, mask, color};
++    HICON result = CreateIconIndirect(&info);
++    DeleteObject(color);
++    DeleteObject(mask);
++    return result;
++}
++
++}  // namespace app

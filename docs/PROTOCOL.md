@@ -726,7 +726,11 @@ so the router keeps the mapping the hellos opened.
   packet is never answered with more bytes than it had; each endpoint may send
   `relay_rate` packets a second (400, bursts of 800); a datagram over 1472
   bytes is dropped.
-- The route ends 15 s after the match is done or cancelled.
+- The route ends 60 s after the match is done or cancelled: the games report
+  the result at the round that decides the match and play its end (the
+  finisher, a fatality, the winner's pose) through the relay after it, for up
+  to 30 s before their launchers park them. It used to end after 15 s, which
+  cut a fatality off: both games stood still until that park.
 - The server logs each relayed match and the packets that went each way.
 
 ### 2.4.1 Tunnel (0.1.12)
