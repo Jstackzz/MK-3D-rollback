@@ -1,0 +1,69 @@
+diff --git a/runtime/xdk/d3d8.cpp b/runtime/xdk/d3d8.cpp
+--- a/runtime/xdk/d3d8.cpp
++++ b/runtime/xdk/d3d8.cpp
+@@ -882,7 +882,24 @@ HLE_STDCALL(D3DDevice_SetTexture, 2) {
+     return 0;
+ }
+ 
+-// SetPalette(stage, palette): the colours a P8 texture of the stage looks up
++// SetPalette(stage, palette): the colours a P8 texture of the stage looks up. The XDK sends the GPU a palette's
++// address only when one is set: SetPalette(stage, NULL) just drops the device's reference, and the stage's P8
++// textures keep drawing with the palette the GPU had (Deadly Alliance sets its texture objects' palettes, NULL for
++// one without: drawn with none here, its menu text and portraits came out grey on a black box). A copy of that
++// palette's header (its size, its colours' address) stands in for it, the palette itself may go once released.
++namespace {
++uint32_t g_held_palettes[4] = {};
++
++void HoldPalette(uint32_t stage) {
++    uint32_t last = g_state.palettes[stage], &held = g_held_palettes[stage];
++    if (!last || last == held) return;
++    if (!held) held = mem::AllocSystem(16);
++    if (!held) return;
++    std::memcpy(HostPtr(held), HostPtr(last), 12);  // Common (the size code), Data, Lock
++    g_state.palettes[stage] = held;
++}
++}  // namespace
++
+ HLE_STDCALL(D3DDevice_SetPalette, 2) {
+     XDK_REQUIRE("d3d", XDK_KEY(CDevice_Palettes));
+     std::lock_guard<std::recursive_mutex> lock(g_lock);
+@@ -890,8 +907,21 @@ HLE_STDCALL(D3DDevice_SetPalette, 2) {
+     uint32_t old = Dev(kDevPalettes + stage * 4);
+     AddRef(ctx, pal);
+     SetDev(kDevPalettes + stage * 4, pal);
++    if (pal) {
++        g_state.palettes[stage] = pal;
++    } else if (g_state.palettes[stage]) {
++        HoldPalette(stage);  // before the release, which may free the palette
++        LOG_FIRST(4, "d3d: SetPalette(%u, NULL) from %08X: the stage keeps its palette, as the console's GPU does",
++                  stage, R32(ctx.esp));
++    }
+     Release(ctx, old);
+-    g_state.palettes[stage] = pal;
++    // XBE_TEST_PALETTE_NULL (tests): each palette set as if a SetPalette(stage, NULL) followed it, for the renderer:
++    // "hold" draws on with the held copy (what that does now), "drop" with no palette (what it did before 0.1.19)
++    static const char* test_null = std::getenv("XBE_TEST_PALETTE_NULL");
++    if (test_null && pal) {
++        if (std::strcmp(test_null, "drop") == 0) g_state.palettes[stage] = 0;
++        else HoldPalette(stage);
++    }
+     return 0;
+ }
+ 
+diff --git a/runtime/gpu/d3d12.cpp b/runtime/gpu/d3d12.cpp
+--- a/runtime/gpu/d3d12.cpp
++++ b/runtime/gpu/d3d12.cpp
+@@ -2387,6 +2387,13 @@ void D3D12Backend::CaptureTextures(const State& s, const DrawTextures& stages) {
+         bool tg = targets_.count(SizedTargetKey(d.data, Format(d.format).depth, d.width, d.height));
+         fprintf(cap_, " | t%d %08X fmt %X %ux%u%s%s", i, d.data, d.format, d.width, d.height, tg ? " target" : "",
+                 res ? "" : " unbound");
++        constexpr uint32_t kFmtP8 = 0x0B;
++        if (d.format == kFmtP8) {  // the palette it was decoded with (none: grey, an opaque black for index 0)
++            StagePalette p;
++            ReadStagePalette(s, i, d, p);
++            if (p.va) fprintf(cap_, " pal %08X", p.va);
++            else fprintf(cap_, " pal none");
++        }
+         if (res && !tg && stages.info[i].kind == kTex2D && cap_seen_.insert(d.data).second) {
+             cap_tex_.push_back({res, stages.sv[i].Format, d.data, d.width, d.height});
+         }
