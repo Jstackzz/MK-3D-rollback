@@ -31,6 +31,7 @@ class QueueEntry:
     server_rtt: int | None = None  # client's UDP round trip to the server, ms
     death_traps: bool = True  # the arenas' death traps the player wants (ranked never has them)
     relay: bool = False  # hides their address: their matches go through the server's relay
+    relay_always: bool = False  # even when the relay's ping is high (never tried directly: direct_above_ms)
     link: str = ""  # the PC's connection to its router: "ethernet", "wifi", "other" ("" unknown)
 
     @property

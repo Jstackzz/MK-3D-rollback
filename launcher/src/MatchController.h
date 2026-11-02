@@ -62,6 +62,8 @@ public:
     static QString pingText(const QJsonObject& found);
     QString gameStatus() const;
     GameProcess* game() const { return game_; }
+    // every game this launcher runs now (the match's, single player's or practice's, a local test's two)
+    QList<GameProcess*> runningGames() const { return {game_, solo_, localA_, localB_}; }
 
     bool findMatch(const QueueRequest& req, QString* error);
     void cancelSearch();
@@ -71,8 +73,9 @@ public:
     // whenever both choose one, a ranked set until one has won its matches. Its last state ({} when none).
     QJsonObject series() const { return series_; }
     // ready for the series' next match (sent once this launcher is idle again, its game back at its hold point), or
-    // leaving it (which loses a ranked set once a match of it counted). Casual, the choice: "rematch" (the same
-    // fighters, when both choose it) or "select" (both pick again on the select screen); a ranked set ignores it.
+    // leaving it (which loses a ranked set once a match of it counted). Casual, the choice: "rematch" (in kombat both go
+    // back to the select screen, as a ranked set's matches do; other modes keep the fighters) or "select" (both pick
+    // again: what an older launcher could ask for, and the --rematch-choice tests); a ranked set ignores it.
     void seriesReady(bool ready, const QString& choice = QStringLiteral("rematch"));
     bool prepareGame(const QString& gameId, QString* error);
     // the whole game with its own menus, no match. A search can run alongside it (standby): accepting a match freezes
@@ -157,6 +160,7 @@ private:
     void maybeBackToSolo();    // standby: nothing more to play online, single player again
     void maybeStartPractice();  // a search waits with the match's game at its hold point: practice meanwhile
     void maybePracticeAfterSeries();  // a Kasual series or ranked set over: back to practice once the game parked
+    void maybeSearchAfterSeries();    // or the same search again (cfg::searchAgain), which brings its practice
     void maybeCloseIdleGame();  // closeGameWhenIdle, once idle
     void openFeed(const QJsonObject& go);  // a lobby match: what its spectators need, from the game to the server
     // no UDP from here reaches the server: the match goes through its connection (docs/PROTOCOL.md 2.4.1)
@@ -181,6 +185,7 @@ private:
     QPointer<GameProcess> lobbyGame_;  // the game a lobby's Ready wants (prepareGame): a cancelled search leaves it be
     bool practiceForSearch_ = false;   // practice the search opened (maybeStartPractice): a cancelled search closes it
     QString practiceAfterSeries_;      // the game of a series just over, to practise in once idle (empty: none)
+    bool searchAfterSeries_ = false;   // a series just over: request_ again once idle
     GameProcess* localA_ = nullptr;
     GameProcess* localB_ = nullptr;
     Phase phase_ = Phase::Idle;

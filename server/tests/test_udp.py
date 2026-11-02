@@ -398,3 +398,110 @@ async def test_a_player_who_hides_their_address_plays_through_the_relay(server, 
     assert pa["peer"] == pb["peer"] == {"public": "", "lan": ""}
     ga, gb = await relay_to_go(server, a, b, ua, ub, pa, pb)
     assert ga["remote"] == gb["remote"] == f"127.0.0.1:{server.udp_port}"
+
+
+async def hidden_match_at_the_relay(server, connect, udp_peers, names, *, hide_always=False):
+    """A queue match whose first player hides their address: both have the relay's match_peer."""
+    a, b = await connect(names[0]), await connect(names[1])
+    ua, ub = await udp_peers(), await udp_peers()
+    await a.request({**queue_msg(), "relay": True, "hide_always": hide_always})
+    await b.request(queue_msg())
+    fa, fb = await a.expect("match_found"), await b.expect("match_found")
+    await hello_and_accept(server, a, ua, fa)
+    await hello_and_accept(server, b, ub, fb)
+    pa, pb = await a.expect("match_peer"), await b.expect("match_peer")
+    assert pa["relay"] is True and pb["relay"] is True and not pa["back"]
+    return a, b, ua, ub, pa, pb
+
+
+async def report_through_the_relay(server, a, b, ua, ub, pa, pb, rtt):
+    """Both punch and ping through the relay, then report it as `rtt` ms (two players far from the server)."""
+    relay = {"public": f"127.0.0.1:{server.udp_port}", "lan": ""}
+    ra, rb = await asyncio.gather(
+        ua.punch(relay, match=pa["match"], key=pa["key"], side=pa["side"], timeout=5),
+        ub.punch(relay, match=pb["match"], key=pb["key"], side=pb["side"], timeout=5),
+    )
+    assert ra["ok"] and rb["ok"], (ra, rb)
+    a.send({"type": "ping_report", "match": pa["match"], **ra, "rtt_ms": rtt, "via": "relay"})
+    b.send({"type": "ping_report", "match": pb["match"], **rb, "rtt_ms": rtt, "via": "relay"})
+
+
+async def direct_reports(a, b, ua, ub, da, db, rtt=None):
+    """Both punch and ping each other straight and report it (as `rtt` ms when given)."""
+    ra, rb = await asyncio.gather(
+        ua.punch(da["peer"], match=da["match"], key=da["key"], side=da["side"], timeout=5),
+        ub.punch(db["peer"], match=db["match"], key=db["key"], side=db["side"], timeout=5),
+    )
+    assert ra["ok"] and rb["ok"], (ra, rb)
+    a.send({"type": "ping_report", "match": da["match"], **ra, **({"rtt_ms": rtt} if rtt is not None else {})})
+    b.send({"type": "ping_report", "match": db["match"], **rb, **({"rtt_ms": rtt} if rtt is not None else {})})
+
+
+async def test_a_hidden_address_match_too_slow_through_the_relay_goes_direct(server, connect, udp_peers):
+    a, b, ua, ub, pa, pb = await hidden_match_at_the_relay(server, connect, udp_peers, ("Kenshi", "Bo_Rai_Cho"))
+    await report_through_the_relay(server, a, b, ua, ub, pa, pb, 180)
+    da, db = await a.expect("match_peer"), await b.expect("match_peer")
+    assert not da.get("relay") and not db.get("relay")
+    assert da["direct_why"] == db["direct_why"] == "relay_ping" and da["relay_rtt"] == 180
+    assert da["relay_mine"] is True and db["relay_mine"] is False  # the one who hides is told it shows now
+    assert da["peer"]["public"] == f"127.0.0.1:{ub.port}" and db["peer"]["public"] == f"127.0.0.1:{ua.port}"
+    assert da["key"] == pa["key"]
+    assert server.matches[da["match"]].relay is None
+    await direct_reports(a, b, ua, ub, da, db)
+    ga, gb = await a.expect("match_go"), await b.expect("match_go")
+    assert ga["remote"] == f"127.0.0.1:{ub.port}" and gb["remote"] == f"127.0.0.1:{ua.port}"
+    assert ga["rtt_ms"] < 180 and ga["seed"] == gb["seed"]
+
+
+async def test_a_direct_try_no_faster_goes_back_through_the_relay(server, connect, udp_peers):
+    a, b, ua, ub, pa, pb = await hidden_match_at_the_relay(server, connect, udp_peers, ("Kabal", "Kira"))
+    await report_through_the_relay(server, a, b, ua, ub, pa, pb, 120)
+    da, db = await a.expect("match_peer"), await b.expect("match_peer")
+    assert da["direct_why"] == "relay_ping"
+    await direct_reports(a, b, ua, ub, da, db, rtt=110)  # 10 ms faster: not worth the addresses
+    ba, bb = await a.expect("match_peer"), await b.expect("match_peer")
+    assert ba["relay"] is True and bb["relay"] is True and ba["back"] is True
+    assert ba["peer"] == {"public": "", "lan": ""}
+    ga, gb = await relay_to_go(server, a, b, ua, ub, ba, bb)  # and no second direct try
+    assert ga["remote"] == gb["remote"] == f"127.0.0.1:{server.udp_port}"
+
+
+async def test_a_failed_direct_try_goes_back_through_the_relay(server, connect, udp_peers):
+    a, b, ua, ub, pa, pb = await hidden_match_at_the_relay(server, connect, udp_peers, ("Drahmin", "Mokap"))
+    await report_through_the_relay(server, a, b, ua, ub, pa, pb, 200)
+    da, db = await a.expect("match_peer"), await b.expect("match_peer")
+    a.send({"type": "ping_report", "match": da["match"], "ok": False, "rtt_ms": 0})
+    b.send({"type": "ping_report", "match": db["match"], "ok": False, "rtt_ms": 0})
+    ba, bb = await a.expect("match_peer"), await b.expect("match_peer")
+    assert ba["relay"] is True and ba["back"] is True
+    ga, gb = await relay_to_go(server, a, b, ua, ub, ba, bb)
+    assert ga["remote"] == f"127.0.0.1:{server.udp_port}"
+
+
+async def test_hiding_always_stays_on_the_relay_however_slow(server, connect, udp_peers):
+    a, b, ua, ub, pa, pb = await hidden_match_at_the_relay(server, connect, udp_peers, ("Nitara", "Shujinko"),
+                                                           hide_always=True)
+    await report_through_the_relay(server, a, b, ua, ub, pa, pb, 250)
+    ga, gb = await a.expect("match_go"), await b.expect("match_go")
+    assert ga["remote"] == gb["remote"] == f"127.0.0.1:{server.udp_port}" and ga["rtt_ms"] == 250
+    assert not a.take_all("match_peer") and not b.take_all("match_peer")
+
+
+async def test_a_relay_fast_enough_stays_on_the_relay(server, connect, udp_peers):
+    a, b, ua, ub, pa, pb = await hidden_match_at_the_relay(server, connect, udp_peers, ("Jarek", "Kai"))
+    await report_through_the_relay(server, a, b, ua, ub, pa, pb, server.cfg.direct_above_ms)
+    ga, gb = await a.expect("match_go"), await b.expect("match_go")
+    assert ga["remote"] == f"127.0.0.1:{server.udp_port}"
+
+
+async def test_no_direct_try_when_the_server_never_does_one(server, connect, udp_peers):
+    server.cfg.direct_above_ms = 0
+    a, b, ua, ub, pa, pb = await hidden_match_at_the_relay(server, connect, udp_peers, ("Hsu_Hao", "Ashrah"))
+    await report_through_the_relay(server, a, b, ua, ub, pa, pb, 300)
+    ga, gb = await a.expect("match_go"), await b.expect("match_go")
+    assert ga["remote"] == f"127.0.0.1:{server.udp_port}"
+
+
+async def test_the_welcome_says_when_a_hidden_match_tries_directly(server, connect):
+    a = await connect("Dairou")
+    assert a.welcome["direct_above_ms"] == server.cfg.direct_above_ms == 100

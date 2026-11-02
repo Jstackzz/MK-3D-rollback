@@ -48,6 +48,7 @@ struct LaunchOptions {
     bool leaveSeries = false;    // once those are chosen, leave the series at once instead of letting it run out
     bool solo = false;           // --queue: single player first, the search running alongside it (standby)
     QString practice;            // "on" / "off": practice while a search waits, saved (cfg::practiceWhileWaiting)
+    QString searchAgain;         // "on" / "off": search again once a set or series is over, saved (cfg::searchAgain)
     QString deathTraps;          // "on" / "off": the arenas' death traps, saved (cfg::deathTraps)
     bool upnpProbe = false;  // find the router and its public address, open nothing
     QString updatedFrom;     // --updated: the version this launcher just replaced (Updater)
@@ -82,7 +83,7 @@ private:
     void onMatchFound(const QJsonObject& found);
     // the Kasual series card's state: the rematch prompt over the game once its match's end has played
     void onKasualSeries(const QJsonObject& series, const QString& title, const QString& score, const QString& info,
-                        bool canChoose, bool canSelect);
+                        bool canChoose);
     void popUp(QWidget* dialog);  // in front of the game, the launcher's window restored first when minimized
     void focusGame();             // the game's window in front again: the player is back in it
     void frontSoloWhenUp();       // single player's (practice's) new game window in front once it has one

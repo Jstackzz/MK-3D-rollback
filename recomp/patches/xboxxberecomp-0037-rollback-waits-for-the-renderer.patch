@@ -1,0 +1,49 @@
+diff --git a/runtime/xdk/d3d8.h b/runtime/xdk/d3d8.h
+--- a/runtime/xdk/d3d8.h
++++ b/runtime/xdk/d3d8.h
+@@ -12,4 +12,10 @@ std::recursive_mutex& Lock();
+ // and counts the swap, as the title sees them); set by the game layer before the frame runs
+ void SetSkipPresent(bool skip);
+ 
++// Netplay rollback, before a restore: the renderer has run every call recorded so far, so the guest memory its draws
++// read when they run (vertices, textures, surfaces: the render thread's) may change; a restore that rewrote it under a
++// frame still in flight showed that frame drawn from the restored state (Armageddon: a camera inside a fighter, the
++// health bars missing, for one frame)
++void WaitForRenderer();
++
+ }  // namespace d3d
+diff --git a/runtime/xdk/d3d8.cpp b/runtime/xdk/d3d8.cpp
+--- a/runtime/xdk/d3d8.cpp
++++ b/runtime/xdk/d3d8.cpp
+@@ -581,10 +581,17 @@ HLE_STDCALL(D3DDevice_GetDepthStencilSurface2, 0) {
+ namespace {
+ std::atomic<uint32_t> g_presents{0};
+ std::atomic<bool> g_skip_present{false};
++uint32_t g_unseen = 0;                  // frames swapped without a present since the last one
++constexpr uint32_t kFlushUnseen = 8;    // a flush every so many: a present gives the renderer's frame rings back
+ }  // namespace
+ 
+ void d3d::SetSkipPresent(bool skip) { g_skip_present = skip; }
+ 
++void d3d::WaitForRenderer() {
++    std::lock_guard<std::recursive_mutex> lock(g_lock);
++    if (g_backend) g_backend->WaitFence(g_backend->Fence());
++}
++
+ HLE_STDCALL(D3DDevice_Swap, 1) {
+     app::SplashFirstFrame();
+     // handed over from the previous instance: the window opens on the second frame, the first picture with
+@@ -610,8 +617,13 @@ HLE_STDCALL(D3DDevice_Swap, 1) {
+     }
+     Walk(Dev(kDevPush));  // reports asked for at the end of the frame
+     if (!g_skip_present) {
++        g_unseen = 0;
+         if (g_backend) g_backend->Present(SurfaceOf(g_buffers[1]));
+         app::Pace();
++    } else if (++g_unseen % kFlushUnseen == 0 && g_backend) {
++        // frames run unseen back to back (a spectator catching up with a match, thousands of them): their draws
++        // would fill the renderer's upload and descriptor rings, which a present gives back
++        g_backend->Flush();
+     }
+     // like the XDK, the surfaces stay put and their memory rotates: titles keep back buffer pointers and copy its data
+     uint32_t last = g_buffers[g_buffer_count - 1], data = R32(last + 4), lk = R32(last + 8);

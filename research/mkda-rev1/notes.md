@@ -438,6 +438,49 @@ pressing every frame, the rest from the practice panel):
 | crouching A (a low) | 19 | 2 | 50 | +34 | | -18 (mashed) |
 | A, 2 hits | 12, again 25 | 6 (7) 5 | 51 (mashed) | +5 (mashed) | -22 | |
 
+## The online select screen (2026-11-02)
+
+Players who pick on the select screen (the launcher's `p1=- p2=-`), brought in line with Armageddon's:
+- Its own time: every input handler of the select screen, and its setup sub_0010CB00, call sub_0010D250 (fastcall,
+  no arguments), which ends and starts again task 0x203E (sub_0010D710): it sleeps 2700 frames, then with 0x2EA83C
+  set (the screen is up) resets the picks and switches to the main menu (sub_000CB140(4, sub_000E24E0) from 0x10D82A,
+  about 46 s without a press). 0.1.17 kept it off by moving the waiting side's cursor every 8 s, and picked the
+  cursor's character for a player after 75 s. Online and watched the link now skips sub_0010D250
+  (autopilot HoldsIdle): there is no count, and nobody's pick is made for them.
+- No pick lag: the pick sub_001112A0 takes the grid's character under the cursor as it is confirmed. A direction and
+  A two frames apart can pick the slot the cursor was on (the direction's handler had not run yet): the game's own
+  order, and the pick word carries what was picked.
+- Leaving while choosing: B and BACK (the select loop's check sub_000CE000, logical actions 5 and 8 of either
+  player), and RT and LS left the screen as well in a probe (port 0, offline). The pads keep all four from the game
+  while this PC's player picks online; BLACK and START stay. A B that got through anyway (the monitor's, past the
+  pads) took the game to the main menu, the autopilot's A presses into ARCADE, and the meeting point found the
+  setups different.
+- The hold point and the attract sequence (2026-11-02): a launcher's game waiting at the main menu (task 0xE24E0) with
+  nobody pressing anything goes over to the attract state task 0x238E0 (title, movies, demo fights) after ~2760 frames
+  (46 s; release, idle probe scratchpad r19/idle_probe.py) and stays there; the next start's menu presses (UP/DOWN/A)
+  then found no menu ("the main menu did not take item 1", a spectator's game that waited for its match). The
+  autopilot now presses START while the attract task runs, at the hold point and before a start's menu choice
+  (BackFromAttract), as at boot.
+- The arena choice: BLACK while choosing (sub_0010EC90), with both players in (P2 joins with its first press on
+  port 1; X moves nothing, so the autopilot has a waiting P2 join with X at once) and nobody's choice open: +0x800 in
+  the player's word *(0x273DD4 + player * 0x38) (the word events.h kCostume points to), index 0x2EA658 (-1 to 0),
+  and the panel slides in (task 0x204C: START does nothing until it is in). LEFT / RIGHT move the index; START
+  (sub_00111F60) stores table 0x274398[index * 3] in 0x42C754 (sub_001121F0) and clears +0x800. There is no backing
+  out: B and a second BLACK leave it open. Nobody picks while a choice is open (sub_00110F90 returns). The setup sets
+  0x42C754 to -1; the fight's arena pick sub_0006F570 takes 0 to 24 from it and sets -1.
+- sub_0010D2B0 resets the screen's state: at the setup (sub_0010CB00) and at the select task's end, before the
+  switch to the ladder, Konquest or the fight (calls 0x10CAAE, 0x10CAC4, 0x10CAD8). There the link puts the agreed
+  characters in 0x271F00 / 0x271F04 and the arena the two choices give (pick words [character, costume, arena or
+  0xFFFFFFFF]: both chose, the seed's bit 7 takes P2's, else P1's; one chose, that one) into the fight's arena pick
+  (SetNextArena); neither, the match's own from the seed (PickArena).
+- Tests (release, two games and a spectator on a local relay, one round): 60 s without a press (3000 frames) left
+  all three screens as they were; the other screen and the spectator's followed the moving cursor (one step behind
+  9 frames after a move, 19 and 37 of 67 samples on the same slot; settled alike 1.5 s after the last move); one
+  choice (3, also on a rematch), two (1 and 4: 1 with bit 7 clear, 4 with it set), none (the seed's 14), and RT,
+  LS, B, BACK, then BLACK, B, BACK, RIGHT, START through the player's own pad (the screen stayed; arena 1): all games
+  loaded that arena. 0 frames differ between the players and against the spectator in every match (1433 to 1861
+  frames).
+
 ## Tools
 
 `tools/ghidra-import.ps1` takes `-Research research\mkda-rev1` (new optional parameter; the default stays

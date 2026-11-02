@@ -23,6 +23,9 @@ GAMES: dict[str, tuple[str, ...]] = {
     "mkd": ("kombat", "chess", "puzzle"),
     "mka": ("kombat", "motor"),
 }
+# the modes whose players can pick on the game's own select screen (the launcher's "-"): a series' next match goes
+# back there in them
+SELECT_SCREEN_MODES: frozenset[str] = frozenset({"kombat"})
 REGIONS: tuple[str, ...] = ("na", "sa", "eu", "me", "af", "as", "oc")
 
 NAME_RE = re.compile(r"^[A-Za-z0-9_-]{3,16}$")

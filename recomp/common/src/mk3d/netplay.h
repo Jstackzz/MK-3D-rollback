@@ -83,6 +83,8 @@ bool WatchPick(int side, uint32_t* words, int& n);
 
 struct Stats {
     uint32_t frames = 0, rollbacks = 0, replayed = 0, max_depth = 0, stalls = 0;
+    uint32_t late = 0;     // frames that ran over kLateFrame, a rollback before them included (not waits, not loads)
+    uint32_t late_rollback = 0;  // of those, the ones that began with a rollback or came right after one
     double replay_ms = 0;  // time spent running frames again, total
     int advantage = 0;     // how many frames this game runs ahead of the other one
 };

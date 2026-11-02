@@ -4,9 +4,10 @@
 // Packets (little endian): u32 magic "MKDR", u8 type, u8 side, u16 barrier sequence, then
 //   1 HELLO   [u8 n, n x u32]             sent while running locally, so each side knows the other is there; with the
 //             words of this game's player's pick on the select screen once there is one (SetLocalPick)
-//   2 READY   u32 seed, u8 n, n x u32     "my match is about to be set up": the seed this game proposes and the game's
-//             own words (its mode, picks, frame counters, a side mode's setup: netgame.h ReadyWords); the barrier ends
-//             when both have one
+//   2 READY   u32 seed, u8 n, n x u32, u8 delay
+//             "my match is about to be set up": the seed this game proposes and the game's own words (its mode, picks,
+//             frame counters, a side mode's setup: netgame.h ReadyWords), then the input delay it came with (both play
+//             the larger; a game before 0.1.18 sends none); the barrier ends when both have one
 //   3 INPUT   u32 ack, u32 now, i32 advantage, u32 first, u8 n, n x (u32 buttons, u32 sticks)
 //             the sender's inputs for frames first .. first+n-1, the highest frame of ours it holds without gaps,
 //             the frame it runs and how many frames it thinks it runs ahead of us
@@ -54,6 +55,7 @@
 #include "app/app.h"
 #include "core/log.h"
 #include "cpu/x86_ops.h"
+#include "gpu/backend.h"
 #include "kernel/kernel.h"
 #include "kernel/memory.h"
 #include "mk3d/game.h"
@@ -157,6 +159,12 @@ uint32_t g_quiet = 0;              // frames in a row without a file read while 
 uint64_t g_reads_seen = 0;
 uint32_t g_switches_seen = 0;
 bool g_frame_waited = false;       // the frame running now waited for the real input (for the log)
+// A frame shown late: one that took this long from the end of its waits for the other game to the next frame's top,
+// the rollback it began with included, where 60 frames a second give each 16.7 ms
+constexpr auto kLateFrame = std::chrono::milliseconds(25);
+uint32_t g_timed = 0;              // the last frame timed so, at its first run
+uint32_t g_rolled = 0;             // the frame whose top last began a rollback
+Clock::time_point g_timed_t0;      // when that run began, after its waits
 
 std::atomic<uint32_t> g_rand_calls{0};
 std::atomic<uint32_t> g_rand_last{0};
@@ -320,9 +328,32 @@ void Settle() {
     g_settled = true;
 }
 
+// rollback: the top of each frame as its last run had it, until every input before it is real (g_confirmed)
+std::map<uint32_t, Settled> g_frame_settled;
+
 void Unsettle() {
+    g_frame_settled.clear();
     std::lock_guard<std::mutex> lock(g_settled_lock);
     g_settled = false;
+}
+
+// Rollback: this frame's top as this run has it, kept; the newest kept one whose inputs before it are all real is
+// what both games agree on (a misprediction runs the frame again and keeps that run's). Settled only at a present
+// frame resting on real inputs alone, which at a high ping it seldom is, the result went out late: at 120 ms one
+// game's came 11 to 13 s after the other's, and the rematch waited for it.
+void SettleConfirmed(uint32_t frame) {
+    Settled s;
+    game::Settle(s);
+    g_frame_settled[frame] = s;
+    auto it = g_frame_settled.upper_bound(g_confirmed);
+    if (it == g_frame_settled.begin()) return;
+    --it;
+    {
+        std::lock_guard<std::mutex> lock(g_settled_lock);
+        g_settled_state = it->second;
+        g_settled = true;
+    }
+    g_frame_settled.erase(g_frame_settled.begin(), it);
 }
 
 bool InSync();
@@ -572,14 +603,30 @@ void SendHello() {
 }
 
 std::vector<uint32_t> g_my_words;  // this game's READY words at the barrier now
+int g_their_delay = -1;            // the input delay the other game came with (READY's last byte; -1 an older game's)
 
+// after the words, the input delay this game came with (its launcher's: the player's, or more for the ping, cfg
+// autoDelay): both play the larger (AgreeDelay); a game before 0.1.18 reads past it
 Writer ReadyPacket(uint8_t type) {
     Writer w = Header(type);
     w.U32(g_my_seed);
     uint8_t n = uint8_t(std::min<size_t>(g_my_words.size(), kMaxReadyWords));
     w.U8(n);
     for (uint8_t i = 0; i < n; i++) w.U32(g_my_words[i]);
+    w.U8(uint8_t(g_cfg.delay));
     return w;
+}
+
+// both games play the larger of their two delays, so the one with the worse ping sets it for both. A READY without one
+// is an older game's (a player whose launcher updated but whose game did not: 0.1.17's arena desyncs were all one such
+// player), or the other game's READY was lost and its inputs came instead.
+void AgreeDelay() {
+    if (g_their_delay < 0)
+        LOGW("netplay: the other game sent no delay with its READY: a game older than 0.1.18, or its READY was lost");
+    if (g_their_delay <= g_cfg.delay) return;
+    LOGR("netplay: %d frames of delay, as the other game came with (ours %d)", std::min(8, g_their_delay),
+         g_cfg.delay);
+    g_cfg.delay = std::min(8, g_their_delay);
 }
 
 void SendReady() { Send(ReadyPacket(kReady)); }
@@ -699,6 +746,8 @@ void Receive() {
                 uint8_t count = b[12];
                 g_their_words.clear();
                 for (int i = 0; i < count && 13 + i * 4 + 4 <= n; i++) g_their_words.push_back(u32(13 + i * 4));
+                const int at = 13 + count * 4;
+                g_their_delay = at < n ? b[at] : -1;
             }
             // a peer still at the barrier we already left lost our READY: tell it again
             if (seq + 1 == g_seq && InSync()) SendInputs();
@@ -992,6 +1041,7 @@ void StartSync(X86Context& ctx) {
     for (uint32_t f = 0; f < g_intro; f++) g_theirs[f] = Input{};
     g_sync_t0 = g_second_t0 = Clock::now();
     g_second_stalls = g_second_rollbacks = 0;
+    g_timed = g_rolled = 0;
     g_reads_seen = kernel::RecordedFileReads();
     g_switches_seen = game::StateSwitches();
     {
@@ -1078,9 +1128,10 @@ void MeetBeforeSetup(X86Context& ctx) {
     g_my_words.clear();
     game::ReadyWords(g_my_words);
     FeedSend(ReadyPacket(kFeedMeet));
+    g_peer_ready = false;
+    g_their_delay = -1;
     g_phase = Phase::Barrier;
     SetStatus(Status::Barrier);
-    g_peer_ready = false;
     LOGI("netplay: match %u about to be set up (%s), waiting for the other game", g_seq + 1, game::Describe().c_str());
     auto t0 = Clock::now(), last = Clock::time_point{};
     WaitScope waiting;
@@ -1099,6 +1150,7 @@ void MeetBeforeSetup(X86Context& ctx) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     game::Agree(ctx, g_cfg.side, g_my_words, g_their_words, g_cfg.log);
+    AgreeDelay();
     // the engine's random generator drew differently in the two games' menus: both seed it again with the left
     // player's seed
     uint32_t seed = g_cfg.side == 0 ? g_my_seed : g_their_seed;
@@ -1267,6 +1319,8 @@ bool WaitForRealInput(uint32_t next) {
     return true;
 }
 
+void CaptureForTests(uint32_t frame);
+
 // the top of a frame in a match with rollback
 void RollbackFrameStart(X86Context& ctx) {
     rb::CloseFrame();
@@ -1280,6 +1334,12 @@ void RollbackFrameStart(X86Context& ctx) {
     }
     if (!g_replaying) {
         NoteTiming(next);
+        const bool first_run = next > g_timed;  // not the top again after the rollback it began with
+        if (first_run && g_timed && !g_loading && Clock::now() - g_timed_t0 > kLateFrame) {
+            std::lock_guard<std::mutex> lock(g_stats_lock);
+            g_stats.late++;
+            if (g_rolled && g_rolled + 2 >= g_timed) g_stats.late_rollback++;  // the frames still behind its drawing
+        }
         // the match in sync is over when the game says so at a frame both agree on (the next fight of a match, a
         // rematch, stays in sync: both games set it up in the same frame)
         if (g_confirmed + 1 >= next && game::MatchOver()) {
@@ -1291,6 +1351,11 @@ void RollbackFrameStart(X86Context& ctx) {
         if (!Throttle(next)) return;
         g_frame_waited = g_loading;
         if (g_frame_waited && !WaitForRealInput(next)) return;
+        if (first_run) {
+            g_timed = next;
+            g_timed_t0 = Clock::now();
+            CaptureForTests(next);
+        }
         uint32_t bad = FirstMispredicted(next);
         if (bad < next) {
             if (bad < rb::OldestFrame() || !rb::Restore(bad, ctx)) {
@@ -1308,6 +1373,7 @@ void RollbackFrameStart(X86Context& ctx) {
             g_target = next;
             g_replaying = true;
             g_replay_t0 = Clock::now();
+            g_rolled = next;
             next = bad;
         }
     }
@@ -1331,6 +1397,27 @@ void RollbackFrameStart(X86Context& ctx) {
 uint32_t EnvFrame(const char* name) {
     const char* v = Env(name);
     return v ? uint32_t(std::atoi(v)) : 0xFFFFFFFFu;
+}
+
+// <prefix>_NET_CAPTURE_AT=<frame>,<frame>,... (tests): what is drawn after each of those frames is saved as F3 saves it
+// (XBE_CAPTURE_DIR): the next frame, then the pictures of the 20 after it, so the frames shown after rollbacks can be
+// looked at. Called at a frame's first run, before any rollback it begins with.
+void CaptureForTests(uint32_t frame) {
+    static const std::vector<uint32_t> at = [] {
+        std::vector<uint32_t> v;
+        for (const char* p = Env("NET_CAPTURE_AT"); p && *p;) {
+            char* end = nullptr;
+            v.push_back(uint32_t(std::strtoul(p, &end, 10)));
+            if (end == p || *end != ',') break;
+            p = end + 1;
+        }
+        return v;
+    }();
+    if (std::find(at.begin(), at.end(), frame) == at.end()) return;
+    d3d::WaitForRenderer();  // the next present is this frame's, so the capture is of the frame after it
+    gpu::g_capture = true;
+    LOGR("netplay: capture asked at frame %u", frame);
+    if (g_cfg.log) std::fprintf(g_cfg.log, "# capture asked at frame %u\n", frame);
 }
 
 // diagnostics at the top of frame g_frame (every run of it: the last one written is the final run)
@@ -1423,7 +1510,7 @@ void RollbackPads() {
     AdvanceConfirmed(g_frame);
     bool agreed = g_confirmed >= g_frame;  // the top of this frame rests on real inputs only
     Checks(g_frame, agreed);
-    if (agreed) Settle();
+    SettleConfirmed(g_frame);
     Diagnostics();
     LogFrame(mine, theirs, !g_theirs.count(g_frame));
     if (!g_replaying) {
@@ -1433,11 +1520,11 @@ void RollbackPads() {
         if (g_frame % 600 == 0 && g_frame) {
             char line[256];
             std::snprintf(line, sizeof line,
-                          "frame %u: %u rollbacks, %u frames run again (deepest %u, %.2f ms a rollback), %u waits, "
-                          "running %d frames ahead, agreed up to %u",
+                          "frame %u: %u rollbacks, %u frames run again (deepest %u, %.2f ms a rollback), %u frames "
+                          "late (%u after a rollback), %u waits, running %d frames ahead, agreed up to %u",
                           g_frame, g_stats.rollbacks, g_stats.replayed, g_stats.max_depth,
-                          g_stats.rollbacks ? g_stats.replay_ms / g_stats.rollbacks : 0.0, g_stats.stalls,
-                          g_stats.advantage, g_confirmed);
+                          g_stats.rollbacks ? g_stats.replay_ms / g_stats.rollbacks : 0.0, g_stats.late,
+                          g_stats.late_rollback, g_stats.stalls, g_stats.advantage, g_confirmed);
             LOGR("netplay: %s", line);
             if (g_cfg.log) std::fprintf(g_cfg.log, "# %s\n", line);
         }
@@ -1557,18 +1644,23 @@ bool WaitForFeed(uint32_t f) {
     return true;
 }
 
-// far behind the players (a spectator who came late, or whose game set the match up slowly): three frames of four
-// run unseen, as frames run again do, until it is close to them again
+// far behind the players (a spectator who came late, or whose game set the match up slowly): every frame runs unseen
+// and unheard, as frames run again do (no present, no pacing: as fast as this PC runs them), until it is close to
+// them again, so the match comes on where the players are instead of playing fast to there (the screen holds its
+// last picture meanwhile)
 bool FastForward(uint32_t next) {
+    static Clock::time_point since;
     const uint32_t have = WatchHave(), behind = have > next ? have - next : 0;
     if (!g_fast && behind > kFastFrom) {
         g_fast = true;
-        LOGI("netplay: %u frames behind the players: catching up", behind);
+        since = Clock::now();
+        LOGR("netplay: %u frames behind the players: catching up unseen", behind);
     } else if (g_fast && behind < kFastUntil) {
         g_fast = false;
-        LOGI("netplay: caught up with the players (%u frames behind)", behind);
+        LOGR("netplay: caught up with the players in %.1f s (%u frames behind)",
+             std::chrono::duration<double>(Clock::now() - since).count(), behind);
     }
-    return g_fast && next % 4 != 0;
+    return g_fast;
 }
 
 // the top of a frame a spectator runs

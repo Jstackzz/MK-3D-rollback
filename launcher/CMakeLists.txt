@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(mk3d_launcher VERSION 0.1.17 LANGUAGES CXX)
+project(mk3d_launcher VERSION 0.1.18 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -32,6 +32,7 @@ qt_add_executable(MK3DLauncher WIN32
     src/GameProcess.cpp src/GameProcess.h
     src/MatchController.cpp src/MatchController.h
     src/FeedLink.cpp src/FeedLink.h
+    src/ReportSender.cpp src/ReportSender.h
     src/GamepadNav.cpp src/GamepadNav.h
     src/Widgets.cpp src/Widgets.h
     src/Dialogs.cpp src/Dialogs.h

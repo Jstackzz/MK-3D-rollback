@@ -1,0 +1,239 @@
+diff --git a/runtime/app/app.h b/runtime/app/app.h
+--- a/runtime/app/app.h
++++ b/runtime/app/app.h
+@@ -115,6 +115,11 @@ struct GameInfo {
+ };
+ extern const GameInfo kGame;
+ 
++// A failure the game cannot go on from (nothing to draw with): the player is told why in a message box, the log gets
++// a crash line ("crash: fatal at <where> on <thread>", which a front end reports as it does a crash's) and the
++// process ends with exit code 3
++[[noreturn]] void Fatal(const std::wstring& message, const std::string& where);
++
+ // sleeps out the rest of the frame for the fps cap
+ void Pace();
+ // moves the frame cadence: Pace's next deadlines come ns later (netplay time sync slows down this way; a sleep
+diff --git a/runtime/app/main.cpp b/runtime/app/main.cpp
+--- a/runtime/app/main.cpp
++++ b/runtime/app/main.cpp
+@@ -36,6 +36,7 @@ namespace {
+ HWND g_hwnd = nullptr;
+ constexpr UINT kApplyDisplay = WM_APP + 1, kOpenWindow = WM_APP + 2;
+ constexpr UINT_PTR kApplyTimer = 0x4D4B;  // ApplySoon's
++constexpr UINT_PTR kHangTimer = 0x4D4C;   // XBE_TEST_HANG_WINDOW's
+ bool g_mode_changed = false;
+ bool g_apply_posted = false;  // a display apply is waiting in the queue or running
+ std::atomic<bool> g_apply_on_activate{false};  // ApplyDisplayWhenActive: the next activation applies the display
+@@ -143,8 +144,7 @@ LONG WINAPI WriteCrashDump(EXCEPTION_POINTERS* e) {
+     return EXCEPTION_CONTINUE_SEARCH;
+ }
+ 
+-void DumpThreads() {
+-    gpu::g_capture = true;
++void LogGuestThreads() {
+     for (auto& t : kernel::Threads())
+         if (t->ctx) {
+             LOGI("thread %X", t->id);
+@@ -152,6 +152,40 @@ void DumpThreads() {
+         }
+ }
+ 
++void DumpThreads() {
++    gpu::g_capture = true;
++    LogGuestThreads();
++}
++
++// A window whose thread takes no messages for 5 s turns white ("Not Responding"), which a player takes for a crash
++// and ends from outside, leaving nothing in the log. Once a run: a line ("hang: ...", which a front end reports when
++// the game is then ended) and the guest threads' stacks; a line again if it answers after all. No dump from in here:
++// a process dumping itself stops its own threads, and the game stood still after one.
++void WatchWindow() {
++    std::thread([] {
++        constexpr DWORD kNoAnswerMs = 5000;
++        bool logged = false;
++        while (IsWindow(g_hwnd)) {
++            Sleep(1000);
++            const auto t0 = std::chrono::steady_clock::now();
++            DWORD_PTR result = 0;
++            if (SendMessageTimeoutW(g_hwnd, WM_NULL, 0, 0, SMTO_NORMAL, kNoAnswerMs, &result)) continue;
++            if (GetLastError() != ERROR_TIMEOUT && GetLastError() != 0) return;  // the window is gone
++            LOGE("hang: the game window has not answered for %lu s (Windows shows it as not responding)",
++                 kNoAnswerMs / 1000);
++            if (!logged) {
++                logged = true;
++                LogGuestThreads();
++            }
++            logx::Flush();
++            SendMessageW(g_hwnd, WM_NULL, 0, 0);  // until it answers
++            LOGW("window: answering again after %.0f s",
++                 std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
++            logx::Flush();
++        }
++    }).detach();
++}
++
+ // window thread only
+ void ApplyNow() {
+     const Settings& s = Get();
+@@ -211,6 +245,18 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+     }
+     if (intptr_t result = 0; kGame.message && kGame.message(hwnd, msg, wp, lp, &result)) return result;
+     switch (msg) {
++        case WM_SETCURSOR:
++            // no mouse pointer over the game (the games take no mouse input); an overlay that wants the mouse shows it
++            if (LOWORD(lp) == HTCLIENT) {
++                bool overlay;
++                {
++                    std::lock_guard lock(UiLock());
++                    overlay = ImGui::GetCurrentContext() && ImGui::GetIO().WantCaptureMouse;
++                }
++                SetCursor(overlay ? LoadCursorW(nullptr, MAKEINTRESOURCEW(32512)) : nullptr);  // IDC_ARROW
++                return TRUE;
++            }
++            break;
+         case WM_KEYDOWN:
+             if (wp == VK_F3) DumpThreads();
+             return 0;
+@@ -243,6 +289,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+             if (wp == SIZE_RESTORED && GetForegroundWindow() == hwnd) ApplySoon(hwnd);
+             break;
+         case WM_TIMER:
++            if (wp == kHangTimer) {  // tests: the window thread stands still once, as a hung one does
++                KillTimer(hwnd, kHangTimer);
++                Sleep(7000);
++                return 0;
++            }
+             if (wp != kApplyTimer) break;
+             KillTimer(hwnd, kApplyTimer);
+             g_apply_posted = false;
+@@ -288,6 +339,14 @@ int Instance() {
+ 
+ void* Window() { return g_hwnd; }
+ 
++void Fatal(const std::wstring& message, const std::string& where) {
++    LOGE("crash: fatal at %s on %s", where.c_str(), ThreadKind());
++    logx::Flush();
++    if (g_mode_changed) ChangeDisplaySettingsW(nullptr, 0);
++    MessageBoxW(nullptr, message.c_str(), kGame.title, MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND);
++    kernel::Shutdown(3);
++}
++
+ std::recursive_mutex& UiLock() {
+     static std::recursive_mutex m;
+     return m;
+@@ -410,7 +469,9 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
+     ImGui::CreateContext();
+     ImGuiIO& io = ImGui::GetIO();
+     io.IniFilename = nullptr;
+-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
++    // the pointer is the window's own (WM_SETCURSOR): none over the game
++    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad |
++                      ImGuiConfigFlags_NoMouseCursorChange;
+     ImGui_ImplWin32_Init(app::g_hwnd);
+ 
+     input::Init();
+@@ -424,6 +485,10 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
+         return 1;
+     }
+ 
++    app::WatchWindow();
++    // XBE_TEST_HANG_WINDOW=<seconds> (tests): that long after the start the window thread stands still for 7 s once
++    if (wchar_t v[16] = {}; GetEnvironmentVariableW(L"XBE_TEST_HANG_WINDOW", v, DWORD(std::size(v))))
++        SetTimer(app::g_hwnd, app::kHangTimer, UINT(std::max(1, _wtoi(v)) * 1000), nullptr);
+     MSG msg;
+     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
+         TranslateMessage(&msg);
+diff --git a/runtime/gpu/d3d12.cpp b/runtime/gpu/d3d12.cpp
+--- a/runtime/gpu/d3d12.cpp
++++ b/runtime/gpu/d3d12.cpp
+@@ -545,7 +545,7 @@ private:
+     ID3D12PipelineState* EnsureBlitPipeline(DXGI_FORMAT rtv, bool over = false);
+     D3D12_GRAPHICS_PIPELINE_STATE_DESC FullScreenPipelineDesc(ID3DBlob* vs, ID3DBlob* ps, DXGI_FORMAT rtv) const;
+     // Init, in order, each callee right after its caller
+-    bool CreateDevice();
++    bool CreateDevice(std::wstring& gpu);  // false: gpu names the PC's graphics card, empty if none was found
+     bool CreateSwapChain(HWND hwnd);
+     void CreateHeaps();
+     uint32_t CreateHeap(D3D12_DESCRIPTOR_HEAP_TYPE t, uint32_t n, bool visible, ComPtr<ID3D12DescriptorHeap>& out);
+@@ -760,8 +760,21 @@ bool D3D12Backend::Init(uint32_t width, uint32_t height) {
+     guest_w_ = width;
+     guest_h_ = height;
+     HWND hwnd = static_cast<HWND>(app::Window());
+-    if (!CreateDevice()) return false;
+-    if (!CreateSwapChain(hwnd)) return false;
++    // nothing to draw with: the game cannot go on (going on, it crashed at its first draw)
++    if (std::wstring gpu; !CreateDevice(gpu)) {
++        std::string name;
++        for (wchar_t c : gpu) name += c >= 0x20 && c < 0x7F ? char(c) : '?';
++        app::Fatal(std::wstring(app::kGame.title) + L" cannot start: your graphics card" +
++                       (gpu.empty() ? L"" : L" (" + gpu + L")") +
++                       L" or its driver does not offer Direct3D 12, which the game needs (an NVIDIA GeForce GTX 600, "
++                       L"AMD Radeon HD 7000, Intel HD Graphics 4400 or newer).\n\nInstall the newest driver for your "
++                       L"graphics card from NVIDIA, AMD or Intel, restart the PC and try again.",
++                   "no Direct3D 12 device (" + (name.empty() ? std::string("no graphics card found") : name) + ")");
++    }
++    if (!CreateSwapChain(hwnd))
++        app::Fatal(app::kGame.title + std::wstring(L" cannot start: Windows did not let it draw to its window. "
++                                                         L"Update your graphics driver and try again."),
++                   "no swap chain");
+     CreateHeaps();
+     CreateBackBufferViews();
+     if (!CreateRootSignature()) return false;
+@@ -775,7 +788,7 @@ bool D3D12Backend::Init(uint32_t width, uint32_t height) {
+     return true;
+ }
+ 
+-bool D3D12Backend::CreateDevice() {
++bool D3D12Backend::CreateDevice(std::wstring& gpu) {
+     if (GetEnvironmentVariableW(L"XBE_D3D12_DEBUG", nullptr, 0)) {
+         ComPtr<ID3D12Debug> dbg;
+         if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&dbg)))) dbg->EnableDebugLayer();
+@@ -803,9 +816,30 @@ bool D3D12Backend::CreateDevice() {
+             }
+         }
+     }
+-    if (FAILED(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&dev_))) &&
+-        FAILED(D3D12CreateDevice((adapter = nullptr).Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&dev_)))) {
+-        LOGE("d3d12: no device");
++    // XBE_TEST_NO_DEVICE=1 (tests): as on a PC whose graphics cards offer no Direct3D 12
++    const bool none = GetEnvironmentVariableW(L"XBE_TEST_NO_DEVICE", nullptr, 0) != 0;
++    HRESULT hr = none ? E_FAIL : D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&dev_));
++    if (FAILED(hr) && !none)
++        hr = D3D12CreateDevice((adapter = nullptr).Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&dev_));
++    // neither: any other graphics card of this PC (a laptop's other GPU, when one's driver fails)
++    ComPtr<IDXGIAdapter1> a;
++    for (UINT i = 0; FAILED(hr) && factory_->EnumAdapters1(i, &a) != DXGI_ERROR_NOT_FOUND; i++) {
++        DXGI_ADAPTER_DESC1 d{};
++        a->GetDesc1(&d);
++        const HRESULT tried = none || (d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)
++                                  ? E_FAIL
++                                  : D3D12CreateDevice(a.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&dev_));
++        LOGE("d3d12: GPU %u: %ls (vendor %04X, device %04X)%s: %s", i + 1, d.Description, d.VendorId, d.DeviceId,
++             d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE ? ", software" : "",
++             SUCCEEDED(tried) ? "Direct3D 12" : "no Direct3D 12");
++        if (!(d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) && gpu.empty()) gpu = d.Description;
++        if (SUCCEEDED(tried)) {
++            hr = tried;
++            adapter = a;
++        }
++    }
++    if (FAILED(hr)) {
++        LOGE("d3d12: no device on any graphics card (%08lX)", hr);
+         return false;
+     }
+     DXGI_ADAPTER_DESC1 ad{};
+diff --git a/runtime/xdk/d3d8.cpp b/runtime/xdk/d3d8.cpp
+--- a/runtime/xdk/d3d8.cpp
++++ b/runtime/xdk/d3d8.cpp
+@@ -268,7 +268,10 @@ void SetFrameBuffers(const char* caller, uint32_t pp) {
+     }
+     if (!g_backend) {
+         g_backend = gpu::CreateBackend();
+-        if (!g_backend->Init(w, h)) LOGE("d3d: renderer init failed");
++        if (!g_backend->Init(w, h))
++            app::Fatal(std::wstring(app::kGame.title) +
++                           L" cannot start: its renderer did not start. Update your graphics driver and try again.",
++                       "renderer init failed");
+         if (kRenderThread) g_backend = gpu::CreateThreadedBackend(std::move(g_backend));
+     }
+     g_state.viewport = {0, 0, w, h, 0.0f, 1.0f};

@@ -96,15 +96,10 @@ QueuePage::QueuePage(bool ranked, ServerClient* server, MatchController* control
     rematch_->setProperty("compact", true);
     rematch_->setMinimumHeight(36);
     rematch_->setVisible(!ranked);
-    rematch_->setToolTip(tr("Fight again with the same fighters (when you both choose it)"));
-    select_ = new QPushButton(tr("SELECT"));
-    select_->setMinimumHeight(36);
-    select_->setVisible(!ranked);
-    select_->setToolTip(tr("Both go back to character select to pick again"));
+    rematch_->setToolTip(tr("Fight again: you both go back to character select and pick (when you both choose it)"));
     leave_ = new QPushButton(ranked ? tr("LEAVE SET") : tr("LEAVE"));
     leave_->setMinimumHeight(36);
     seriesButtons->addWidget(rematch_, 1);
-    seriesButtons->addWidget(select_, 1);
     seriesButtons->addWidget(leave_, 1);
     ser->addLayout(seriesButtons);
     seriesCard_->setVisible(false);
@@ -140,6 +135,11 @@ QueuePage::QueuePage(bool ranked, ServerClient* server, MatchController* control
                              "(every fighter is unlocked there) and train. A match found comes up over it; accept it "
                              "and practice closes while the match's game opens."));
     mm->addWidget(practice_);
+    searchAgain_ = new QCheckBox(tr("Search again when a set or series ends"));
+    searchAgain_->setChecked(cfg::searchAgain());
+    searchAgain_->setToolTip(tr("Once a Ranked set or a Kasual series is over, the same search starts again by "
+                                "itself (not when you left it yourself)."));
+    mm->addWidget(searchAgain_);
     // ranked: never (the server holds to it too)
     deathTraps_ = new QCheckBox(ranked ? tr("Death traps: always off in Ranked") : tr("Death traps"));
     deathTraps_->setChecked(!ranked && cfg::deathTraps());
@@ -196,6 +196,7 @@ QueuePage::QueuePage(bool ranked, ServerClient* server, MatchController* control
     connect(strict_, &QCheckBox::toggled, this, [](bool on) { cfg::set(QStringLiteral("online/strict"), on); });
     connect(practice_, &QCheckBox::toggled, this,
             [](bool on) { cfg::set(QStringLiteral("online/practice_while_waiting"), on); });
+    connect(searchAgain_, &QCheckBox::toggled, this, [](bool on) { cfg::set(QStringLiteral("online/search_again"), on); });
     connect(deathTraps_, &QCheckBox::toggled, this, [this](bool on) {
         if (!ranked_) cfg::set(QStringLiteral("online/death_traps"), on);
         updatePlayers();
@@ -213,7 +214,6 @@ QueuePage::QueuePage(bool ranked, ServerClient* server, MatchController* control
         }
     });
     connect(rematch_, &QPushButton::clicked, this, [this] { choose(QStringLiteral("rematch")); });
-    connect(select_, &QPushButton::clicked, this, [this] { choose(QStringLiteral("select")); });
     connect(leave_, &QPushButton::clicked, this, &QueuePage::leaveSeries);
     connect(controller_, &MatchController::seriesChanged, this, &QueuePage::onSeries);
     seriesClock_.setInterval(1000);
@@ -299,8 +299,9 @@ void QueuePage::pressFind() {
 }
 
 void QueuePage::showEvent(QShowEvent* event) {
-    const QSignalBlocker block(practice_), blockTraps(deathTraps_);
+    const QSignalBlocker block(practice_), blockAgain(searchAgain_), blockTraps(deathTraps_);
     practice_->setChecked(cfg::practiceWhileWaiting());  // the other queue page may have changed it
+    searchAgain_->setChecked(cfg::searchAgain());
     if (!ranked_) deathTraps_->setChecked(cfg::deathTraps());
     Page::showEvent(event);
 }
@@ -344,7 +345,9 @@ void QueuePage::refreshRoster() {
                               : tr("You pick your fighter on the game's select screen when the match starts, with "
                                    "your own controller; your opponent picks on theirs."));
     picker_->setRoster(g->roster(modeId), cfg::get(QStringLiteral("ui/%1/%2/character").arg(gameId_, modeId)).toString());
-    delayInfo_->setText(tr("Input delay %1 frame(s), game UDP port %2 (change in Settings)")
+    delayInfo_->setText((cfg::autoDelay() ? tr("Input delay %1 frame(s), more at a high ping; game UDP port %2 "
+                                               "(change in Settings)")
+                                          : tr("Input delay %1 frame(s), game UDP port %2 (change in Settings)"))
                             .arg(qMax(ranked_ ? 1 : 0, cfg::inputDelay())).arg(cfg::gamePort()));
 }
 
@@ -486,7 +489,7 @@ void QueuePage::onSeries(const QJsonObject& s) {
         seriesCard_->setVisible(false);
         mmCard_->setVisible(true);
         server_->send({{QStringLiteral("type"), QStringLiteral("profile")}});  // the record, a set's Elo
-        emit seriesCard({}, {}, {}, {}, false, false);
+        emit seriesCard({}, {}, {}, {}, false);
         return;
     }
     if (s.value(QStringLiteral("state")).toString() != QLatin1String("between") ||
@@ -517,13 +520,9 @@ void QueuePage::updateSeries() {
     const bool between = series_.value(QStringLiteral("state")).toString() == QLatin1String("between");
     const bool youReady = series_.value(QStringLiteral("you_ready")).toBool() || !chosen_.isEmpty();
     const bool themReady = series_.value(QStringLiteral("them_ready")).toBool();
-    const QString yours = chosen_.isEmpty() ? series_.value(QStringLiteral("you_choice")).toString() : chosen_;
-    const bool themSelect = series_.value(QStringLiteral("them_choice")).toString() == QLatin1String("select");
-    const bool select = yours == QLatin1String("select") || themSelect;  // either one: both pick again
-    // modes whose teams or karts are always picked in the game have nothing to pick again
-    const Game* g = gameOf(series_.value(QStringLiteral("game")).toString());
-    const GameMode* m = g ? g->mode(series_.value(QStringLiteral("mode")).toString()) : nullptr;
-    const bool canSelect = !ranked_ && !(m && m->picksInGame());
+    // a kombat series' next match, ranked too, is picked again on the game's select screen (the server's
+    // SELECT_SCREEN_MODES)
+    const bool select = series_.value(QStringLiteral("mode")).toString() == QLatin1String("kombat");
     const int left = qMax(0, series_.value(QStringLiteral("seconds_left")).toInt() -
                                  static_cast<int>(seriesSince_.elapsed() / 1000));
     seriesTitle_->setText(ranked_ ? tr("SET  |  FIRST TO %1  |  VS %2")
@@ -535,27 +534,25 @@ void QueuePage::updateSeries() {
     if (!between)
         info = tr("Match %1 against %2 under way.").arg(series_.value(QStringLiteral("played")).toInt() + 1).arg(opp);
     else if (ranked_)
-        info = tr("The next match starts as soon as both games are ready (%1 s). Leaving the set now counts as "
-                  "losing it.").arg(left);
+        info = (select ? tr("The next match starts at character select as soon as both games are ready (%1 s). "
+                            "Leaving the set now counts as losing it.")
+                       : tr("The next match starts as soon as both games are ready (%1 s). Leaving the set now "
+                            "counts as losing it."))
+                   .arg(left);
     else if (youReady && themReady)
         info = select ? tr("Starting: character select...") : tr("Starting the rematch...");
     else if (youReady)  // one line at the smallest window (the buttons' tooltips say what each does)
-        info = (yours == QLatin1String("select") ? tr("Select chosen: waiting for %1 (%2 s).")
-                                                 : tr("Rematch chosen: waiting for %1 (%2 s)."))
-                   .arg(opp).arg(left);
+        info = tr("Rematch chosen: waiting for %1 (%2 s).").arg(opp).arg(left);
     else if (themReady)
-        info = themSelect ? tr("%1 chose SELECT! (%2 s)").arg(opp).arg(left)
-                          : tr("%1 wants a rematch! (%2 s)").arg(opp).arg(left);
-    else if (canSelect)
-        info = tr("Same fighters, or pick again? (%1 s)").arg(left);
+        info = tr("%1 wants a rematch! (%2 s)").arg(opp).arg(left);
+    else if (select)
+        info = tr("Rematch? Back to character select (%1 s)").arg(left);
     else
         info = tr("Rematch? (%1 s)").arg(left);
     seriesInfo_->setText(info);
-    select_->setVisible(canSelect);
     rematch_->setEnabled(between && !youReady);
-    select_->setEnabled(between && !youReady);
     leave_->setEnabled(between);
-    emit seriesCard(series_, seriesTitle_->text(), seriesScore_->text(), info, between && !youReady, canSelect);
+    emit seriesCard(series_, seriesTitle_->text(), seriesScore_->text(), info, between && !youReady);
 }
 
 QString QueuePage::seriesOverText(const QJsonObject& s) const {

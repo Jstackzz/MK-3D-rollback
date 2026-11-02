@@ -95,5 +95,6 @@ private:
     QLabel* serverState_;
     QLabel* presented_;
     QLabel* routerState_;
+    QLabel* hideIpCost_;  // the ping hiding the IP address costs from here (shown while it is on)
     UpnpMapper* upnp_ = nullptr;
 };

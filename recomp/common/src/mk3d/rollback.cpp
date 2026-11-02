@@ -22,6 +22,7 @@
 #include "kernel/host_rollback.h"
 #include "kernel/kernel.h"
 #include "kernel/memory.h"
+#include "xdk/d3d8.h"
 
 #include "mk3d/game.h"
 
@@ -496,6 +497,10 @@ bool Restore(uint32_t frame, X86Context& ctx) {
             return false;
         }
     }
+    // the render thread runs a frame's draws after the game thread recorded them, reading vertices and textures from
+    // guest memory then: every one recorded so far runs before any of that memory goes back (a frame drawn half from
+    // the restored state showed for one frame: Armageddon, a camera inside a fighter, the health bars gone)
+    d3d::WaitForRenderer();
     // the runtime's side first, before g_lock (see Arm): what it writes to guest memory doing so, the pages put back
     host_rollback::Undo(frame);
     std::lock_guard<std::mutex> lock(g_lock);

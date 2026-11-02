@@ -14,6 +14,7 @@
 #include <QRegularExpression>
 #include <QTimer>
 
+#include <cmath>
 #include <memory>
 
 #include "AppPaths.h"
@@ -27,6 +28,31 @@
 
 namespace {
 QString str(const QJsonObject& o, const char* key) { return o.value(QLatin1String(key)).toString(); }
+
+// The input delay a match's ping wants (cfg::autoDelay): the frames of its one-way trip but one, which rollback covers,
+// 6 at most: 0 under 50 ms, 1 under 84, 2 under 117, 3 under 150, 4 under 184, 5 under 217, then 6
+int autoDelayFor(int rttMs) {
+    if (rttMs < 0) return 0;
+    return qBound(0, int(std::lround(rttMs / (2000.0 / 60))) - 1, 6);
+}
+
+// the match's input delay: the server's (the larger of both players' settings), raised for the ping both games were
+// measured at (match_go's rtt_ms, the same for both); the games play the larger of their two (netplay AgreeDelay)
+int matchDelay(const QJsonObject& go) {
+    const int delay = go.value(QStringLiteral("delay")).toInt();
+    return cfg::autoDelay() ? qMax(delay, autoDelayFor(go.value(QStringLiteral("rtt_ms")).toInt(-1))) : delay;
+}
+
+// Whether a series that is over is followed by the same search (cfg::searchAgain): not when this player left it (LEAVE,
+// a search or a lobby elsewhere, their game closed during a match) or let a Kasual rematch offer run out without
+// taking it, nor when neither player came back to a ranked set
+bool searchesAgain(const QJsonObject& over, const QString& me, bool wasReady) {
+    const QString left = str(over, "left");
+    if (!left.isEmpty() && left == me) return false;
+    if (str(over, "outcome") == QLatin1String("timeout"))
+        return !over.value(QStringLiteral("ranked")).toBool() && wasReady;
+    return true;  // won, a forfeit or a Kasual series the other left, void, disconnected
+}
 
 QString reasonText(const QString& reason) {
     static const QHash<QString, QString> texts = {
@@ -229,7 +255,8 @@ void MatchController::watchForCrash(GameProcess* g, const QString& during) {
     connect(g, &GameProcess::exited, this, [this, g, during, phaseAtExit](int exitCode, bool) {
         const quint32 code = quint32(exitCode);
         QString line;
-        if (code != 0 && code != 0xF291u && code != 0xFFFFFFFFu) {
+        bool hang = false;
+        if (code != 0 && code != 0xFFFFFFFFu) {
             QFile file(QDir(g->sessionDir()).filePath(QStringLiteral("game.log")));
             if (file.open(QIODevice::ReadOnly)) {
                 if (file.size() > 65536) file.seek(file.size() - 65536);
@@ -238,12 +265,18 @@ void MatchController::watchForCrash(GameProcess* g, const QString& during) {
                     const qsizetype at = it->indexOf("crash: ");
                     if (at >= 0) line = QString::fromLatin1(it->mid(at + 7)).trimmed();
                 }
+                // a game whose window stopped answering (runtime main.cpp WatchWindow), ended from outside or by
+                // this launcher (0xF291): a hang, which the player saw as a crash
+                for (auto it = lines.crbegin(); it != lines.crend() && line.isEmpty() && !hang; ++it)
+                    hang = it->contains("hang: ");
             }
+            if (code == 0xF291u && !hang) line.clear();
         }
         const bool exception = code >= 0x80000000u && code != 0xFFFFFFFFu;
-        if (!exception && line.isEmpty()) return;
+        if (!exception && line.isEmpty() && !hang) return;
         // "C0000005 at MKA.exe+1A2B3C on a game thread": where it happened, after its code
-        QString where = line.section(QStringLiteral(" at "), 1);
+        QString where = hang && line.isEmpty() ? QStringLiteral("hang: the game window stopped answering")
+                                               : line.section(QStringLiteral(" at "), 1);
         if (where.isEmpty()) where = line;
         where.replace(QRegularExpression(QStringLiteral("[^\\x20-\\x7E]")), QStringLiteral("?"));
         const QString hex = QString::number(code, 16).toUpper();
@@ -347,10 +380,12 @@ void MatchController::setPhase(Phase p, const QString& text) {
     maybeBackToSolo();
     if (p == Phase::Searching) {
         practiceAfterSeries_.clear();  // the search brings its own practice
+        searchAfterSeries_ = false;
         maybeStartPractice();
     }
     if (p == Phase::Idle) startWatch();  // a lobby match waiting to be watched
     maybeCloseIdleGame();
+    maybeSearchAfterSeries();
     maybePracticeAfterSeries();
 }
 
@@ -578,6 +613,7 @@ bool MatchController::findMatch(const QueueRequest& req, QString* error) {
                     {QStringLiteral("delay"), req.delay},
                     {QStringLiteral("death_traps"), req.deathTraps},
                     {QStringLiteral("relay"), cfg::hideIp()},
+                    {QStringLiteral("hide_always"), cfg::hideIpAlways()},
                     {QStringLiteral("link"), server_->linkType()}};
     if (serverRttMs() >= 0) msg.insert(QStringLiteral("server_rtt"), serverRttMs());
     pingWiden_ = {};
@@ -718,10 +754,32 @@ void MatchController::onServerMessage(const QJsonObject& msg) {
             return;
         }
         if (msg.value(QStringLiteral("relay")).toBool()) {
-            // no direct route between the two: the server passes the packets on, its UDP port is the opponent now
+            // no direct route between the two: the server passes the packets on, its UDP port is the opponent now.
+            // A hidden address costs ping (both far from the server meet through it): the players are told so
+            const QString why = str(msg, "relay_why");
+            if (msg.value(QStringLiteral("back")).toBool())  // after a direct try (below)
+                log(tr("Directly was no faster than through the server, or did not get through: back through the "
+                       "server."));
+            else if (why == QLatin1String("hidden"))
+                log(msg.value(QStringLiteral("relay_mine")).toBool()
+                        ? tr("Through the server in Virginia, USA: you hide your IP address (Settings, Online). Two "
+                             "players far from it get much more ping this way than directly.")
+                        : tr("Through the server in Virginia, USA: %1 hides their IP address. Two players far from "
+                             "it get much more ping this way than directly.").arg(opponentName()));
             setPhase(Phase::Connecting, tr("Connecting to %1 through the server...").arg(opponentName()));
             udp_->startRelayPunch(match, str(msg, "key"), msg.value(QStringLiteral("side")).toInt(), punchMs);
             return;
+        }
+        // a match through the server because a player hides their IP address, whose ping that way is too high:
+        // the two try each other directly, and play that way if it is faster (each one's address shows then)
+        if (str(msg, "direct_why") == QLatin1String("relay_ping")) {
+            const int relayMs = msg.value(QStringLiteral("relay_rtt")).toInt();
+            log(msg.value(QStringLiteral("relay_mine")).toBool()
+                    ? tr("%1 ms through the server, too much to play well: trying %2 directly, which shows them your "
+                         "IP address. To keep it hidden however high the ping, tick \"Even when the ping through the "
+                         "server is high\" in Settings, Online.").arg(relayMs).arg(opponentName())
+                    : tr("%1 ms through the server, too much to play well: trying %2 directly.")
+                          .arg(relayMs).arg(opponentName()));
         }
         setPhase(Phase::Connecting, tr("Connecting to %1...").arg(opponentName()));
         const QJsonObject peer = msg.value(QStringLiteral("peer")).toObject();
@@ -735,11 +793,16 @@ void MatchController::onServerMessage(const QJsonObject& msg) {
         releaseUdp();  // the game binds the same port right away
         openFeed(msg);
         pendingStart_ = startLine(go_);
-        setPhase(Phase::Starting, tr("Starting the match against %1 (%2 ms)...")
-                                      .arg(opponentName()).arg(msg.value(QStringLiteral("rtt_ms")).toInt()));
+        const int delay = matchDelay(msg);
+        setPhase(Phase::Starting,
+                 delay > msg.value(QStringLiteral("delay")).toInt()
+                     ? tr("Starting the match against %1 (%2 ms: %3 frames of input delay for that ping)...")
+                           .arg(opponentName()).arg(msg.value(QStringLiteral("rtt_ms")).toInt()).arg(delay)
+                     : tr("Starting the match against %1 (%2 ms)...")
+                           .arg(opponentName()).arg(msg.value(QStringLiteral("rtt_ms")).toInt()));
         emit matchStarted(msg);
-        // a player who picks on the game's select screen has 75 s there (40 in Armageddon) before the game picks for
-        // them, and the select screen gives up after 4 minutes: the start waits for that
+        // a player who picks on the game's select screen takes their time there (0.1.18: no timer picks for them,
+        // and the screen never times out online): the start waits 5 minutes for it
         const bool picksInGame = str(msg, "p1").isEmpty() || str(msg, "p1") == QLatin1String("-") ||
                                  str(msg, "p2").isEmpty() || str(msg, "p2") == QLatin1String("-");
         startTimeout_.start(picksInGame ? 300000 : 60000);
@@ -775,6 +838,9 @@ void MatchController::onServerMessage(const QJsonObject& msg) {
         finishMatch();
     } else if (type == QLatin1String("series")) {
         const QString state = str(msg, "state");
+        // ready for the next match when it ended: a Kasual rematch chosen that the other did not take in time
+        const bool wasReady = str(series_, "state") == QLatin1String("between") &&
+                              (series_.value(QStringLiteral("you_ready")).toBool() || wantNext_);
         series_ = msg;
         // a ranked set goes on by itself: its next match once this game is back at its hold point
         if (state == QLatin1String("between") && msg.value(QStringLiteral("ranked")).toBool() &&
@@ -782,12 +848,14 @@ void MatchController::onServerMessage(const QJsonObject& msg) {
             wantNext_ = true;
         if (state == QLatin1String("over")) {
             wantNext_ = false;
-            if (cfg::practiceWhileWaiting()) practiceAfterSeries_ = str(msg, "game");
+            searchAfterSeries_ = cfg::searchAgain() && searchesAgain(msg, server_->accountName(), wasReady);
+            if (!searchAfterSeries_ && cfg::practiceWhileWaiting()) practiceAfterSeries_ = str(msg, "game");
         }
         emit seriesChanged(msg);
         if (state == QLatin1String("over")) series_ = {};
         sendSeriesReady();
         maybeBackToSolo();
+        maybeSearchAfterSeries();
         maybePracticeAfterSeries();
     } else if (type == QLatin1String("result_ack")) {
         log(tr("Result of %1 acknowledged by the server").arg(match));
@@ -1032,7 +1100,7 @@ QString MatchController::startLine(const QJsonObject& go) const {
         QStringLiteral("side=%1").arg(go.value(QStringLiteral("side")).toInt()),
         QStringLiteral("local_port=%1").arg(cfg::gamePort()),
         QStringLiteral("remote=") + str(go, "remote"),
-        QStringLiteral("delay=%1").arg(go.value(QStringLiteral("delay")).toInt()),
+        QStringLiteral("delay=%1").arg(matchDelay(go)),
         QStringLiteral("seed=%1").arg(go.value(QStringLiteral("seed")).toInteger()),
         QStringLiteral("p1=") + (str(go, "p1").isEmpty() ? QStringLiteral("-") : str(go, "p1")),
         QStringLiteral("p2=") + (str(go, "p2").isEmpty() ? QStringLiteral("-") : str(go, "p2")),
@@ -1299,6 +1367,18 @@ void MatchController::maybePracticeAfterSeries() {
     QString err;
     if (startSolo(gameId, &err, true)) log(tr("The series is over: back to practice"));
     else log(tr("Back to practice: %1").arg(err));
+}
+
+// Keep matchmaking: once a series is over and this launcher is idle again (the match's game back at its hold point, its
+// ending played) or back in single player, the search it came from starts again, practice while you wait with it
+// (cfg::searchAgain, searchesAgain); not for a lobby's game, a match to watch or a new series.
+void MatchController::maybeSearchAfterSeries() {
+    if (!searchAfterSeries_ || (phase_ != Phase::Idle && phase_ != Phase::Solo)) return;
+    searchAfterSeries_ = false;
+    if (!series_.isEmpty() || (game_ && game_ == lobbyGame_) || !watch_.isEmpty() || !watchQueue_.isEmpty()) return;
+    QString err;
+    if (findMatch(request_, &err)) log(tr("The series is over: searching again"));
+    else log(tr("Searching again: %1").arg(err));
 }
 
 void MatchController::stopSolo() {

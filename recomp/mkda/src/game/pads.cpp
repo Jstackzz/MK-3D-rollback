@@ -273,6 +273,8 @@ void PadHook(int port, input::Pad& pad) {
         pad = port == pick_port ? player : input::Pad{};
         pad.analog[1] = 0;      // B would leave the select screen (and the match with it)
         pad.buttons &= ~0x20u;  // as BACK would
+        pad.analog[7] = 0;      // and RT and LS (BLACK and START stay: the arena choice)
+        pad.buttons &= ~0x40u;
         pad.connected = connected || port == pick_port;
     } else if (mk3d::link::SuppressPhysicalPads()) {
         pad.buttons = 0;

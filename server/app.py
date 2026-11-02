@@ -20,6 +20,7 @@ import re
 import secrets
 import ssl
 import time
+import zlib
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
@@ -38,12 +39,20 @@ NEEDS_LOGIN = {
     "logout", "queue_join", "queue_leave", "match_accept", "match_decline", "ping_report", "match_state",
     "result", "lobby_create", "lobby_list", "lobby_join", "lobby_leave", "lobby_chat", "lobby_character",
     "lobby_ready", "lobby_start", "admin_notice", "series_ready", "lobby_role", "feed", "lobby_settings",
-    "crash_report", "udp_tunnel", "tunnel", "desync_report",
+    "crash_report", "udp_tunnel", "tunnel", "desync_report", "report_file", "report_done",
 }
 CRASH_REPORTS_PER_SESSION = 20  # a game crashing over and over says so this many times, then no more
 DESYNC_REPORTS_PER_SESSION = 10  # matches out of step a session reports, then no more
 DESYNC_LINES = 40  # a desync report's lines from the game's log, 200 characters each at most
 CRASH_TEXT = re.compile(r"[\x20-\x7E]*")  # printable ASCII only: it goes into the log as is
+# F3 reports (what a player saw drawn wrong: the game's capture, its log), docs/PROTOCOL.md 1.13.2
+REPORTS_PER_SESSION = 3
+REPORT_MAX_BYTES = 12 << 20      # a report's files together, as written
+REPORT_MAX_FILES = 160
+REPORT_PART_CHARS = 16000        # base64 a report_file message carries at most
+REPORTS_DIR_MAX_BYTES = 4 << 30  # every report kept: past this, new ones are turned down
+REPORT_ID = re.compile(r"[0-9a-f]{16}")
+REPORT_FILE = re.compile(r"[A-Za-z0-9_-]{1,40}\.(jpg|png|txt|log)")
 FEED_MAGIC = b"MKDR"
 FEED_TYPES = (5, 6, 7, 8, 9)  # the spectator feed's packet types (recomp/common/src/mk3d/netplay.cpp)
 # a match without a result: the games parted (desync), lost each other (disconnected), the game failed (error), or
@@ -67,6 +76,7 @@ class ServerConfig:
     # the release launchers are offered to update to (JSON, protocol.parse_update), read again when it changes; a
     # launcher older than it gets it in welcome, or pushed once it is announced
     update_file: str | None = None
+    reports_dir: str | None = None  # where F3 reports are kept (None: this server takes none)
     update_check_interval: float = 10.0
     accept_timeout: float = 20.0
     lobby_countdown: float = 3.0  # both players of a lobby ready: its match starts this long after, by itself
@@ -99,6 +109,13 @@ class ServerConfig:
     # straight, ~140 ms through a server in Virginia). Otherwise only the matches of a player who asked to hide their
     # address ("relay" in queue_join / lobby_ready) go through it.
     relay_only: bool = False
+    # a match relayed only because a player hides their address, whose ping through the relay is over this (ms),
+    # tries a direct connection between the two (each learns the other's address then) and is played that way if
+    # it is at least direct_gain_ms faster, else back through the relay. 0: never. A player who hides their address
+    # always (hide_always) is never tried directly.
+    direct_above_ms: int = 100
+    direct_gain_ms: int = 20
+    relay_test_delay_ms: int = 0  # development: the relay holds each packet this long (a relay far away)
     relay_rate: float = 400.0     # packets a second each player may send through the relay (a game sends ~120)
     relay_burst: float = 800.0
     # seconds a route outlives its match: the games report the result at the round that decides it and play the
@@ -113,6 +130,19 @@ class ServerConfig:
     upnp_renew: float = 1200.0
     scrypt_n: int = auth.SCRYPT_N
     mm: MatchmakingConfig = field(default_factory=MatchmakingConfig)
+
+
+@dataclass
+class Report:
+    """An F3 report coming in (report_file messages, then report_done): its folder and what was written to it."""
+
+    folder: str
+    game: str
+    bytes: int = 0
+    files: set[str] = field(default_factory=set)
+    parts: dict[str, int] = field(default_factory=dict)  # a file still coming in: the next part expected
+    pending: dict[str, list[bytes]] = field(default_factory=dict)  # its parts so far
+    done: bool = False
 
 
 class Session:
@@ -130,6 +160,7 @@ class Session:
         self.client_version = ""
         self.crash_reports = 0
         self.desync_reports = 0
+        self.reports: dict[str, Report] = {}  # F3 reports coming in, and the ones saved (by id)
         self.account_id: int | None = None
         self.name: str | None = None
         self.admin = False
@@ -180,6 +211,7 @@ class MatchPlayer:
     entry: QueueEntry | None = None
     accepted: bool = False
     relay: bool = False  # asked to hide their address: the match goes through this server's relay
+    relay_always: bool = False  # even when the relay's ping is high (never tried directly)
     tunnel: bool = False  # no UDP of theirs reaches this server: their packets go on their connection, then the relay
     link: str = ""  # "ethernet", "wifi", "other" ("" unknown): shown to the opponent with match_found
     server_rtt: int | None = None  # their round trip to this server, ms
@@ -207,6 +239,8 @@ class Match:
     game_state: str = ""
     # the two ends the relay joins: endpoints, or a tunnelled player's account (their connection carries the packets)
     relay: tuple[tuple[str, int] | int, tuple[str, int] | int] | None = None
+    relay_rtt: int | None = None  # the ping through the relay, measured before a direct try (direct_above_ms)
+    direct_tried: bool = False
     series: Series | None = None
     death_traps: bool = True
 
@@ -231,6 +265,7 @@ class SeriesPlayer:
     region: str
     elo: int | None
     relay: bool = False
+    relay_always: bool = False
     wins: int = 0
     ready: bool = False
     choice: str = ""  # casual, once ready: "rematch" (the same fighters) or "select" (both pick again)
@@ -274,6 +309,7 @@ class LobbyMember:
     delay: int = 2
     spectator: bool = False  # watches the lobby's matches instead of playing them
     relay: bool = False  # asked to hide their address (with their ready): their matches go through the relay
+    relay_always: bool = False  # even when the relay's ping is high (with their ready)
     link: str = ""  # their PC's connection ("ethernet", "wifi", "other"; "" unknown), with their join or ready
     server_rtt: int | None = None  # their round trip to this server, ms, with their join or ready
 
@@ -499,6 +535,8 @@ class Server:
             "leaderboard": self.on_leaderboard,
             "crash_report": self.on_crash_report,
             "desync_report": self.on_desync_report,
+            "report_file": self.on_report_file,
+            "report_done": self.on_report_done,
             "udp_tunnel": self.on_udp_tunnel,
             "tunnel": self.on_tunnel,
         }
@@ -758,7 +796,7 @@ class Server:
             "type": "welcome", "proto": P.PROTO, "server": P.SERVER_NAME, "version": P.SERVER_VERSION,
             "udp_port": self.udp_port, "motd": self.cfg.motd, "online": len(self.by_account),
             "min_client": self.cfg.min_client, "games": {g: list(m) for g, m in P.GAMES.items()},
-            "regions": list(P.REGIONS),
+            "regions": list(P.REGIONS), "direct_above_ms": self.cfg.direct_above_ms,
         }
         if update:
             welcome["update"] = update
@@ -1093,6 +1131,7 @@ class Server:
         delay = P.get_int(msg, "delay", lo=0, hi=P.DELAY_MAX, default=2)
         death_traps = P.get_bool(msg, "death_traps", default=True)
         relay = P.get_bool(msg, "relay", default=False)
+        relay_always = relay and P.get_bool(msg, "hide_always", default=False)
         link = self._link(msg)
         server_rtt = msg.get("server_rtt")
         if isinstance(server_rtt, bool) or not isinstance(server_rtt, int) or not 0 <= server_rtt <= 5000:
@@ -1106,6 +1145,7 @@ class Server:
             account_id=s.account_id, name=s.name, game=game, mode=mode, ranked=ranked, region=region,
             max_ping=max_ping, strict=strict, character=character, delay=delay, since=now, elo=rating,
             public_ip=s.ip, server_rtt=server_rtt, death_traps=death_traps, relay=relay, link=link,
+            relay_always=relay_always,
         )
         self.queue[s.account_id] = entry
         s.queue = entry
@@ -1155,6 +1195,7 @@ class Server:
             MatchPlayer(side=i + 1, account_id=e.account_id, name=e.name, session=sess, character=e.character,
                         delay=e.delay, max_ping=max_ping_now(e, now, self.cfg.mm), region=e.region,
                         elo=e.elo if e.ranked else None, entry=e, relay=e.relay, link=e.link,
+                        relay_always=e.relay_always,
                         server_rtt=e.server_rtt)
             for i, (e, sess) in enumerate(pair)
         ]
@@ -1291,6 +1332,14 @@ class Server:
             # a player who hides their address: neither learns the other's; a tunnelled one has none to punch
             self._start_relay(m, now)
             return
+        self._send_direct_peers(m)
+        log.info("match %s punching: %s %s / %s %s", m.id, a.name, P.format_endpoint(a.session.udp_public),
+                 b.name, P.format_endpoint(b.session.udp_public))
+
+    def _send_direct_peers(self, m: Match, extra: Callable[[MatchPlayer], dict[str, Any]] | None = None) -> None:
+        """match_peer to both players: the other's endpoint to punch and ping straight (plus `extra(player)`)."""
+        a, b = m.players
+        assert a.session is not None and b.session is not None
         assert a.session.udp_public is not None and b.session.udp_public is not None
         same_nat = a.session.udp_public[0] == b.session.udp_public[0]
         for p in m.players:
@@ -1303,9 +1352,8 @@ class Server:
                 "peer": {"public": P.format_endpoint(o.session.udp_public),
                          "lan": o.session.udp_lan if same_nat else ""},
                 "opponent": self._opponent(m, o),
+                **(extra(p) if extra else {}),
             })
-        log.info("match %s punching: %s %s / %s %s", m.id, a.name, P.format_endpoint(a.session.udp_public),
-                 b.name, P.format_endpoint(b.session.udp_public))
 
     def on_ping_report(self, s: Session, msg: dict[str, Any]) -> None:
         m, p = self._my_match(s, msg)
@@ -1322,7 +1370,20 @@ class Server:
     def _decide(self, m: Match, now: float) -> None:
         a, b = m.players
         assert a.ping is not None and b.ping is not None
-        if not (a.ping["ok"] and b.ping["ok"]):
+        ok = a.ping["ok"] and b.ping["ok"]
+        if m.direct_tried and m.relay is None:
+            # the direct try after a relay too slow: played if it got through and is faster enough, else back
+            rtt = max(a.ping["rtt_ms"], b.ping["rtt_ms"])
+            assert m.relay_rtt is not None
+            if not ok or rtt + self.cfg.direct_gain_ms > m.relay_rtt:
+                log.info("match %s: %s directly, back through the relay (%d ms)", m.id,
+                         f"{rtt} ms" if ok else "no way", m.relay_rtt)
+                self._start_relay(m, now)
+                return
+        elif ok and m.relay is not None and self._tries_direct(m, max(a.ping["rtt_ms"], b.ping["rtt_ms"])):
+            self._try_direct(m, max(a.ping["rtt_ms"], b.ping["rtt_ms"]), now)
+            return
+        if not ok:
             if self.cfg.relay and m.relay is None and all(self._fresh_udp(m, p) for p in m.players):
                 self._start_relay(m, now)
                 return
@@ -1336,6 +1397,33 @@ class Server:
             self._cancel_match(m, "ping_too_high")
             return
         self._go(m, rtt, now)
+
+    def _tries_direct(self, m: Match, rtt: int) -> bool:
+        """A match relayed only because a player hides their address, too slow that way (direct_above_ms): worth a
+        direct try, unless a player hides theirs always, or one has no UDP of their own (tunnelled)."""
+        return (0 < self.cfg.direct_above_ms < rtt and not m.direct_tried and not self.cfg.relay_only
+                and any(p.relay for p in m.players) and not any(p.relay_always or p.tunnel for p in m.players)
+                and all(p.session is not None and p.session.udp_public is not None for p in m.players))
+
+    def _try_direct(self, m: Match, rtt: int, now: float) -> None:
+        """The ping through the relay is too high for a match relayed because a player hides their address: the two
+        try each other straight (each learns the other's address, as in any direct match) and play that way if it is
+        faster enough (_decide); else back through the relay, whose routes linger meanwhile."""
+        m.relay_rtt = rtt
+        m.direct_tried = True
+        self._end_relay(m)
+        m.relay = None
+        m.state = "punching"
+        m.deadline = now + self.cfg.ping_report_timeout
+        for p in m.players:
+            p.ping = None
+        self._send_direct_peers(m, lambda p: {"direct_why": "relay_ping", "relay_rtt": rtt, "relay_mine": p.relay})
+        a, b = m.players
+        assert a.session is not None and b.session is not None
+        assert a.session.udp_public is not None and b.session.udp_public is not None
+        log.info("match %s: %d ms through the relay, over %d: trying directly: %s %s / %s %s", m.id, rtt,
+                 self.cfg.direct_above_ms, a.name, P.format_endpoint(a.session.udp_public), b.name,
+                 P.format_endpoint(b.session.udp_public))
 
     @staticmethod
     def _relay_end(p: MatchPlayer) -> tuple[str, int] | int:
@@ -1369,6 +1457,11 @@ class Server:
                 self.tunnel_routes[src] = route
             else:
                 self.relay_routes[src] = route
+        # why, for the players' launchers to say (a hidden address costs ping: two players far from this server meet
+        # through it): "hidden" (a player hides their address; you: this one), "tunnel", "unreachable" (the punch
+        # failed), "relay_only" (this server's choice)
+        why = ("relay_only" if self.cfg.relay_only else "hidden" if any(p.relay for p in m.players)
+               else "tunnel" if any(p.tunnel for p in m.players) else "unreachable")
         for p in m.players:
             o = m.other(p)
             assert p.session is not None
@@ -1376,8 +1469,11 @@ class Server:
                 "type": "match_peer", "match": m.id, "side": p.side, "key": m.key,
                 "punch_timeout": self.cfg.punch_timeout, "same_nat": False, "relay": True, "tunnel": p.tunnel,
                 "peer": {"public": "", "lan": ""}, "opponent": self._opponent(m, o),
+                "relay_why": why, "relay_mine": why == "hidden" and p.relay,
+                "back": m.direct_tried,  # a direct try after a slow relay did not get through or was no faster
             })
-        log.info("match %s relayed through this server: %s %s / %s %s", m.id, a.name, self._relay_text(ea),
+        log.info("match %s relayed through this server (%s%s): %s %s / %s %s", m.id, why,
+                 "".join(f", {p.name} hides" for p in m.players if p.relay), a.name, self._relay_text(ea),
                  b.name, self._relay_text(eb))
 
     def relay_packet(self, route: RelayRoute, data: bytes, transport: asyncio.DatagramTransport | None) -> None:
@@ -1398,6 +1494,9 @@ class Server:
             sess = self.by_account.get(route.partner)
             if sess is not None:
                 sess.send({"type": "tunnel", "data": base64.b64encode(data).decode("ascii")})
+        elif transport is not None and self.cfg.relay_test_delay_ms:
+            asyncio.get_running_loop().call_later(self.cfg.relay_test_delay_ms / 1000, transport.sendto, data,
+                                                  route.partner)
         elif transport is not None:
             transport.sendto(data, route.partner)
 
@@ -1643,7 +1742,8 @@ class Server:
             id=secrets.token_hex(6), game=m.game, mode=m.mode, ranked=m.ranked,
             need=self.cfg.set_wins if m.ranked else 0, created=now, death_traps=m.death_traps,
             players=[SeriesPlayer(account_id=p.account_id, name=p.name, side=p.side, character=p.character,
-                                  delay=p.delay, max_ping=p.max_ping, region=p.region, elo=p.elo, relay=p.relay)
+                                  delay=p.delay, max_ping=p.max_ping, region=p.region, elo=p.elo, relay=p.relay,
+                                  relay_always=p.relay_always)
                      for p in m.players],
         )
         self.series[series.id] = series
@@ -1722,10 +1822,14 @@ class Server:
             self._series_between(series, now)
 
     def _series_picks(self, series: Series) -> tuple[str, str]:
-        """P1's and P2's characters in a series' next match ("" picks on the select screen). Casual: the last match's
-        fighters when both want a rematch, the select screen for both when either wants to select (or when the last
-        match's fighters are not known: the characters they queued with). A ranked set keeps the queued ones."""
+        """P1's and P2's characters in a series' next match ("" picks on the select screen). A mode whose players can
+        pick on the game's select screen goes back there for every match after the first, casual or ranked (the
+        rematch is character select). Other modes, casual: the last match's fighters when both want a rematch, the
+        select screen when either wants to select (the characters they queued with when the last match's are not
+        known); ranked: the queued ones."""
         p1, p2 = sorted(series.players, key=lambda p: p.side)
+        if series.mode in P.SELECT_SCREEN_MODES:
+            return "", ""
         if series.ranked:
             return p1.character, p2.character
         if all(p.choice == "rematch" for p in series.players):
@@ -1740,7 +1844,8 @@ class Server:
         players = sorted(
             (MatchPlayer(side=p.side, account_id=p.account_id, name=p.name, session=sess,
                          character=picks[p.side - 1], delay=p.delay, max_ping=p.max_ping, region=p.region,
-                         elo=p.elo if series.ranked else None, accepted=True, relay=p.relay)
+                         elo=p.elo if series.ranked else None, accepted=True, relay=p.relay,
+                         relay_always=p.relay_always)
              for p, sess in zip(series.players, sessions)),
             key=lambda mp: mp.side,
         )
@@ -2165,6 +2270,81 @@ class Server:
             log.info("DESYNC_REPORT %s | %s", s.name, line)
         self._reply(s, msg, {"type": "desync_ack"})
 
+    def _reports_bytes(self) -> int:
+        total = 0
+        for root, _dirs, files in os.walk(self.cfg.reports_dir or ""):
+            for f in files:
+                with suppress(OSError):
+                    total += os.path.getsize(os.path.join(root, f))
+        return total
+
+    def on_report_file(self, s: Session, msg: dict[str, Any]) -> None:
+        """A part of a file of an F3 report, what a player saw drawn wrong: the game's capture of that frame and of
+        the next ones (pictures, the frame's draws), the end of its log (docs/PROTOCOL.md 1.13.2). A file's parts come
+        in order, base64; once its last one is in it is written (inflated first when `zlib`, as Qt's qCompress makes
+        it) into the report's folder, <reports_dir>/<day>/<time>-<player>-<game>-<report>. Limits: REPORTS_PER_SESSION
+        reports, REPORT_MAX_BYTES and REPORT_MAX_FILES each, REPORTS_DIR_MAX_BYTES on disk."""
+        if not self.cfg.reports_dir:
+            raise P.ProtocolError("unavailable", "This server keeps no reports.")
+        rid = P.get_str(msg, "report", max_len=16)
+        game = P.get_str(msg, "game", max_len=8)
+        name = P.get_str(msg, "name", max_len=44)
+        data = P.get_str(msg, "data", max_len=REPORT_PART_CHARS, default="")
+        part, parts = msg.get("part"), msg.get("parts")
+        if (not REPORT_ID.fullmatch(rid) or game not in P.GAMES or not REPORT_FILE.fullmatch(name)
+                or not isinstance(part, int) or isinstance(part, bool) or not isinstance(parts, int)
+                or isinstance(parts, bool) or not 0 <= part < parts <= 4096):
+            raise P.ProtocolError("bad_request", "Bad report part.")
+        r = s.reports.get(rid)
+        if r is None:
+            if len(s.reports) >= REPORTS_PER_SESSION:
+                raise P.ProtocolError("too_many", "No more reports from this connection.")
+            if self._reports_bytes() > REPORTS_DIR_MAX_BYTES:
+                raise P.ProtocolError("unavailable", "The server takes no more reports for now.")
+            day, clock = time.strftime("%Y-%m-%d"), time.strftime("%H%M%S")
+            r = Report(folder=os.path.join(self.cfg.reports_dir, day, f"{clock}-{s.name}-{game}-{rid}"), game=game)
+            s.reports[rid] = r
+        if r.done or name in r.files or r.parts.get(name, 0) != part:
+            raise P.ProtocolError("bad_request", "A report's parts come once each, in order.")
+        try:
+            chunk = base64.b64decode(data, validate=True)
+        except ValueError as e:
+            raise P.ProtocolError("bad_request", "Report parts are base64.") from e
+        if r.bytes + sum(map(len, r.pending.get(name, []))) + len(chunk) > REPORT_MAX_BYTES:
+            raise P.ProtocolError("too_large", "The report is too large.")
+        r.pending.setdefault(name, []).append(chunk)
+        r.parts[name] = part + 1
+        if part + 1 < parts:
+            return
+        content = b"".join(r.pending.pop(name))
+        del r.parts[name]
+        if msg.get("zlib") is True:
+            inflate = zlib.decompressobj()
+            try:
+                content = inflate.decompress(content[4:], REPORT_MAX_BYTES - r.bytes + 1)
+            except zlib.error as e:
+                raise P.ProtocolError("bad_request", "A compressed report file did not inflate.") from e
+            if inflate.unconsumed_tail:
+                raise P.ProtocolError("too_large", "The report is too large.")
+        if r.bytes + len(content) > REPORT_MAX_BYTES or len(r.files) >= REPORT_MAX_FILES:
+            raise P.ProtocolError("too_large", "The report is too large.")
+        os.makedirs(r.folder, exist_ok=True)
+        with open(os.path.join(r.folder, name), "wb") as f:
+            f.write(content)
+        r.bytes += len(content)
+        r.files.add(name)
+
+    def on_report_done(self, s: Session, msg: dict[str, Any]) -> None:
+        """The report's files are all in: logged with the player, where they are kept."""
+        rid = P.get_str(msg, "report", max_len=16)
+        r = s.reports.get(rid)
+        if r is None or r.done or r.parts or not r.files:
+            raise P.ProtocolError("bad_request", "No such report coming in.")
+        r.done = True
+        log.info("REPORT %s %s (launcher %s): %d files, %d KB, in %s", s.name, r.game, s.client_version or "?",
+                 len(r.files), r.bytes // 1024, r.folder)
+        self._reply(s, msg, {"type": "report_saved", "report": rid, "files": len(r.files)})
+
     def on_lobby_chat(self, s: Session, msg: dict[str, Any]) -> None:
         lobby = self._need_lobby(s)
         text = " ".join(P.get_str(msg, "text", max_len=1000).split())
@@ -2204,6 +2384,7 @@ class Server:
         member.ready = P.get_bool(msg, "ready")
         member.delay = P.get_int(msg, "delay", lo=0, hi=P.DELAY_MAX, default=member.delay)
         member.relay = P.get_bool(msg, "relay", default=False)
+        member.relay_always = member.relay and P.get_bool(msg, "hide_always", default=False)
         self._member_connection(member, msg)
         self._broadcast_lobby(lobby, reply_to=(s, msg))
 
@@ -2275,7 +2456,8 @@ class Server:
         players = [
             MatchPlayer(side=i + 1, account_id=mem.session.account_id or 0, name=mem.session.name or "?",
                         session=mem.session, character=mem.character, delay=mem.delay, max_ping=0,
-                        region=lobby.region, elo=None, accepted=True, relay=mem.relay)
+                        region=lobby.region, elo=None, accepted=True, relay=mem.relay,
+                        relay_always=mem.relay_always)
             for i, mem in enumerate(ordered)
         ]
         m = Match(id=secrets.token_hex(6), game=lobby.game, mode=lobby.mode, ranked=False, players=players,

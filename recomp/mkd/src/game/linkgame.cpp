@@ -31,11 +31,64 @@ constexpr uint32_t kArenaList = 0x3E4D30, kArenaCycle = 0x620F44;
 
 // The versus select screen also has an arena choice of its own: a player who opens it (sub_0017BF70, then
 // sub_0017BFD0 per entry of the list 0x3F9000) leaves their arena in 0x62031C, which the fight's arena setup
-// (sub_000834C0, the versus fight task's first step) takes over the cycle's. Online each game has only its own
+// (sub_000834C0, the versus fight task's first step) takes over the cycle's. Online each game had only its own
 // player's choice, so the two loaded different arenas and parted at the match's first check ("the arenas differ" at
-// the meeting point: one game had the seed's arena, the other its player's); the match's arena is the arena then.
+// the meeting point: one game had the seed's arena, the other its player's). The screen raises its chooser only in an
+// Xbox Live match (the events 0x92828 / 0x92829 of its handler sub_0014DC20; no button of a launcher match does), but
+// whatever it holds when a player picks goes with the pick, and both games fight on what the two choices give
+// (AgreeOnTheFight).
 constexpr uint32_t kArenaChoice = 0x62031C;
 bool g_online_match = false;  // the launcher match now is online, or watched
+uint32_t g_seed = 0;          // the match's seed (the launcher's start line)
+
+// The arena both games fight on from their players' choices on the select screen (-1 none): both chose, the match's
+// seed picks between them (bit 7 set: P2's, else P1's); one chose, that one; neither, -1: the match's own (the cycle's,
+// from the seed: PickArena). Armageddon and Deadly Alliance go by the same rule, with the same pick words.
+// A choice counts only when it is an arena of the versus list: both games take the same choices the same way, so an
+// arena word that names no arena (only another program could send one, and its load would end both games) leaves the
+// match's own.
+bool Choosable(int id) {
+    if (id < 0) return false;
+    for (uint32_t i = 0; i < 64; i++) {
+        const int32_t listed = int32_t(kernel::R32(kArenaList + 4 * i));
+        if (listed < 0) break;
+        if (listed == id) return true;
+    }
+    return false;
+}
+
+int AgreedArena(int p1, int p2, uint32_t seed) {
+    if (!Choosable(p1)) p1 = -1;
+    if (!Choosable(p2)) p2 = -1;
+    if (p1 >= 0 && p2 >= 0) return (seed & 0x80) ? p2 : p1;
+    return p1 >= 0 ? p1 : p2;
+}
+
+// Online and watched, at the versus fight task's first step, before the fighters load: the picks both games agreed on
+// over the player records (the autopilot sends what its player picked, the character the record has under the cursor:
+// a game set up otherwise would part from the other at once), and the arena the players' choices give over the select
+// screen's own choice (a spectator's game: both players' as they came)
+void AgreeOnTheFight() {
+    constexpr uint32_t kRecords[2] = {kP1Record, kP2Record};
+    constexpr uint32_t kRecordCharacter = 0x54, kRecordCostume = 0x14;
+    int character[2] = {-1, -1}, arena[2] = {-1, -1};
+    uint32_t costume[2] = {};
+    for (int s = 0; s < 2; s++) {
+        if (!autopilot::AgreedPick(s, character[s], costume[s], arena[s])) continue;
+        const uint32_t was = kernel::R32(kRecords[s] + kRecordCharacter);
+        if (was != uint32_t(character[s]))
+            LOGR("link: P%d is character %u in this game, the match's pick is %d: that one", s + 1, was, character[s]);
+        kernel::W32(kRecords[s] + kRecordCharacter, uint32_t(character[s]));
+        kernel::W32(kRecords[s] + kRecordCostume, costume[s]);
+    }
+    const int own = int32_t(kernel::R32(kArenaChoice));
+    const int agreed = AgreedArena(arena[0], arena[1], g_seed);
+    if (agreed >= 0 || own >= 0)
+        LOGR("link: arena choices P1 %d, P2 %d (this game's select screen %d): %s %d", arena[0], arena[1], own,
+             agreed >= 0 ? "the match is on arena" : "the match's own arena, the cycle's place",
+             agreed >= 0 ? agreed : int(kernel::R32(kArenaCycle)));
+    kernel::W32(kArenaChoice, agreed >= 0 ? uint32_t(agreed) : 0xFFFFFFFFu);
+}
 
 // A fight's round end (sub_00083960) ends the match once the round's winner has as many round wins as 0x5FC9A4 (the
 // options' rounds, 2 by default) when no profile is in use (0x620F24 bit 0, as in a launcher match; a profile makes
@@ -116,6 +169,7 @@ bool Begin(const Start& start) {
     for (int i = 0; i < 2; i++) req.by_player[i] = start.online && picks && start.picks[i].empty();
     g_request = req;
     g_online_match = start.online;
+    g_seed = start.seed;
     PickArena(start.seed, start.stage);
     SetOptions(start);
     return autopilot::Begin(req);
@@ -123,6 +177,7 @@ bool Begin(const Start& start) {
 
 // Versus and Puzzle Kombat return to their select screen after a match, a chess game to the main menu
 void Rematch(const Start& start) {
+    g_seed = start.seed;
     PickArena(start.seed, start.stage);
     SetOptions(start);
     if (start.mode == "chess") autopilot::Restart(g_request);
@@ -202,13 +257,8 @@ X86_FUNC(sub_001BF070) {
     ctx.esp += 4;  // ret
 }
 
-// the versus fight's arena setup (no arguments): online, the select screen's own arena choice gives way to the match's
+// the versus fight's arena setup (no arguments): online and watched, the arena and picks both games agreed on
 X86_FUNC(sub_000834C0) {
-    const int32_t choice = int32_t(kernel::R32(mkd::kArenaChoice));
-    if (mkd::g_online_match && choice >= 0) {
-        LOGR("link: the select screen's arena choice %d left out, the match's arena is %u", choice,
-             kernel::R32(mkd::kArena));
-        kernel::W32(mkd::kArenaChoice, 0xFFFFFFFFu);
-    }
+    if (mkd::g_online_match) mkd::AgreeOnTheFight();
     __imp__sub_000834C0(ctx, base);
 }

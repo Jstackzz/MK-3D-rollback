@@ -60,24 +60,23 @@ private:
 };
 
 // After a Kasual match, over the game once it has played the match's end: the score against the opponent and what
-// comes next, REMATCH (the same fighters, when both choose it), SELECT (both pick again) or LEAVE, as on the Kasual
-// page's series card, which it mirrors
+// comes next, REMATCH (in kombat both go back to character select and pick again, when both choose it) or LEAVE, as
+// on the Kasual page's series card, which it mirrors
 class RematchDialog : public QDialog {
     Q_OBJECT
 public:
     explicit RematchDialog(QWidget* parent = nullptr);
-    // the card's state: its title, score and info line, whether a choice can still be made, whether SELECT applies
-    void update(const QString& title, const QString& score, const QString& info, bool canChoose, bool canSelect);
+    // the card's state: its title, score and info line, whether a choice can still be made
+    void update(const QString& title, const QString& score, const QString& info, bool canChoose);
 
 signals:
-    void chose(const QString& choice);  // "rematch", "select" or "leave"
+    void chose(const QString& choice);  // "rematch" or "leave"
 
 private:
     QLabel* title_;
     QLabel* score_;
     QLabel* info_;
     QPushButton* rematch_;
-    QPushButton* select_;
 };
 
 // A newer release the server names (Updater): what it is and what is new, UPDATE NOW or LATER; while it downloads and

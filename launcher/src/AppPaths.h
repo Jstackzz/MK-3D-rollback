@@ -36,9 +36,15 @@ bool strict();
 bool pickInGame();
 // a Ranked or Kasual search starts the game's practice to play while it waits (MatchController::maybeStartPractice)
 bool practiceWhileWaiting();
+// once a Ranked set or a Kasual series is over (not left by this player), the same search starts again by itself
+// (MatchController::maybeSearchAfterSeries)
+bool searchAgain();
 bool deathTraps();  // the arenas' death traps in Kasual matches (a search meets only the same choice; Ranked never)
 bool matchSound();  // a chime when a Ranked or Kasual match is found (the MATCH FOUND window comes up)
 int inputDelay();
+// a match's delay raised for its ping (MatchController autoDelayFor: about the one-way trip's frames but one, 6 at
+// most), so a laggy match rolls back less; both games play the larger of their two
+bool autoDelay();
 int gamePort();
 QString displayMode();
 QString resolution();
@@ -55,6 +61,7 @@ bool udpLoopback();  // development: matches on loopback only (one-PC tests, no 
 bool udpBlocked();   // development: nothing goes to the server's UDP port, as from a PC whose UDP never gets there
 bool upnp();         // open the game UDP port on the router (UPnP)
 bool hideIp();       // matches through the server's relay: no opponent learns this player's address
+bool hideIpAlways(); // ... even when the ping that way is high (else such a match tries a direct connection)
 }  // namespace cfg
 
 namespace applog {

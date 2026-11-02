@@ -1,0 +1,138 @@
+diff --git a/runtime/xdk/d3d8.h b/runtime/xdk/d3d8.h
+--- a/runtime/xdk/d3d8.h
++++ b/runtime/xdk/d3d8.h
+@@ -8,8 +8,8 @@ namespace d3d {
+ gpu::State& State();
+ std::recursive_mutex& Lock();
+ 
+-// Netplay rollback: a frame run again to catch up is neither shown nor paced (Swap still rotates the frame buffers
+-// and counts the swap, as the title sees them); set by the game layer before the frame runs
++// Netplay rollback: a frame run again to catch up is neither drawn, nor shown, nor paced (Swap still rotates the frame
++// buffers and counts the swap, as the title sees them); set by the game layer at the top of every frame of a match
+ void SetSkipPresent(bool skip);
+ 
+ // Netplay rollback, before a restore: the renderer has run every call recorded so far, so the guest memory its draws
+diff --git a/runtime/xdk/d3d8.cpp b/runtime/xdk/d3d8.cpp
+--- a/runtime/xdk/d3d8.cpp
++++ b/runtime/xdk/d3d8.cpp
+@@ -3,6 +3,7 @@
+ #include <algorithm>
+ #include <atomic>
+ #include <chrono>
++#include <cstdlib>
+ #include <map>
+ #include <thread>
+ #include <unordered_map>
+@@ -120,6 +121,26 @@ uint32_t g_depth = 0;
+ uint32_t g_scratch_push = 0, g_scratch_size = 0;
+ uint32_t g_walk = 0;  // first scratch command not read yet
+ 
++// Netplay rollback: a frame run again to catch up is not shown (SetSkipPresent, at the frame's top), nor drawn: its
++// draws and clears are dropped. A rollback runs a few frames again inside one, and drawing them, which nobody sees,
++// made the frame shown after them late. What the title can see of the renderer stays as it was: states, fences,
++// copies, read-backs and visibility reports (which count no pixels then). Calls after a swap and before the next
++// frame's top are drawn, whichever frame they turn out to be; XBE_DRAW_UNSEEN draws every frame, as before.
++std::atomic<bool> g_skip_present{false};
++std::atomic<bool> g_frame_top{false};  // the top of a frame came since the last swap
++bool g_count_before_top = false;       // the last swap closed a match's frame: count until the next top
++uint32_t g_before_top = 0;             // draws and clears between that swap and the next frame's top
++
++// true when the draw or clear being called is dropped
++bool DropDraw() {
++    static const bool draw_unseen = std::getenv("XBE_DRAW_UNSEEN") != nullptr;
++    if (!g_frame_top) {
++        if (g_count_before_top) g_before_top++;
++        return false;
++    }
++    return g_skip_present && !draw_unseen;
++}
++
+ uint32_t Dev(uint32_t off) { return R32(kDevice + off); }
+ void SetDev(uint32_t off, uint32_t v) { W32(kDevice + off, v); }
+ 
+@@ -395,6 +416,9 @@ HLE_STDCALL(D3D_BlockOnResource, 1) {
+                 }
+                 LOGI("d3d: BlockOnResource on surface %08X, stack %08X %08X %08X %08X", data, code[0], code[1], code[2], code[3]);
+             }
++            if (g_frame_top && g_skip_present)
++                LOG_FIRST(8, "d3d: surface %08X locked in a frame not drawn (from %08X): it holds an older picture",
++                          data, R32(ctx.esp));
+             g_backend->Sync(data, 0);
+         } else {
+             g_backend->WaitResource(res);
+@@ -409,6 +433,9 @@ HLE_WRAP(Lock2DSurface, 6) {
+     uint32_t res = a[0];
+     if ((a[5] & 0x20) && res && g_backend) {  // D3DLOCK_NOOVERWRITE
+         std::lock_guard<std::recursive_mutex> lock(g_lock);
++        if (g_frame_top && g_skip_present)
++            LOG_FIRST(8, "d3d: surface %08X read in a frame not drawn: it holds an older picture",
++                      mem::VirtualFromPhysical(R32(res + 4)));
+         g_backend->SyncLate(mem::VirtualFromPhysical(R32(res + 4)));
+     }
+ }
+@@ -580,12 +607,18 @@ HLE_STDCALL(D3DDevice_GetDepthStencilSurface2, 0) {
+ 
+ namespace {
+ std::atomic<uint32_t> g_presents{0};
+-std::atomic<bool> g_skip_present{false};
+ uint32_t g_unseen = 0;                  // frames swapped without a present since the last one
+ constexpr uint32_t kFlushUnseen = 8;    // a flush every so many: a present gives the renderer's frame rings back
+ }  // namespace
+ 
+-void d3d::SetSkipPresent(bool skip) { g_skip_present = skip; }
++void d3d::SetSkipPresent(bool skip) {
++    std::lock_guard<std::recursive_mutex> lock(g_lock);
++    if (g_before_top)  // where the title draws more than the swap's frame: those calls are drawn every time
++        LOG_FIRST(4, "d3d: %u draws and clears came between a swap and the next frame's top", g_before_top);
++    g_before_top = 0;
++    g_skip_present = skip;
++    g_frame_top = true;
++}
+ 
+ void d3d::WaitForRenderer() {
+     std::lock_guard<std::recursive_mutex> lock(g_lock);
+@@ -625,6 +658,8 @@ HLE_STDCALL(D3DDevice_Swap, 1) {
+         // would fill the renderer's upload and descriptor rings, which a present gives back
+         g_backend->Flush();
+     }
++    g_count_before_top = g_frame_top.exchange(false);
++    g_before_top = 0;
+     // like the XDK, the surfaces stay put and their memory rotates: titles keep back buffer pointers and copy its data
+     uint32_t last = g_buffers[g_buffer_count - 1], data = R32(last + 4), lk = R32(last + 8);
+     for (uint32_t i = g_buffer_count - 1; i > 0; i--) {
+@@ -642,7 +677,7 @@ HLE_STDCALL(D3DDevice_Swap, 1) {
+ HLE_STDCALL(D3DDevice_Clear, 6) {
+     std::lock_guard<std::recursive_mutex> lock(g_lock);
+     const uint8_t* rects = a[0] && a[1] ? static_cast<const uint8_t*>(HostPtr(a[1])) : nullptr;
+-    if (g_backend) g_backend->Clear(g_state, a[0], rects, a[2], a[3], ArgF(a, 4), a[5]);
++    if (g_backend && !DropDraw()) g_backend->Clear(g_state, a[0], rects, a[2], a[3], ArgF(a, 4), a[5]);
+     return 0;
+ }
+ 
+@@ -1215,7 +1250,7 @@ HLE_STDCALL(D3DDevice_DrawVertices, 3) {
+     std::lock_guard<std::recursive_mutex> lock(g_lock);
+     Walk(Dev(kDevPush));  // a visibility test begun since the last draw counts this one
+     SyncDeferred();
+-    if (g_backend) g_backend->Draw(g_state, a[0], a[1], a[2], nullptr);
++    if (g_backend && !DropDraw()) g_backend->Draw(g_state, a[0], a[1], a[2], nullptr);
+     return 0;
+ }
+ 
+@@ -1224,7 +1259,7 @@ HLE_STDCALL(D3DDevice_DrawIndexedVertices, 3) {
+     Walk(Dev(kDevPush));
+     SyncDeferred();
+     const uint8_t* indices = a[2] ? static_cast<const uint8_t*>(HostPtr(a[2])) : nullptr;
+-    if (g_backend) g_backend->Draw(g_state, a[0], 0, a[1], indices);
++    if (g_backend && !DropDraw()) g_backend->Draw(g_state, a[0], 0, a[1], indices);
+     return 0;
+ }
+ 
+@@ -1257,7 +1292,7 @@ uint32_t UpVertices(const void* src, uint32_t bytes) {
+ }
+ 
+ void DrawUp(uint32_t prim, uint32_t count, const void* vertices, uint32_t stride) {
+-    if (!g_backend || !count || !stride) return;
++    if (!g_backend || !count || !stride || DropDraw()) return;
+     SyncDeferred();
+     auto stream = g_state.streams[0];
+     g_state.streams[0] = {UpVertices(vertices, count * stride), stride};

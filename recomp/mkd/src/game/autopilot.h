@@ -19,6 +19,11 @@ struct Request {
 
 // the port this PC's player steers their own side's cursor with now (they pick on the select screen), -1 otherwise
 int LocalPickPort();
+// online, a side its player picked on the select screen (Kombat's and Puzzle Kombat's fighter): the pick both games
+// fight with (this PC's player's as it went to the other game, the other player's as it came; a spectator's game: both
+// as they came), its costume flags and the arena that player chose on the select screen (-1 none); false before the
+// pick, or for a side the launcher picked
+bool AgreedPick(int side, int& character, uint32_t& costume, int& arena);
 
 // still pressing buttons
 bool Active();

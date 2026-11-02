@@ -89,10 +89,13 @@ C: {"type":"hello","proto":1,"client":"mk3d-launcher","version":"0.1.0","os":"wi
 S: {"type":"welcome","proto":1,"server":"mk3d-server","version":"0.1.0","udp_port":7778,
     "motd":"Welcome!","online":12,"min_client":"0.1.0",
     "games":{"mkda":["kombat"],"mkd":["kombat","chess","puzzle"],"mka":["kombat","motor"]},
-    "regions":["na","sa","eu","me","af","as","oc"]}
+    "regions":["na","sa","eu","me","af","as","oc"],"direct_above_ms":100}
 ```
 
 - `proto` must equal the server's `PROTO`, else `error{code:"proto_mismatch"}`.
+- `direct_above_ms` (0.1.18): a match relayed only because a player hides their
+  address tries a direct connection when its ping through the relay is over
+  this (1.7 `relay`; 0: never), for the launcher's Settings to say.
 - `version` is compared component-wise with `min_client` (server option
   `--min-client`); older clients get `error{code:"client_outdated"}`, whose
   `message` ends with where to download the release (launchers before 0.1.7
@@ -226,7 +229,14 @@ S: {"type":"queue_left","reason":"left"}
   match with such a player goes through the server's relay (2.4) from the
   start, so neither player is ever sent the other's address; it costs ping for
   players far from the server. A ranked set or a casual series keeps the
-  choice its first match was made with.
+  choice its first match was made with. Since 0.1.18 a match relayed only for
+  that, whose ping through the relay is over the server's `direct_above_ms`
+  (`welcome`, 100 by default, 0: never), tries a direct connection (section
+  2.4, step 5 of 1.8): the two then learn each other's address.
+- `hide_always` (optional, default `false`, 0.1.18; with `relay` alone): the
+  player hides their address however high the relay's ping: a match with them
+  is never tried directly (the launcher's "Even when the ping through the
+  server is high").
 - `character` is a roster id from the launcher data (e.g. `SubZero`); it may
   be empty or `-` for modes where the team is picked in the game (`chess`).
 - One queue entry per account; joining again replaces the entry. A player in
@@ -313,6 +323,16 @@ S: {"type":"queue_left","reason":"left"}
    C: {"type":"ping_report","match":"5f2c9a01d4e3","ok":false,"rtt_ms":0}
    ```
 5. **Go, relay or cancel.** When both reports are in:
+   - (0.1.18) both `ok` through the relay for a match relayed only because a
+     player hides their address (none with `hide_always`, nobody tunnelled),
+     with the worse `rtt_ms` over `direct_above_ms`: the two try each other
+     directly once: both get a direct `match_peer` (the other's endpoints, as
+     in step 3) with `"direct_why":"relay_ping"`, `relay_rtt` (the ping through
+     the relay) and `relay_mine` (true for a player who hides their address:
+     theirs shows now), punch and report again. Faster than the relay by
+     `direct_gain_ms` (20) or more: `match_go` direct. Otherwise, or with either
+     `ok:false`: back through the relay, a relay `match_peer` again with
+     `"back":true`, punch and report again (no second direct try);
    - either `ok:false`, the first time: the match moves to the server's relay
      (section 2.4): both get a second `match_peer` with `"relay":true` and
      empty `peer` endpoints, punch and ping through the server's UDP port, and
@@ -426,15 +446,22 @@ S: {"type":"series","series":"8d01c3e2a9f4", ...,"state":"over","outcome":"won",
   chose one. When both are ready the server starts the next match like a lobby
   match: `match_found` with `accept_required` false, `"series"` and the same
   sides, then the usual setup (1.8).
-- `choice` (casual; default `rematch`): `rematch` plays the last match's
-  fighters again when both choose it (`match_go` `p1`/`p2` are the game's
-  character ids from both results, the autopilot picks them); `select` from
-  either player sends both to the select screen (`p1`/`p2` `-`). Without
+- In `kombat` (the server's `SELECT_SCREEN_MODES`, 0.1.18) every match of a
+  series after the first goes back to the game's select screen, casual and
+  ranked alike (`match_go` `p1`/`p2` `-`): both players pick again there,
+  whatever `choice` says (the launcher has one button, REMATCH).
+- `choice` (casual, other modes; default `rematch`): `rematch` plays the last
+  match's fighters again when both choose it (`match_go` `p1`/`p2` are the
+  game's character ids from both results, the autopilot picks them); `select`
+  from either player sends both to the select screen (`p1`/`p2` `-`). Without
   fighters both reports agreed on (`same_fighters` false: a desync, a mode
   without fighters, an older launcher) a rematch uses the characters both
   queued with. `you_choice`/`them_choice` show what each chose once ready. A
-  ranked set ignores it and keeps the characters both queued with (`-`: they
-  pick before every match).
+  ranked set of another mode keeps the characters both queued with.
+- Once a series is over, a launcher searches again by itself with the search
+  it came from (`cfg::searchAgain`, on unless the player turned it off), unless
+  the player left the series themselves, let a Kasual rematch offer run out
+  without taking it, or neither came back to a ranked set.
 - `over` carries `outcome`:
   - `won`: a set's `winner` reached `need` wins. Elo update with `K = 32`,
     `E_a = 1 / (1 + 10^((R_b - R_a) / 400))`, `d = round(K * (S_a - E_a))`
@@ -472,7 +499,7 @@ C: {"type":"lobby_role","role":"spectator"}                    (or "player")
 C: {"type":"lobby_leave"}
 C: {"type":"lobby_chat","text":"gg"}
 C: {"type":"lobby_character","character":"Kenshi"}
-C: {"type":"lobby_ready","ready":true,"delay":2,"relay":false,"link":"wifi","server_rtt":31}
+C: {"type":"lobby_ready","ready":true,"delay":2,"relay":false,"hide_always":false,"link":"wifi","server_rtt":31}
                                            (delay optional, 0-4; relay, link, server_rtt 0.1.8)
 C: {"type":"lobby_start"}                       (host only: at once; launchers from 0.1.11 never send it)
 C: {"type":"lobby_settings","death_traps":false}               (host only, 0.1.8)
@@ -563,9 +590,11 @@ S: {"type":"spectate_end","match":"5f2c9a01d4e3","status":"agreed","winner":1,
   3.3), takes both picks from the feed, meets both games' READY words where a
   player's game meets the other's, and plays every frame from both players'
   inputs, never predicting: a frame waits for both inputs, and once they ran
-  out for 20 more. A game far behind (a spectator who came in late) runs
-  three frames of four unseen until it is close again. Its own checks are
-  compared with the players'.
+  out for 20 more. A game far behind (a spectator who came in late, 180
+  frames or more) runs every frame unseen and unheard, as fast as its PC
+  runs them, until it is within 30 frames: the match comes on where the
+  players are (0.1.18; before, three frames of four unseen, a fast-forward).
+  Its own checks are compared with the players'.
 
 ### 1.11 Leaderboard
 
@@ -632,6 +661,36 @@ The server logs each line with the player's name (`DESYNC_REPORT <name> |
 <line>`, after a line naming the game, launcher version, match and frame), so
 both players' reports of a match stand side by side, and keeps nothing: at most
 40 lines of 200 printable characters (else `bad_request`), 10 reports a session.
+
+### 1.13.2 F3 reports (0.1.18)
+
+```json
+C: {"type":"report_file","report":"0123456789abcdef","game":"mkd","name":"final.jpg",
+    "part":0,"parts":3,"data":"<base64>"}
+C: {"type":"report_file","report":"0123456789abcdef","game":"mkd","name":"frame.txt",
+    "part":0,"parts":1,"data":"<base64>","zlib":true}
+C: {"type":"report_done","report":"0123456789abcdef"}
+S: {"type":"report_saved","report":"0123456789abcdef","files":25}
+```
+
+A player who sees something drawn wrong presses F3 in the game: the runtime
+saves what it drew (the frame's draws `frame.txt`, its picture `final.bmp`,
+the next 20 frames' pictures `next_00.bmp` .. `next_19.bmp` and the textures it
+used `tex_*.bmp`) under the session's `captures` folder, and the game shows a
+line saying so. The launcher (`ReportSender`) finds the new capture in a running
+game's session once its last picture is saved (or 15 s on), and sends it: the
+pictures as JPEG, the textures as PNG (smallest first, 4 MB at most), the draws,
+the end of the game's log (256 KB, IP addresses and user folders taken out)
+and `info.txt` (launcher version, game, session, display settings) compressed
+(`zlib`: as Qt's qCompress makes it, a big-endian length then zlib). Each file
+goes in parts of at most 16,000 base64 characters, in order, two parts every
+0.1 s so the match's own messages pass; `report_done` ends it. The server
+writes each file once its last part is in, into
+`<reports_dir>/<day>/<time>-<player>-<game>-<report>` (`reports` beside the
+database), and logs `REPORT <name> <game> (launcher <version>): <n> files,
+<KB> KB, in <folder>`. Limits: 3 reports a connection, 12 MB and 160 files a
+report, names `[A-Za-z0-9_-]{1,40}` with `.jpg`, `.png`, `.txt` or `.log`, 4 GB
+of reports on disk (`too_many`, `too_large`, `unavailable`, `bad_request`).
 
 ---
 
@@ -732,6 +791,17 @@ so the router keeps the mapping the hellos opened.
   to 30 s before their launchers park them. It used to end after 15 s, which
   cut a fatality off: both games stood still until that park.
 - The server logs each relayed match and the packets that went each way.
+- `match_peer` with `relay` says why (0.1.18): `relay_why` is `hidden` (a
+  player hides their address; `relay_mine` true for that player), `tunnel`,
+  `unreachable` (the punch failed) or `relay_only`. The launchers tell their
+  players when a hidden address is why: two players far from the server (in
+  Virginia) get far more ping through it than directly (two in the UK about
+  180 ms instead of about 25). Since 0.1.17 almost every relayed match was
+  relayed for that reason (705 of 736), not for a failed punch (29).
+- A match relayed only for a hidden address whose ping through the relay is
+  over `direct_above_ms` (0.1.18, `--direct-above-ms`, 100 by default) tries a
+  direct connection once (1.8, step 5); the relay's routes linger meanwhile,
+  and a way back (`"back":true` in the relay's `match_peer`) makes them again.
 
 ### 2.4.1 Tunnel (0.1.12)
 
@@ -869,7 +939,11 @@ one was taken, or after 2 s; a newer untaken command replaces the older one
 
 `start` keys: `game`; `mode` (`kombat`, `chess`, `puzzle`, `motor`,
 `practice`); `side` (local player, 1 or 2); `local_port` (UDP port to bind);
-`remote` (peer `ip:port`); `delay` (input delay in frames); `seed` (32 bit,
+`remote` (peer `ip:port`); `delay` (input delay in frames: the launcher's,
+the larger of both players' settings raised for the match's ping when the
+player lets it, `cfg::autoDelay`: the frames of the one-way trip but one, 6 at
+most, 4 at 180 ms; from 0.1.18 each game's READY carries its delay after its
+words, `u8`, and both play the larger of the two); `seed` (32 bit,
 identical on both sides); `p1`/`p2` (roster ids, identical on both sides,
 `-` when the mode picks in the game: Chess Kombat's teams by the game; in
 `kombat` the player of that side picks on the game's own select screen with
@@ -899,10 +973,22 @@ netplay HELLO packets, which carry the words of this game's pick once there is
 one (`u8 n, n x u32` after the header, for the match set up next: the barrier
 number in the header). The other game's autopilot makes that pick for that
 side. A side with a roster id is picked by the autopilot on both PCs, so the
-two ways mix. A player who has not picked after 75 s (40 s in Armageddon,
-whose select screen leaves after 45 s without a press) gets the cursor's
-fighter; a side waiting for the other player's pick moves its cursor every
-8 s to keep the screen up. A rematch picks again. Every fighter, alternate
+two ways mix. From 0.1.18 the pick's words are the character under the cursor
+(Armageddon's record lagged it: a quick confirm sent the fighter before), the
+costume (0 or 1) and the arena the player chose on the select screen
+(0xFFFFFFFF none); before the pick, the player's cursor goes the same way as
+one word, `0xC5000000 | slot`, which the other game's (and a spectator's)
+autopilot steers that side's cursor after. Nobody's time runs out: the select
+screens' own idle timeouts are held off online and when watching (Armageddon
+0x5B7E64, Deadly Alliance's idle task restart sub_0010D250 skipped; Deception
+has none), and no timer picks for a player (0.1.17 picked the cursor's
+fighter after 75 s, 40 s in Armageddon, and moved a waiting side's cursor
+every 8 s). The arena: both chose, the match seed's bit 7 picks P2's (else
+P1's); one chose, that one; neither, the match's own; both games and
+spectators put it where the fight takes it (Armageddon's arena panel, BLACK;
+Deadly Alliance's, BLACK then START; Deception's chooser opens only in an
+Xbox Live match). At the select screen's end both games give the records the
+agreed picks. A rematch picks again. Every fighter, alternate
 costume and arena is open in an online match (the games' built-in unlock masks
 as well as the profile ones, so no profile's saved unlocks change), and the
 costume a player picks reaches the other game with the pick; both games compare

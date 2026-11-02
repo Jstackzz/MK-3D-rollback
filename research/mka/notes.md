@@ -476,6 +476,59 @@ pressing every frame, the rest from the practice panel):
 Open: Scorpion's X at point-blank range (contact on its first active frame) once put both fighters into the
 script-run routine 0x2B8F0 for 200+ frames (P1 frozen in phase 2); the panel drops a move not over in 300 frames.
 
+## The online select screen (2026-11-02, for 0.1.18)
+
+36 Armageddon desync reports since 0.1.17: 24 "match setups differ" (each player's own game fought another
+character than the one it had sent: Li Mei 30 sent, Kobra 28 fought; Quan Chi 42 sent, Jax 19 fought), 8 "arenas
+differ", 4 in play. Decompiles in `q-sel6.txt` and `q-sel7.txt`.
+
+- The character a side picks is the one under its cursor, block +0x1C (P1) / +0x50 (P2): the cursor setter
+  sub_00207170 (its tail FUN_00207372) writes the slot (+0x10 / +0x44) and the character there at once (0x3F, the
+  random head, while a random pick's roulette sub_00209650 runs). The record's character (+0x2C) is only a copy: the
+  screen's preview handler sub_00205470 (one player at a time, through sub_00205430 / sub_00205450) copies it after
+  loading the previous preview (sub_00209F30 waits frames), and the screen's end sub_002056E0 copies both characters
+  under the cursors over the records once more. A confirm (sub_00207930, state 2) right after a move leaves the
+  character before in the record for a while: the autopilot sent that. Reproduced with two release games (scratchpad
+  mka-sel/selmka.py "fast": the move and A two frames apart): "this player picked character 32" with 30 under the
+  cursor, both games set up 30 vs 43 / 32 vs 28, desync at frame 0. Now the pick sent is the character under the
+  cursor, and online the screen's end (hooked) gives both records the picks both games agreed on.
+- The arena panel: BLACK opens it over the grid (block +0x78 = 1, sub_00208670), LEFT / RIGHT move through the arenas
+  of table 0x561970 (sub_002086F0 -> sub_0009B580, which stores the choice in 0x831A58, -1 none; Motor Kombat's
+  track select uses the same variable), A takes the arena and closes it, B puts the choice back and closes it. While
+  it is open the cursor does not move and A picks nothing. The fight load's sub_000982D0 puts a choice below 0x38
+  over the arena the select task took from the list (and clears it): online only the chooser's game had it. Now
+  online and watched fights clear it there ("the select screen's arena choice 3 left out"), and BLACK no longer
+  reaches the select screen while a player picks (pads.cpp; B, BACK and X were already kept from it).
+- Stage select online (user, 2026-11-02: "make sure that stage select works so if someone tries to select their
+  stage online it won't crash or desync"): the arena panel works online again. BLACK reaches it during a player's own
+  pick, B too while the panel is open (it closes the panel, the choice put back; elsewhere B and BACK stay kept from the
+  select screen), and the choice (0x831A58 below 0x38) goes to the other game as the pick's third word (0xFFFFFFFF
+  none). The fight load's hook (sub_000982D0) puts the arena both games agree on there: both chose, the match seed's
+  bit 7 picks P2's (else P1's); one chose, that one; neither, the match's own. Tested at 80 ms with a spectator: one
+  chose (arena 3 in both), both chose 6 and 19 (6 in both, seed bit 7 clear), the panel left with B (no choice, still on
+  the select screen, the match's 10), nobody (the match's 9); 4 matches, 8329 frames, 0 differ; the spectator's 2150,
+  0 differ.
+- Idle: the select task counts 2700 frames from the last change of 0x5B7E64, the main loop frame of the last input
+  (sub_000A1590 writes it from 0x709E6C), then goes back to the main menu; the main menu (sub_0019F3D0) and the kart
+  select (sub_00105590) count the same way. Online the autopilot writes the frame counter there every frame of the
+  select screen, so nobody's time runs out (0.1.17 picked the cursor's character for a player after 40 s and moved the
+  waiting side's cursor every 8 s to keep the screen up).
+- After LT the cursor took no moves for the next presses, after RT or WHITE it moved again (not traced); X opens
+  another panel only B closes (kept from the player online). The select task's object (0x5B8840) +0x34 holds a resume
+  address, not a panel state.
+- The other player's cursor: before the pick a player's game sends its cursor slot in the pick words, tagged
+  (0xC5000000 | slot, so no character id can be taken for it); the other game (and a spectator's, for both sides)
+  steers that side's cursor after it, one move every 0.1 s, then to the pick and A.
+
+Tests (release, two minimized games, through a local relay; a third watching through a feed relay as the launcher
+and server pass it on; this PC's own controllers kept out with SDL's environment, after both games once picked their
+start characters in the alternate costume at the same moment, as from a controller in use): every scenario in sync
+and the results naming the right characters, at 0, 40,
+80 and 120 ms round trip, rematches included: 9816 frames in both players' logs at 80 ms over five matches (quick
+confirms, the stick and A after the pick, the arena panel, 55 s on the select screen without a press, the cursor
+followed), 0 differ; the spectator's 1965 frames against the player's, 0 differ; the safety net forced (a P2 under
+written over after the pick: "P2 ends the select screen on character 4, the match's pick is 28: that one", in sync).
+
 ## Environment and tools
 
 `src/game/pads.cpp` takes `MKA_PADS`, `MKA_INPUT`, `MKA_PAD_DELAY`, `MKA_PAD_LOG` (Deception's `MKD_*` renamed);

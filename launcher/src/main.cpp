@@ -85,6 +85,11 @@ int main(int argc, char* argv[]) {
         QStringLiteral("practice"),
         QStringLiteral("Practice while a Ranked or Kasual search waits: on or off (saved like the queue pages' box)."),
         QStringLiteral("on|off"));
+    const QCommandLineOption searchAgainOpt(
+        QStringLiteral("search-again"),
+        QStringLiteral("Search again once a Ranked set or a Kasual series is over: on or off (saved like the queue "
+                       "pages' box)."),
+        QStringLiteral("on|off"));
     const QCommandLineOption updatedOpt(
         QStringLiteral("updated"),
         QStringLiteral("Started by an update of this version: waits for it to close, then deletes what it set aside."),
@@ -95,7 +100,7 @@ int main(int argc, char* argv[]) {
                           &charOpt, &pageOpt, &acceptOpt, &cancelOpt, &localTestOpt, &extractOpt, &lobbyOpt, &lobbyNameOpt,
                           &lobbyMatchesOpt, &leaveLobbyOpt, &upnpProbeOpt, &rematchesOpt, &rematchChoiceOpt,
                           &leaveSeriesOpt, &soloOpt,
-                          &practiceOpt, &deathTrapsOpt, &updatedOpt, &autoUpdateOpt})
+                          &practiceOpt, &searchAgainOpt, &deathTrapsOpt, &updatedOpt, &autoUpdateOpt})
         cli.addOption(*o);
     cli.process(app);
 
@@ -150,6 +155,7 @@ int main(int argc, char* argv[]) {
     opts.leaveSeries = cli.isSet(leaveSeriesOpt);
     opts.solo = cli.isSet(soloOpt);
     opts.practice = cli.value(practiceOpt);
+    opts.searchAgain = cli.value(searchAgainOpt);
     opts.deathTraps = cli.value(deathTrapsOpt);
     opts.upnpProbe = cli.isSet(upnpProbeOpt);
     opts.updatedFrom = cli.value(updatedOpt);

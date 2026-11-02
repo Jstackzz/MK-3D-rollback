@@ -20,6 +20,15 @@ struct Request {
 
 // the port this PC's player steers their own side's cursor with now (they pick on the select screen), -1 otherwise
 int LocalPickPort();
+// online, a side its player picked on the select screen: the pick both games fight with (this PC's player's as it
+// went to the other game, the other player's as it came; a spectator's game: both as they came), costume 0 or 1 (the
+// alternate); false before the pick, or for a side the launcher picked
+bool AgreedPick(int side, int& character, uint32_t& costume);
+// online, the arena a side's player chose on the select screen's arena panel before their pick (sent with it), -1
+// for none (or before the pick)
+int ChosenArena(int side);
+// the select screen's arena panel is open (BLACK opened it; A takes an arena, B puts the choice back, both close it)
+bool ArenaPanelOpen();
 
 // still pressing buttons
 bool Active();

@@ -1,5 +1,6 @@
-"""Series after a queue match: casual rematches while both want one, with the same fighters or both picking again;
-ranked sets to two match wins, Elo moving once per set, and a player who leaves a set with a match counted loses it."""
+"""Series after a queue match: casual rematches while both want one (in kombat back to character select, both picking
+again; in other modes with the same fighters or both picking again); ranked sets to two match wins, Elo moving once per
+set, and a player who leaves a set with a match counted loses it."""
 
 from __future__ import annotations
 
@@ -10,11 +11,11 @@ from server.client import ServerError
 from .conftest import queue_msg, run_to_go
 
 
-async def first_match(server, connect, udp_peers, names, *, ranked, character="Scorpion"):
+async def first_match(server, connect, udp_peers, names, *, ranked, character="Scorpion", game="mkd", mode="kombat"):
     conns = [await connect(n) for n in names]
     udps = [await udp_peers(), await udp_peers()]
     for conn in conns:
-        await conn.request(queue_msg(ranked=ranked, character=character))
+        await conn.request(queue_msg(game, mode, ranked=ranked, character=character))
     gos = await run_to_go(server, list(zip(conns, udps)))
     sides = {go["side"]: (conn, udp) for conn, udp, go in zip(conns, udps, gos)}
     return sides, {go["side"]: go for go in gos}
@@ -155,13 +156,29 @@ async def test_casual_rematch_while_both_want_one(server, connect, udp_peers):
     assert prof["stats"] == {"mkd": {"kombat": {"casual": {"wins": 1, "losses": 1}}}}
 
 
-async def test_casual_rematch_keeps_the_fighters_and_select_picks_again(server, connect, udp_peers):
-    # both pick on the select screen ("" queued); the games report what was picked
-    sides, gos = await first_match(server, connect, udp_peers, ["Raiden", "Jade"], ranked=False, character="")
+async def test_kombat_rematch_goes_back_to_character_select(server, connect, udp_peers):
+    # queued with fighters from the launcher: the first match plays them, every match after it is picked again on the
+    # game's select screen, whatever each chose (an older launcher's "rematch" too)
+    sides, gos = await first_match(server, connect, udp_peers, ["Raiden", "Jade"], ranked=False)
     (c1, _), (c2, _) = sides[1], sides[2]
-    assert (gos[1]["p1"], gos[1]["p2"]) == ("-", "-")
+    assert (gos[1]["p1"], gos[1]["p2"]) == ("Scorpion", "Scorpion")
     s1, _ = await play(c1, c2, gos[1]["match"], 1, fighters=(("12", "7"), ("12", "7")))
     assert s1["same_fighters"] is True and s1["you_choice"] == "" and s1["them_choice"] == ""
+    gos2 = await next_match(server, sides, s1["series"], choices=("rematch", "rematch"))
+    assert (gos2[1]["p1"], gos2[1]["p2"]) == ("-", "-") and (gos2[2]["p1"], gos2[2]["p2"]) == ("-", "-")
+    s1, _ = await play(c1, c2, gos2[1]["match"], 2, fighters=(("3", "4"), ("3", "4")))
+    gos3 = await next_match(server, sides, s1["series"], choices=("select", None))
+    assert (gos3[1]["p1"], gos3[1]["p2"]) == ("-", "-")
+
+
+async def test_other_modes_rematch_keeps_the_fighters_and_select_picks_again(server, connect, udp_peers):
+    # Motor Kombat: the karts picked in the launcher; the games report what was picked
+    sides, gos = await first_match(server, connect, udp_peers, ["Raiden", "Jade"], ranked=False, character="Jax",
+                                   game="mka", mode="motor")
+    (c1, _), (c2, _) = sides[1], sides[2]
+    assert (gos[1]["p1"], gos[1]["p2"]) == ("Jax", "Jax")
+    s1, _ = await play(c1, c2, gos[1]["match"], 1, fighters=(("12", "7"), ("12", "7")))
+    assert s1["same_fighters"] is True
 
     # a rematch: the same fighters, picked by the autopilot
     gos2 = await next_match(server, sides, s1["series"], choices=("rematch", "rematch"))
@@ -176,22 +193,33 @@ async def test_casual_rematch_keeps_the_fighters_and_select_picks_again(server, 
     assert (gos3[1]["p1"], gos3[1]["p2"]) == ("-", "-")
 
 
-async def test_casual_rematch_without_agreed_fighters_uses_the_queued_ones(server, connect, udp_peers):
-    sides, gos = await first_match(server, connect, udp_peers, ["Kai", "Sareena"], ranked=False)
+async def test_other_modes_rematch_without_agreed_fighters_uses_the_queued_ones(server, connect, udp_peers):
+    sides, gos = await first_match(server, connect, udp_peers, ["Kai", "Sareena"], ranked=False, character="Jax",
+                                   game="mka", mode="motor")
     (c1, _), (c2, _) = sides[1], sides[2]
     # the two games saw different fighters (or an old launcher sent none): nothing to repeat
     s1, _ = await play(c1, c2, gos[1]["match"], 1, fighters=(("3", "4"), ("3", "5")))
     assert s1["same_fighters"] is False
     gos2 = await next_match(server, sides, s1["series"], choices=("rematch", "rematch"))
-    assert (gos2[1]["p1"], gos2[1]["p2"]) == ("Scorpion", "Scorpion")
+    assert (gos2[1]["p1"], gos2[1]["p2"]) == ("Jax", "Jax")
 
 
-async def test_ranked_set_keeps_the_queued_characters(server, connect, udp_peers):
+async def test_ranked_set_picks_again_on_the_select_screen(server, connect, udp_peers):
     sides, gos = await first_match(server, connect, udp_peers, ["Dairou", "Darrius"], ranked=True)
+    (c1, _), (c2, _) = sides[1], sides[2]
+    assert (gos[1]["p1"], gos[1]["p2"]) == ("Scorpion", "Scorpion")
+    s1, _ = await play(c1, c2, gos[1]["match"], 1, fighters=(("3", "4"), ("3", "4")))
+    gos2 = await next_match(server, sides, s1["series"], choices=("rematch", "rematch"))
+    assert (gos2[1]["p1"], gos2[1]["p2"]) == ("-", "-")
+
+
+async def test_ranked_motor_set_keeps_the_queued_karts(server, connect, udp_peers):
+    sides, gos = await first_match(server, connect, udp_peers, ["Dairou", "Darrius"], ranked=True, character="Jax",
+                                   game="mka", mode="motor")
     (c1, _), (c2, _) = sides[1], sides[2]
     s1, _ = await play(c1, c2, gos[1]["match"], 1, fighters=(("3", "4"), ("3", "4")))
     gos2 = await next_match(server, sides, s1["series"], choices=("rematch", "rematch"))
-    assert (gos2[1]["p1"], gos2[1]["p2"]) == ("Scorpion", "Scorpion")
+    assert (gos2[1]["p1"], gos2[1]["p2"]) == ("Jax", "Jax")
 
 
 async def test_bad_fighters_or_choice(server, connect, udp_peers):

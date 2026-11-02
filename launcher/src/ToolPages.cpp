@@ -380,6 +380,11 @@ SettingsPage::SettingsPage(ServerClient* server, QWidget* parent) : Page(parent)
     delay->setRange(0, 4);
     delay->setValue(cfg::inputDelay());
     delay->setSuffix(tr(" frames"));
+    auto* autoDelay = new QCheckBox(tr("More delay when the ping is high"));
+    autoDelay->setChecked(cfg::autoDelay());
+    autoDelay->setToolTip(tr("A match with a high ping gets more input delay, about its ping's frames each way but "
+                             "one (4 frames at 180 ms, 6 at most), so the game rolls back less and fighters jump "
+                             "less. Both games play the larger delay of the two."));
     auto* port = new QSpinBox;
     port->setRange(1024, 65535);
     port->setValue(cfg::gamePort());
@@ -390,7 +395,39 @@ SettingsPage::SettingsPage(ServerClient* server, QWidget* parent) : Page(parent)
     auto* hideIp = new QCheckBox(tr("Hide my IP address from opponents"));
     hideIp->setChecked(cfg::hideIp());
     hideIp->setToolTip(tr("Your matches go through the server, so nobody you play can see your address. They get "
-                          "more ping the farther you and your opponent are from the server (in Virginia, USA)."));
+                          "more ping the farther you and your opponent are from the server (in Virginia, USA): two "
+                          "players in Europe get about 180 ms this way instead of about 25 ms directly. A match whose "
+                          "ping that way is too high tries a direct connection instead, unless the box below is "
+                          "ticked."));
+    auto* hideAlways = new QCheckBox(tr("Even when the ping through the server is high"));
+    hideAlways->setChecked(cfg::hideIpAlways());
+    hideAlways->setEnabled(hideIp->isChecked());
+    hideAlways->setToolTip(tr("Every match goes through the server however much ping that costs: no opponent ever "
+                              "sees your address."));
+    // what hiding costs from here: a match goes to the server and back, at least twice the ping to it; past the
+    // server's limit (welcome: direct_above_ms) it tries a direct connection unless hidden always
+    hideIpCost_ = ui::label(QString(), "Muted");
+    hideIpCost_->setWordWrap(true);
+    auto updateHideIpCost = [this, hideIp, hideAlways] {
+        const int rtt = server_->rttMs();
+        const int directAbove = server_->welcome().value(QStringLiteral("direct_above_ms")).toInt(0);
+        hideIpCost_->setVisible(hideIp->isChecked() && rtt > 0);
+        if (hideAlways->isChecked() || directAbove <= 0)
+            hideIpCost_->setText(tr("With this on, every match goes through the server in Virginia: at least %1 ms of "
+                                    "ping from here (your ping to it is %2 ms), even against a player next door.")
+                                     .arg(2 * rtt).arg(rtt));
+        else
+            hideIpCost_->setText(tr("With this on, a match goes through the server in Virginia: at least %1 ms of "
+                                    "ping from here (your ping to it is %2 ms). When that is over %3 ms, the match "
+                                    "tries your opponent directly and plays that way if it is faster: they can then "
+                                    "see your address.")
+                                     .arg(2 * rtt).arg(rtt).arg(directAbove));
+    };
+    updateHideIpCost();
+    connect(hideIp, &QCheckBox::toggled, this, updateHideIpCost);
+    connect(hideIp, &QCheckBox::toggled, hideAlways, &QWidget::setEnabled);
+    connect(hideAlways, &QCheckBox::toggled, this, updateHideIpCost);
+    connect(server_, &ServerClient::loggedIn, this, updateHideIpCost);
     auto* matchSound = new QCheckBox(tr("Play a sound when a match is found"));
     matchSound->setChecked(cfg::matchSound());
     matchSound->setToolTip(tr("A short chime with the MATCH FOUND window, heard over the game you wait in."));
@@ -399,11 +436,14 @@ SettingsPage::SettingsPage(ServerClient* server, QWidget* parent) : Page(parent)
     of->addRow(tr("Region"), region);
     of->addRow(tr("Max ping"), maxPing);
     of->addRow(tr("Input delay"), delay);
+    of->addRow(QString(), autoDelay);
     of->addRow(tr("Game UDP port"), port);
     of->addRow(QString(), strict);
     of->addRow(QString(), matchSound);
     of->addRow(QString(), upnp);
     of->addRow(QString(), hideIp);
+    of->addRow(QString(), hideAlways);
+    of->addRow(QString(), hideIpCost_);
     of->addRow(tr("Router"), routerState_);
     auto* delayNote = ui::label(tr("Ranked uses at least 1 frame. Players who cannot reach each other directly, or "
                                    "who hide their IP address, play through the server: more ping the farther both "
@@ -539,6 +579,7 @@ SettingsPage::SettingsPage(ServerClient* server, QWidget* parent) : Page(parent)
     connect(region, &QComboBox::currentIndexChanged, this, [region] { cfg::set(QStringLiteral("online/region"), region->currentData()); });
     connect(maxPing, &QComboBox::currentIndexChanged, this, [maxPing] { cfg::set(QStringLiteral("online/max_ping"), maxPing->currentData()); });
     connect(delay, &QSpinBox::valueChanged, this, [](int v) { cfg::set(QStringLiteral("online/delay"), v); });
+    connect(autoDelay, &QCheckBox::toggled, this, [](bool on) { cfg::set(QStringLiteral("online/auto_delay"), on); });
     connect(port, &QSpinBox::valueChanged, this, [this](int v) {
         cfg::set(QStringLiteral("online/game_port"), v);
         if (upnp_ && cfg::upnp()) upnp_->map(static_cast<quint16>(v));
@@ -550,6 +591,8 @@ SettingsPage::SettingsPage(ServerClient* server, QWidget* parent) : Page(parent)
     connect(strict, &QCheckBox::toggled, this, [](bool on) { cfg::set(QStringLiteral("online/strict"), on); });
     connect(matchSound, &QCheckBox::toggled, this, [](bool on) { cfg::set(QStringLiteral("online/match_sound"), on); });
     connect(hideIp, &QCheckBox::toggled, this, [](bool on) { cfg::set(QStringLiteral("online/hide_ip"), on); });
+    connect(hideAlways, &QCheckBox::toggled, this,
+            [](bool on) { cfg::set(QStringLiteral("online/hide_ip_always"), on); });
     connect(mode, &QComboBox::currentIndexChanged, this, [mode] { cfg::set(QStringLiteral("display/mode"), mode->currentData()); });
     connect(res, &QComboBox::currentIndexChanged, this, [res] {
         cfg::set(QStringLiteral("display/resolution"), res->currentData());

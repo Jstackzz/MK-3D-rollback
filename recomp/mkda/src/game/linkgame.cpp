@@ -2,6 +2,7 @@
 // front end, and a match's result comes from what both games agreed on (netgame.h).
 #include "mk3d/linkgame.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <string>
 
@@ -41,10 +42,76 @@ void PickArena(uint32_t seed, const std::string& stage) {
     if (!named.empty()) {
         char* end = nullptr;
         unsigned long id = std::strtoul(named.c_str(), &end, 10);
-        if (end && !*end && id < 0x19) arena = uint32_t(id);
+        // only an arena of the list: another id below 25 is no fight's (21 crashed both games at their load)
+        if (end && !*end && std::find(ids, ids + n, uint32_t(id)) != ids + n) arena = uint32_t(id);
+        else LOGW("link: stage %s is not on the arena list, the seed's arena instead", named.c_str());
     }
     LOGR("link: arena %u (seed %u, %u on the list)", arena, seed, n);
     SetNextArena(int(arena));
+}
+
+// The select screen has an arena choice of its own (BLACK, then START on the arena; autopilot.cpp): it leaves the
+// arena in 0x42C754, which the fight's arena pick takes. Online each game had only its own player's choice, and the
+// match's arena (SetNextArena) went over it in both. Whatever 0x42C754 holds when a player picks goes with the pick,
+// and both games fight on what the two choices give (AgreeOnTheFight).
+uint32_t g_seed = 0;  // the match's seed (the launcher's start line)
+
+// The arena both games fight on from their players' choices on the select screen (-1 none): both chose, the match's
+// seed picks between them (bit 7 set: P2's, else P1's); one chose, that one; neither, -1: the match's own (PickArena).
+// Deception and Armageddon go by the same rule, with the same pick words.
+// A choice counts only when it is an arena a player can choose: on the versus list or in the select screen's own
+// table (0x274398: id, two string ids; increasing ids). Both games take the same choices the same way, so an arena word
+// that names no arena (only another program could send one, and its load would end both games) leaves the match's own.
+constexpr uint32_t kChoiceTable = 0x274398;
+bool Choosable(int id) {
+    if (id < 0 || id >= 0x19) return false;
+    for (uint32_t i = 0; i < 64; i++) {
+        const int32_t listed = int32_t(kernel::R32(kArenaList + 4 * i));
+        if (listed < 0) break;
+        if (listed == id) return true;
+    }
+    int32_t prev = -1;
+    for (uint32_t i = 0; i < 64; i++) {
+        const int32_t offered = int32_t(kernel::R32(kChoiceTable + 12 * i));
+        if (offered <= prev || offered >= 0x19) break;
+        if (offered == id) return true;
+        prev = offered;
+    }
+    return false;
+}
+
+int AgreedArena(int p1, int p2, uint32_t seed) {
+    if (!Choosable(p1)) p1 = -1;
+    if (!Choosable(p2)) p2 = -1;
+    if (p1 >= 0 && p2 >= 0) return (seed & 0x80) ? p2 : p1;
+    return p1 >= 0 ? p1 : p2;
+}
+
+// Online and watched, as the select screen ends on its way to the fight (before anything loads): the characters both
+// games agreed on over the screen's own (the autopilot sends what its player picked, and picks what came for the
+// other side: a game set up otherwise would part from the other at once), and the arena the players' choices give
+// over the match's own (a spectator's game: both players' as they came). The costumes are set as the picks come
+// (autopilot.cpp); a word unlike the agreed one is only told.
+void AgreeOnTheFight() {
+    int character[2] = {-1, -1}, arena[2] = {-1, -1};
+    uint32_t costume[2] = {};
+    bool any = false;
+    for (int s = 0; s < 2; s++) {
+        if (!autopilot::AgreedPick(s, character[s], costume[s], arena[s])) continue;
+        any = true;
+        const uint32_t was = kernel::R32(kCharacter[s]);
+        if (was != uint32_t(character[s]))
+            LOGR("link: P%d is character %u in this game, the match's pick is %d: that one", s + 1, was, character[s]);
+        kernel::W32(kCharacter[s], uint32_t(character[s]));
+        const uint32_t word = kernel::R32(kCostume[s]);
+        if (word && kernel::R32(word) != costume[s])
+            LOGR("link: P%d's costume word is %X in this game, %X in the pick", s + 1, kernel::R32(word), costume[s]);
+    }
+    if (!any) return;
+    const int agreed = AgreedArena(arena[0], arena[1], g_seed);
+    LOGR("link: arena choices P1 %d, P2 %d: %s %d", arena[0], arena[1],
+         agreed >= 0 ? "the match is on arena" : "the match's own arena", agreed >= 0 ? agreed : -1);
+    if (agreed >= 0) SetNextArena(agreed);
 }
 
 // the match's options as the launcher sets them: the rounds a player must win (the round end sub_0006F9A0 ends the
@@ -76,6 +143,7 @@ bool Begin(const Start& start) {
     req.local_side = start.online && !start.watch ? start.side : -1;
     req.watch = start.watch;
     for (int i = 0; i < 2; i++) req.by_player[i] = start.online && start.mode == "kombat" && start.picks[i].empty();
+    g_seed = start.seed;
     PickArena(start.seed, start.stage);
     SetOptions(start.wins_needed);
     return autopilot::Begin(req);
@@ -84,6 +152,7 @@ bool Begin(const Start& start) {
 // a versus match returns to its select screen, where the autopilot picks the same characters again (players who pick
 // on the select screen pick again)
 void Rematch(const Start& start) {
+    g_seed = start.seed;
     PickArena(start.seed, start.stage);
     SetOptions(start.wins_needed);
     autopilot::Rematch();
@@ -123,3 +192,22 @@ bool Fighters(const std::string&, int out[2]) {
 }
 
 }  // namespace mk3d::link::game
+
+// Every press on the select screen starts its idle count again (fastcall, no arguments on the stack): task 0x203E
+// (sub_0010D710) sends the game back to the main menu after 2700 frames without one. Online and watched there is no
+// count: nobody's time runs out on the select screen of a launcher match (autopilot.cpp).
+X86_EXTERN_FUNC(__imp__sub_0010D250);
+X86_FUNC(sub_0010D250) {
+    if (!mkda::autopilot::HoldsIdle()) return __imp__sub_0010D250(ctx, base);
+    ctx.esp += 4;  // ret
+}
+
+// The select screen's reset (no arguments): at its setup (sub_0010CB00), and at the select task's end on its way to
+// the fight (0x10CAAE, 0x10CAC4, 0x10CAD8), where the agreed picks and arena go over the screen's
+X86_EXTERN_FUNC(__imp__sub_0010D2B0);
+X86_FUNC(sub_0010D2B0) {
+    constexpr uint32_t kSelectSetup = 0x10CB00;  // follows the select task's code
+    const uint32_t from = kernel::R32(ctx.esp);
+    __imp__sub_0010D2B0(ctx, base);
+    if (from > mkda::kSelectTask && from < kSelectSetup) mkda::AgreeOnTheFight();
+}

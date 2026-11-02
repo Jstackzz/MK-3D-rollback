@@ -90,18 +90,22 @@ whether to trust it: compare it with your host's.
   you are back in the game. Untick "Play a sound when a match is found" in
   Settings (Online) for no chime.
 - After a Kasual match, once the game has played its ending, a window comes up
-  over the game with the score between you and two ways to play on, same
-  sides, no search: REMATCH (when you both press it: the same fighters again,
-  straight into the fight) or SELECT (from either of you: both go back to
-  character select and pick again). You have 60 seconds from the match's end.
+  over the game with the score between you: REMATCH (when you both press it)
+  takes you both back to character select, same sides, no search, where you
+  each pick your fighter again. You have 60 seconds from the match's end.
   Kasual rematches never run out: the series goes on until one of you presses
   LEAVE (or Find match), or lets the 60 seconds pass. The Kasual page shows the
-  same choices.
+  same choice.
 - Ranked is played in sets against one opponent: the first to win 2 matches
   takes the set, and your Elo changes once, when it ends. The set's next match
-  starts by itself once both games are ready. Leaving a set after one of its
+  starts by itself once both games are ready, at character select, where you
+  each pick again (nobody picks for you). Leaving a set after one of its
   matches has counted (LEAVE SET, searching again, quitting, or not being back
   within 90 seconds) loses it: one match won and gone gains nothing.
+- When a ranked set or a Kasual series is over, the launcher searches again by
+  itself, the same search as before (with practice while you wait, if that is
+  on), unless you left it yourself. Untick "Search again when a set or series
+  ends" on the Ranked or Kasual page to stop after each one instead.
 - Closing your game during a match (Alt+F4, or it crashes) ends the match for
   both of you at once. In Kasual that match does not count and the rematch
   window comes up again (your game starts again for it; LEAVE if you are done);
@@ -125,8 +129,9 @@ whether to trust it: compare it with your host's.
 - Watching a lobby: select it in the list and press Watch selected (or join it,
   then press Watch). Each of its matches plays in your own game, a moment
   behind the players, select screen and ending included; a match already under
-  way is caught up from its start, fast, and one that ends early (a player left)
-  is dropped. If your connection drops for a moment, your game keeps watching.
+  way comes on where the players are (your game catches up without showing it,
+  holding its last picture for a few seconds), and one that ends early (a
+  player left) is dropped. If your connection drops for a moment, your game keeps watching.
   Up to eight people can watch a lobby.
   Press Play to take a free place to play between matches, Watch to step aside.
 - Death traps: the arenas' death traps (Deception and Armageddon: the Dead
@@ -145,6 +150,15 @@ whether to trust it: compare it with your host's.
   costume, and your opponent's game shows it too. Armageddon's kreated fighters
   stay out of online matches (your opponent's game has no copy of yours). Your
   profile's own unlocks stay as they are.
+- Choosing the arena online (0.1.18): on the select screen, before you confirm
+  your fighter, choose an arena the game's own way (Armageddon: BLACK opens the
+  arena list, LEFT and RIGHT go through it, A takes one, B closes it without
+  one; Deadly Alliance: BLACK opens it, LEFT and RIGHT go through it, START
+  takes one, and it closes only with one; Deception's select screen has no arena
+  choice of its own outside Xbox Live). Your choice goes to your opponent's game
+  with your pick: if only one of you chose, you both fight there; if you both
+  chose, the game takes one of the two (the same on both PCs); if nobody did,
+  the match's own arena. Spectators see the same arena.
 - Single player, then PLAY, starts the whole game with its own menus, as on the
   console: arcade, its practice mode and the rest. What you unlock and set is
   saved in the game's folder (games\<game>\hdd).
@@ -170,8 +184,9 @@ whether to trust it: compare it with your host's.
   declines or does not answer), you are back in the queue and in practice.
   Once the Kasual series or the ranked set is over (you or your opponent
   left, the rematch timed out, or the set was won), the match's game plays its
-  ending, then closes and practice opens again. Untick the box to wait at the
-  game's menu instead.
+  ending, then closes and practice opens again, with the next search running
+  (see "Search again" above). Untick the box to wait at the game's menu
+  instead.
 - Frame data in practice (all three games): a small panel at the left shows
   player 1's last attack, counted in frames (60 a second) from the press as
   frame 1. **Startup** is the frame the attack can first hit, **Active** how
@@ -214,7 +229,26 @@ matches then go through the server, and nobody you play learns your address.
 That costs ping the farther you and your opponent are from the server (in
 Virginia, USA): little on the US east coast, a lot for two players far from it
 (two players on the west coast: about 20 ms straight, about 140 ms through the
-server).
+server; two in the UK about 25 ms straight, about 180 ms through it). Settings
+shows how much it costs from where you are while it is ticked, and when a match
+goes through the server because a player hides their address, the launcher
+says so. Since 0.1.17 almost every match that went through the server did so
+for that reason, not because the two could not reach each other.
+
+Since 0.1.18 a match that goes through the server only because a player hides
+their address, and whose ping that way is over 100 ms, tries a direct
+connection between the two instead: if that is faster (by 20 ms or more), the
+match is played that way, and your opponent's PC can then see your address as
+in any direct match; if not, or if it does not get through, the match goes
+back through the server. The launcher says when it tries. To keep your address
+hidden however high the ping, also tick **Even when the ping through the server
+is high** under it: every match then stays on the server.
+
+When the ping is high, the game rolls back more often: it runs the last few
+frames again with your opponent's real input. Since 0.1.18 it no longer draws
+those frames (nobody sees them), only the one it shows after them, so a rollback
+costs less and the picture stays smooth at a high ping, above all on a slower
+graphics card.
 
 When a game crashes, the launcher tells the server which game, the crash's code
 and where in the program it happened (nothing else: no files, nothing about
@@ -284,7 +318,11 @@ Settings
 --------
 
 The Settings page has the server address, region, maximum ping, input delay (1
-frame unless you change it: rollback covers the rest of a match's ping), the
+frame unless you change it: rollback covers the rest of a match's ping; with
+"More delay when the ping is high", on by default, a laggy match gets more:
+about the frames of its ping each way but one, 4 frames at 180 ms, 6 at most,
+so the game rolls back less and fighters stop jumping around; both games play
+the larger delay of the two), the
 game's UDP port, and the display: borderless (fills the screen), fullscreen or
 a window; the resolution, your monitor's own unless you pick another of its
 sizes from the list (a window at your monitor's resolution is as large as fits
@@ -352,12 +390,19 @@ When something goes wrong
   FreeSync (V-sync: On, G-SYNC or FreeSync monitor), or set it to 120 Hz or
   60 Hz in Windows' display settings.
 - Something drawn wrong (textures flickering, a floor or wall in the wrong
-  colours, missing health bars): press F3 while it is on screen. The game saves
-  what it drew that frame (every texture and draw, and the picture), then the
-  pictures of the next 20 frames, into a captures folder inside that game's
-  session folder (sessions, below; the game stutters for a moment while it
-  saves). Zip that session folder and send it with what you saw and on which
-  stage.
+  colours, missing health bars, an invisible move): press F3 while it is on
+  screen. The game saves what it drew that frame (every texture and draw, and
+  the picture), then the pictures of the next 20 frames, into a captures folder
+  inside that game's session folder (sessions, below; the game stutters for a
+  moment while it saves), and says so at the top of the screen. The launcher
+  then sends it to the developers by itself, with the end of the game's log
+  (no IP addresses, no folder names), and says when it has gone. A video shows
+  what happened around it; an F3 report shows how the game drew it, which is
+  what fixing it takes: both help, send a video along if you have one.
+- A game window that turns white and stops answering: its log now says so
+  (`hang:`) and a dump of where it stood goes into CrashDumps beside the game;
+  the launcher reports it when the game is then closed. Send the newest
+  session folder and that dump.
 - Logs: mk3d-launcher.log and the sessions folder beside the launcher: one
   folder each time the launcher starts a game, with the game's own game.log and,
   for each online match, a net-<match>.log with every frame's inputs. When a

@@ -198,6 +198,56 @@ for p in recomp/patches/xboxxberecomp-*.patch; do git -C external/XboxXBERecomp 
   sizes (`app/title_image.cpp`). The player's own copy supplies it, so no
   release carries it; an xbe without one keeps the executable's icon. The
   launcher shows the same image on its game buttons (`TitleImage.cpp`).
+- `0035-fatal-errors-hangs-and-the-pointer` (0.1.18): `app::Fatal`, for a
+  failure the game cannot go on from: the player is told why in a message box,
+  the log gets `crash: fatal at <where>` (which the launcher reports) and the
+  process ends with exit code 3. The renderer uses it when no graphics card of
+  the PC offers Direct3D 12 (`CreateDevice` tries each one and logs them;
+  before, the game went on and crashed at its first draw, `C0000005 at
+  <G>.exe+688C9`, 60 reports from 4 players on 0.1.17), when it gets no swap
+  chain, or when its init fails otherwise; `XBE_TEST_NO_DEVICE=1` acts out the
+  first. `WatchWindow`: a window thread that takes no message for 5 s (Windows
+  turns the window white, "Not Responding") is logged (`hang: ...`), the guest
+  threads' stacks with it and a dump of every thread in CrashDumps
+  (`<G>.hang.<time>.dmp`, `WriteDump`), and again when it answers;
+  `XBE_TEST_HANG_WINDOW=<s>` stalls the window thread 7 s once (no dump from
+  in the process: a game that wrote one of itself stood still after). No mouse
+  pointer over the game (`WM_SETCURSOR`; ImGui's own pointer changes are off,
+  an overlay that takes the mouse would get the arrow).
+- `0036-point-sprites` (0.1.18): point sprites. Deadly Alliance draws
+  Scorpion's spear rope (game code at 0x14F606, sub_0014F5D0: a point list of
+  3 to 21 points, vertex shader B01D26D1 writing `oPts`, a 32x32 bead texture
+  on stage 3) and its blood spray as point sprites, which were drawn as one
+  pixel each without coordinates, the stage chain stopping at the disabled
+  stage 1: the rope was invisible. The point size comes from the vertex shader
+  or `D3DRS_POINTSIZE` (with `POINTSCALEENABLE`'s distance scaling), clamped to
+  the min/max states; a geometry shader (`PointHlsl`) makes the quads, and in
+  sprite mode stage 3 alone samples, with coordinates (0,0) to (1,1), as the
+  hardware gives them to stage 3 only. A capture lists a draw dropped early;
+  `XBE_CAPTURE_VERTS=1` also lists every vertex, the stream inputs, the point
+  states and each stage's ops.
+- `0037-rollback-waits-for-the-renderer` (0.1.18): `d3d::WaitForRenderer`,
+  which the games' rollback calls before a restore writes guest memory: the
+  render thread runs a frame's draws after the game thread recorded them and
+  reads vertices, textures and surfaces from guest memory then, so a restore
+  in between showed that frame drawn half from the restored state
+  (Armageddon online: a camera inside a fighter, the health bars gone, for one
+  frame). Frames swapped without a present (a spectator catching up unseen,
+  thousands in a row) flush the renderer every 8 (`kFlushUnseen`), as a
+  present gives its upload and descriptor rings back.
+- `0038-unseen-frames-are-not-drawn` (0.1.18): a frame the netplay runs
+  unseen (`d3d::SetSkipPresent`: run again in a rollback, or caught up by a
+  spectator) drops its draws and clears too, as the Tekken 6 port skips its
+  draw tree in a re-simulated frame. A rollback runs up to several frames
+  inside one, and their drawing, which nobody sees, made the frame shown after
+  them late (Deception at 180 ms and a 200% render scale: 12-13 ms a rollback
+  and 14-33 frames late after one a match, against 8-10 ms and 0-4). What the
+  title can see of the renderer stays: states, fences, copies, read-backs,
+  visibility reports (no pixels counted then). Draws between a swap and the
+  next frame's top are drawn whichever frame they turn out to be, and logged
+  once (`came between a swap`; none in the three games), as is a surface
+  locked in a frame not drawn (none either). `XBE_DRAW_UNSEEN=1` draws them
+  as before, to compare.
 
 `tools/py/lib_audit.py <game dir> <xbsdb symbols>` lists the XDK library
 functions the game calls that still run console code against host objects,

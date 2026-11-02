@@ -588,6 +588,41 @@ the practice panel (the same gate), with the dummy standing, blocking (F8) or cr
 | A, 2 hits | 12, again 25 | 6 (7) 1 | 51 | +3 | -20 (second block: +0x1D8 = frame + 6, mashed) | |
 | spear (back, forward, X) | contact in 37 (phase stays 0) | | | | | |
 
+### The online select screen (2026-11-02)
+
+Players who pick on the select screen (the launcher's `p1=- p2=-`), brought in line with Armageddon's:
+- Nothing times out by itself: Kombat's select (task 0x179A60) stayed up 2 minutes without a press (frames 720 to
+  7925), Chess Kombat's team select (0x17A500) 405 s (726 to 25041), Puzzle Kombat's (0x17A270) 120 s. 0.1.17's
+  autopilot picked for a player after 75 s (a chess team after 180 s) and moved the waiting side's cursor every 8 s:
+  both gone, nothing else keeps the screen.
+- No pick lag: the cursor setter sub_0017ACA0 writes the slot and the record's character together (sub_0017AC60),
+  and the confirm sub_0017C380 sets the record's character from the cursor again, so the character read at the pick
+  is the one under the cursor (Armageddon's lag does not exist here).
+- Before the pick, the cursor goes to the other game as a pick word 0xC5000000 | slot; that game and a spectator's
+  steer that side's cursor after it, a press every 0.1 s (chess teams are not followed).
+- The arena choice 0x62031C (-1 none): the versus fight's arena setup sub_000834C0 takes 0 to 0x22 from it over the
+  cycle's and sets it back to -1. Its chooser: sub_0017BF70 opens it (0x471AF8 = 1; entry 0 when nothing is chosen),
+  sub_0017BFD0(i) takes entry i of the list 0x3F9000 (16 bytes an entry, 0x16 of them; grid kind 1: 0x3F9160 and 5,
+  kind 2: 0x3F91B0 and 6) into 0x62031C (index 0x471B20, locked arenas skipped), sub_0017C210 closes it. The screen's
+  handler sub_0014DC20 opens it only on the events 0x92828 / 0x92829 (accept 0x1FB9, random 0x1FBA), which only an
+  Xbox Live match raises (0x620F24 bit 0, the Live session: sub_00269610 sets it, sub_002665A0 clears it); no button
+  of either port in either select state opens it in a launcher match. Calling those functions through the monitor
+  left that player unable to pick (the handler keeps state of its own), so tests write 0x62031C instead. Other
+  writers: -1 from sub_00179DB0, sub_000859F0 and sub_0013D940; values from sub_0017C4C0, sub_000B96D0, sub_0010A6D0
+  (not traced).
+- Online the pick words are [character, costume flags, arena or 0xFFFFFFFF] (as Armageddon's and Deadly Alliance's).
+  At the versus fight's arena setup each game (a spectator's too) puts the agreed picks in the player records and the
+  arena the two choices give into 0x62031C: both chose, the seed's bit 7 takes P2's, else P1's; one chose, that one;
+  neither, -1 (the cycle's place from the seed).
+- Tests (release, two games and a spectator on a local relay, one round): the other screen and the spectator's had
+  the moving cursor on the same slot 9 frames after each move in 67 of 67 samples each way; 60 s without a press
+  left all three screens as they were; directions and A after the confirm changed nothing; one choice (21), two
+  (18 and 6: 18 with bit 7 clear, 6 with it set), none (the seed's 15) and a rematch with one (21): all three games
+  loaded that arena. 0 frames differ between the players in all 10 matches (1336 to 2161 frames each); the
+  spectator's logs match the players' in every watched match (1432 to 2086 frames) but for the match counter 0x620324
+  once it had sat out a rematch the players played. RT, LS, B, BACK, LT and WHITE through the player's own pad while
+  choosing: the screen stays.
+
 ### Next
 
 - The same layers for Armageddon (with its Motor Kombat side mode) and Deadly Alliance, from a shared core.

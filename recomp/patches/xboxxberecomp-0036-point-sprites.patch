@@ -1,0 +1,362 @@
+diff --git a/runtime/gpu/d3d12.cpp b/runtime/gpu/d3d12.cpp
+--- a/runtime/gpu/d3d12.cpp
++++ b/runtime/gpu/d3d12.cpp
+@@ -105,6 +105,12 @@ struct PerfScope {
+     ~PerfScope() { acc += PerfMs(t); }
+ };
+ 
++// XBE_CAPTURE_VERTS=1: a capture lists every draw's vertices, all of them converted on the CPU for it
++bool CaptureVerts() {
++    static const bool on = std::getenv("XBE_CAPTURE_VERTS") != nullptr;
++    return on;
++}
++
+ // F3 captures only with diag::CaptureDir set
+ bool CaptureOn() {
+     if (diag::CaptureDir().empty()) LOG_FIRST(1, "capture: set XBE_CAPTURE_DIR");
+@@ -2178,6 +2184,22 @@ void FillSurfaceConstants(const State& s, GuestExtent size, DrawConstants& c) {
+     c.misc[3] = s.rs[kRsSpecularEnable] ? 1.0f : 0.0f;
+ }
+ 
++constexpr float kPointSizeMax = 64.0f;  // the console's largest point, also where D3DRS_POINTSIZE_MAX starts
++
++// a point's size as the render states give it (a vertex program gives its own), the clamp on every point's, whether
++// points are sprites, and the fixed function's scaling with the distance from the eye
++void FillPointConstants(const State& s, DrawConstants& c) {
++    const float low = Bits(s.rs[kRsPointSizeMin]), high = Bits(s.rs[kRsPointSizeMax]);
++    c.pts[0] = Bits(s.rs[kRsPointSize]);
++    c.pts[1] = low > 0 ? low : 0.0f;
++    c.pts[2] = high > 0 ? std::min(high, kPointSizeMax) : kPointSizeMax;
++    c.pts[3] = s.rs[kRsPointSpriteEnable] ? 1.0f : 0.0f;
++    c.pts_scale[0] = Bits(s.rs[kRsPointScaleA]);
++    c.pts_scale[1] = Bits(s.rs[kRsPointScaleB]);
++    c.pts_scale[2] = Bits(s.rs[kRsPointScaleC]);
++    c.pts_scale[3] = s.rs[kRsPointScaleEnable] ? 1.0f : 0.0f;
++}
++
+ void FillCombinerConstants(const State& s, DrawConstants& c) {
+     for (int i = 0; i < 8; i++) {
+         Color(SimpleState(s, kMPsConstant0 + i * 4), c.pc[i * 2]);
+@@ -2340,7 +2362,10 @@ void D3D12Backend::UploadConstants(const State& s, const DrawShaders& sh, const
+     Alloc dc = Upload(sizeof(DrawConstants), 256);
+     FillSurfaceConstants(s, size, c);
+     // points: host pixels per console pixel, also keeps them off the far edge pull out of screen passes
+-    if (k.topo == uint32_t(Topology::Points)) c.surf[3] = TargetScale();
++    if (k.topo == uint32_t(Topology::Points)) {
++        c.surf[3] = TargetScale();
++        FillPointConstants(s, c);
++    }
+     FillFogConstants(s, sh.prog, c);
+     FillCombinerConstants(s, c);
+     if (ext_) ext_->Constants(reinterpret_cast<float(*)[4]>(vc.cpu), c.ext, bound_rt_, k.blend ? k.src : 1);
+@@ -2373,10 +2398,29 @@ constexpr int kVsConstants = 192;
+ constexpr int kVsConstantBias = 96;
+ 
+ void D3D12Backend::CaptureInputs(const State& s, const Assembled& a, const DrawConstants& c) {
++    if (CaptureVerts()) {  // the point states and each stage's colour and alpha ops (op arg1 arg2), coordinate index
++        fprintf(cap_, "\n     points size %g min %g max %g sprite %u scale %u", Bits(s.rs[kRsPointSize]),
++                Bits(s.rs[kRsPointSizeMin]), Bits(s.rs[kRsPointSizeMax]), s.rs[kRsPointSpriteEnable],
++                s.rs[kRsPointScaleEnable]);
++        for (size_t st = 0; st < 4; st++)
++            fprintf(cap_, " | s%zu cop %u %X %X aop %u %X %X tci %X", st, s.tss[st][kTssColorOp], s.tss[st][kTssColorArg1],
++                    s.tss[st][kTssColorArg2], s.tss[st][kTssAlphaOp], s.tss[st][kTssAlphaArg1], s.tss[st][kTssAlphaArg2],
++                    s.tss[st][kTssTexCoordIndex]);
++    }
++    if (CaptureVerts() && s.vs) {  // where the vertices are and how the shader reads them
++        fprintf(cap_, "\n     inputs");
++        for (int r = 0; r < 16; r++) {
++            const auto& in = s.vs->inputs[size_t(r)];
++            if (!((a.regs >> r) & 1)) continue;
++            const auto& st = s.streams[size_t(in.stream) & 15];
++            fprintf(cap_, " v%d: stream %d +%u type %X (vb %08X data %08X stride %u)", r, in.stream, in.offset, in.type,
++                    st.vb, st.vb ? kernel::R32(st.vb + 4) : 0, st.stride);
++        }
++    }
+     fprintf(cap_, "\n     verts");
+     uint32_t n = 0;
+     for (int r = 0; r < 16; r++) n += (a.regs >> r) & 1;
+-    for (size_t v = 0; v < std::min<size_t>(4, n ? a.vertices.size() / (n * 4) : 0); v++) {
++    for (size_t v = 0; v < std::min<size_t>(CaptureVerts() ? SIZE_MAX : 4, n ? a.vertices.size() / (n * 4) : 0); v++) {
+         fprintf(cap_, " [");
+         for (uint32_t k = 0; k < n * 4; k++) fprintf(cap_, " %g", a.vertices[v * n * 4 + k]);
+         fprintf(cap_, " ]");
+@@ -2407,7 +2451,7 @@ void D3D12Backend::CaptureDraw(const State& s, uint32_t prim, uint32_t count, co
+ 
+ // small draws: their inputs and constants; then ends the draw's line
+ void D3D12Backend::EndDrawCapture(const State& s, const Assembled& a, uint32_t count, const DrawConstants& c) {
+-    if (count <= kQuadVertices) CaptureInputs(s, a, c);
++    if (count <= kQuadVertices || CaptureVerts()) CaptureInputs(s, a, c);
+     fputc('\n', cap_);
+ }
+ 
+@@ -2625,14 +2669,20 @@ void D3D12Backend::Draw(const State& s, uint32_t prim, uint32_t start, uint32_t
+     g_perf.draws++;
+     if (cap_) CapStep(s.rt);
+     if (DepthCopy(s)) return;
++    // a draw that stops short is in a capture too, with where it stopped
++    auto dropped = [&](const char* why) {
++        if (cap_) fprintf(cap_, "%04u dropped draw rt %08X prim %u count %u vs %08X: %s\n", cap_i_++, s.rt.data, prim,
++                          count, s.vs_handle, why);
++    };
+     DrawEnd draw_end{ext_};
+     if (ext_) ext_->BeginDraw(s);
+     Assembled& a = asm_;
+-    if (!AssembleDraw(s, prim, start, count, indices, a)) return;
++    if (!AssembleDraw(s, prim, start, count, indices, a)) return dropped("not assembled");
+     // past the ring every upload is a buffer of its own: seconds lost on a frame that draws a whole level once
+     if (CurrentFrame().used > kUploadSize - kUploadReserve) Submit(true);
+-    if (!BindTargets(s)) return;
+-    if (ext_ && ext_->Bound(*this, s, bound_rt_, bound_ds_, a.pretransformed) && !BindTargets(s)) return;
++    if (!BindTargets(s)) return dropped("no target");
++    if (ext_ && ext_->Bound(*this, s, bound_rt_, bound_ds_, a.pretransformed) && !BindTargets(s))
++        return dropped("no target");
+ 
+     // vertex shader
+     DrawShaders sh = ClassifyShaders(s, a, count);
+@@ -2642,18 +2692,18 @@ void D3D12Backend::Draw(const State& s, uint32_t prim, uint32_t start, uint32_t
+ 
+     // stage textures, then the pixel shader made for them
+     DrawTextures stages;
+-    if (!BindStageTexturesAndTargets(s, stages)) return;
+-    PixelKey pk = MakePixelKey(s, stages.info);
++    if (!BindStageTexturesAndTargets(s, stages)) return dropped("textures");
++    PixelKey pk = MakePixelKey(s, stages.info, a.topology == Topology::Points && s.rs[kRsPointSpriteEnable]);
+     pk.quad = sh.quad;
+     sh.pkey = Hash(&pk, sizeof(pk));
+     EnsurePixelShader(pk, sh);
+-    if (!sh.vs_code || !sh.ps_code) return;
++    if (!sh.vs_code || !sh.ps_code) return dropped(sh.vs_code ? "pixel shader" : "vertex shader");
+ 
+     // pipeline
+     PsoKey k;
+     BuildPipelineKey(s, a, sh.vh, sh.ph, k);
+     ID3D12PipelineState* pso = EnsurePipeline(k, sh.vs_code, sh.ps_code);
+-    if (!pso) return;
++    if (!pso) return dropped("pipeline");
+     cl_->SetPipelineState(pso);
+ 
+     // constants
+@@ -2971,6 +3021,7 @@ void D3D12Backend::FinishCapture(const Surface& front) {
+     }
+     fclose(cap_);
+     cap_ = nullptr;
++    g_convert_vertices = false;
+     cap_tex_.clear();
+     LOGR("d3d12: frame captured to %s, the next %u frames' pictures follow", cap_dir_.string().c_str(), kCapNext);
+     cap_next_ = kCapNext;
+@@ -2985,6 +3036,7 @@ void D3D12Backend::StartCapture() {
+     cap_dir_ = std::filesystem::weakly_canonical(app::ExeDir() / diag::CaptureDir() / stamp, ec);
+     std::filesystem::create_directories(cap_dir_, ec);
+     cap_ = _wfopen((cap_dir_ / "frame.txt").c_str(), L"w");
++    g_convert_vertices = CaptureVerts();
+     cap_i_ = cap_rt_ = 0;
+     cap_seen_.clear();
+     cap_sh_.clear();
+diff --git a/runtime/gpu/shaders.cpp b/runtime/gpu/shaders.cpp
+--- a/runtime/gpu/shaders.cpp
++++ b/runtime/gpu/shaders.cpp
+@@ -32,6 +32,7 @@ struct VOut {
+     float4 tc2 : TEXCOORD2;
+     float4 tc3 : TEXCOORD3;
+     float fogamt : TEXCOORD4;
++    float psize : TEXCOORD6;  // a point's size in console pixels, for the point geometry shader
+ };
+ cbuffer VC : register(b0) { float4 c[192]; };
+ cbuffer DC : register(b1) {
+@@ -54,6 +55,8 @@ const char* kCommonTail = R"(    float4 spread[4];
+     float4 amb;
+     float4 lt[56];
+     float4 rtshift;
++    float4 pts;
++    float4 ptscale;
+ };
+ )";
+ 
+@@ -246,6 +249,7 @@ const char* kVsEpilogue = R"(
+     o.tc2 = oT2;
+     o.tc3 = oT3;
+     o.fogamt = fogfactor(oFog.x);
++    o.psize = oPts.x;
+     return o;
+ }
+ )";
+@@ -626,7 +630,7 @@ void PassMissingTexture(uint32_t* f) {
+ 
+ }  // namespace
+ 
+-PixelKey MakePixelKey(const State& s, const TexInfo tex[4]) {
++PixelKey MakePixelKey(const State& s, const TexInfo tex[4], bool sprite) {
+     PixelKey k;
+     std::memset(&k, 0, sizeof(k));
+     for (int i = 0; i < 4; i++) {
+@@ -665,6 +669,18 @@ PixelKey MakePixelKey(const State& s, const TexInfo tex[4]) {
+     }
+     // the console's stages divide by q; a vertex program's q is its own
+     bool program = (s.vs_handle & 1) && s.vs && !s.vs->program.empty();
++    // point sprites: the console spans each point with texture stage 3's coordinates alone, and a title textures them
++    // with stage 3's texture and states (Deadly Alliance's spear rope: stage 3 modulates its rope texture by the
++    // diffuse, stages 1 and 2 disabled, stage 0 left as the draw before had it)
++    if (sprite) {
++        const auto& t = s.tss[3];
++        uint32_t v[9] = {t[kTssColorOp], t[kTssColorArg1], t[kTssColorArg2], t[kTssColorArg0], t[kTssAlphaOp],
++                         t[kTssAlphaArg1],  t[kTssAlphaArg2], t[kTssAlphaArg0], t[kTssResultArg]};
++        std::memcpy(k.ff[3], v, sizeof(v));
++        if (!tex[3].kind) PassMissingTexture(k.ff[3]);
++        k.sprite = 1;
++        return k;
++    }
+     for (int i = 0; i < 4; i++) {
+         const auto& t = s.tss[size_t(i)];
+         uint32_t v[9] = {t[kTssColorOp], t[kTssColorArg1], t[kTssColorArg2], t[kTssColorArg0], t[kTssAlphaOp],
+@@ -842,6 +858,12 @@ std::string FixedVertexHlsl(uint16_t regs, bool pretransformed, uint64_t decode,
+         s += "    }\n";
+     }
+     s += "    oFog = " + v(5, "float4(0,0,0,0)") + ";\n";
++    // a point's size: the vertex's own (D3DFVF_PSIZE), else D3DRS_POINTSIZE; with D3DRS_POINTSCALEENABLE scaled by the
++    // distance from the eye as D3D scales it, the viewport's height the unit
++    s += "    oPts = " + v(6, "pts") + ".xxxx;\n";
++    if (!pretransformed)
++        s += "    if (ptscale.w != 0) oPts *= surf.y * rsqrt(max(dot(ptscale.xyz, float3(1, length(vp), dot(vp, vp))), "
++             "1e-12));\n";
+     if (pretransformed) return s + kVsEpilogue;
+     s += R"(
+     VOut o;
+@@ -860,6 +882,7 @@ std::string FixedVertexHlsl(uint16_t regs, bool pretransformed, uint64_t decode,
+     o.tc2 = oT2;
+     o.tc3 = oT3;
+     o.fogamt = fogfactor(abs(cp.z));
++    o.psize = oPts.x;
+     return o;
+ }
+ )";
+@@ -921,9 +944,10 @@ std::string PixelHlsl(const PixelKey& k) {
+         }
+     } else {
+         body += "float4 cur = v0, tmp = 0;\n";
+-        for (int i = 0; i < 4; i++) {
++        for (int n = 0; n < 4; n++) {
++            const int i = k.sprite ? 3 : n;  // point sprites: stage 3 alone (MakePixelKey)
+             const uint32_t* f = k.ff[i];
+-            if (f[0] <= 1) break;
++            if (f[0] <= 1 || (k.sprite && n)) break;
+             const TexInfo& t = k.tex[i];
+             std::string uv = TexUv(t, i, (k.proj >> i) & 1 ? F("tc%d.xy / tc%d.w", i, i) : F("tc%d.xy", i));
+             std::string cube;
+@@ -970,7 +994,10 @@ std::string QuadHlsl(std::string s) {
+     return s;
+ }
+ 
+-// a point covers its console pixel, several host pixels on an upscaled target: drawn as a quad of that size
++// a point covers its size in console pixels, several host pixels each on an upscaled target: drawn as a quad of that
++// size. Its size is the vertex shader's (a program's oPts, the fixed function's D3DRS_POINTSIZE), within
++// D3DRS_POINTSIZE_MIN and _MAX; a point sprite (D3DRS_POINTSPRITEENABLE) spans texture stage 3's coordinates from
++// (0, 0) at its top left to (1, 1), as the console gives them to stage 3 alone
+ std::string PointHlsl() {
+     return Common() + R"(
+ [maxvertexcount(4)]
+@@ -978,10 +1005,12 @@ void main(point VOut v[1], inout TriangleStream<VOut> strip) {
+     float2 half_pixel = v[0].pos.w / surf.xy;  // in clip units, the target spans 2 across surf.xy pixels
+     // a target is read half a host pixel back (surf.w host pixels per console pixel): left and top reach that far
+     float2 back = (0.5 - 1e-3) * 2 * half_pixel / surf.w;
++    float2 half_size = clamp(v[0].psize, pts.y, pts.z) * half_pixel;
+     for (int i = 0; i < 4; i++) {
+         VOut o = v[0];
+-        o.pos.x += (i & 1) ? half_pixel.x : -half_pixel.x - back.x;
+-        o.pos.y += (i & 2) ? -half_pixel.y : half_pixel.y + back.y;
++        o.pos.x += (i & 1) ? half_size.x : -half_size.x - back.x;
++        o.pos.y += (i & 2) ? -half_size.y : half_size.y + back.y;
++        if (pts.w != 0) o.tc3 = float4((i & 1) ? 1 : 0, (i & 2) ? 1 : 0, 1, 1);
+         strip.Append(o);
+     }
+ }
+diff --git a/runtime/gpu/shaders.h b/runtime/gpu/shaders.h
+--- a/runtime/gpu/shaders.h
++++ b/runtime/gpu/shaders.h
+@@ -33,12 +33,14 @@ struct PixelKey {
+     uint32_t flat = 0, two_sided = 0;
+     uint32_t proj = 0;       // fixed function: bit per stage sampled at coordinates divided by w
+     uint32_t quad = 0;       // a screen quad: QuadHlsl
++    uint32_t sprite = 0;     // point sprites: the fixed function stages are stage 3's alone, see MakePixelKey
+     bool operator==(const PixelKey& o) const;
+ };
+ 
+ uint64_t Hash(const void* p, size_t n, uint64_t h = 1469598103934665603ull);
+ 
+-PixelKey MakePixelKey(const State& s, const TexInfo tex[4]);
++// sprite: point sprites are drawn (points, D3DRS_POINTSPRITEENABLE)
++PixelKey MakePixelKey(const State& s, const TexInfo tex[4], bool sprite = false);
+ 
+ // vertex program microcode to HLSL, regs is the bit mask of v registers the draw supplies
+ // decode: VertexDecode per register, 4 bits each, for elements the input assembler hands over raw
+@@ -100,6 +102,8 @@ struct DrawConstants {
+     float amb[4];        // D3DRS_AMBIENT
+     float lt[8][7][4];   // per light: diffuse, specular, ambient, position range, direction falloff, attenuation, cos theta/2 phi/2
+     float rtshift[4];    // per kTexTarget stage: host pixels its reads move along x and y, negative up and left
++    float pts[4];        // points: D3DRS_POINTSIZE, its min and max, 1 for point sprites
++    float pts_scale[4];  // points: D3DRS_POINTSCALE_A, B and C, 1 when D3DRS_POINTSCALEENABLE
+ };
+ 
+ }  // namespace gpu
+diff --git a/runtime/gpu/vertex.cpp b/runtime/gpu/vertex.cpp
+--- a/runtime/gpu/vertex.cpp
++++ b/runtime/gpu/vertex.cpp
+@@ -440,6 +440,8 @@ void FvfInputs(uint32_t fvf, VertexShader& vs) {
+     vs.stream_stride[0] = off;
+ }
+ 
++bool g_convert_vertices = false;
++
+ bool Assemble(const State& s, uint32_t prim, uint32_t start, uint32_t count, const uint8_t* ip, Assembled& out) {
+     ResetAssembled(out);
+     if (!count || prim < 1 || prim > 10) return false;
+@@ -467,7 +469,7 @@ bool Assemble(const State& s, uint32_t prim, uint32_t start, uint32_t count, con
+     Inputs inputs = {*layout, regs, nregs};
+ 
+     // the guest's own vertices when the input assembler can read every element of them
+-    bool raw = kRawVertices && RawReadable(s, inputs);
++    bool raw = kRawVertices && !g_convert_vertices && RawReadable(s, inputs);
+     if (raw) return AssembleRaw(s, inputs, d, out);
+     return AssembleConverted(s, inputs, d, out);
+ }
+diff --git a/runtime/gpu/vertex.h b/runtime/gpu/vertex.h
+--- a/runtime/gpu/vertex.h
++++ b/runtime/gpu/vertex.h
+@@ -55,6 +55,9 @@ struct Assembled {
+ // the FVF bits translated to the register layout the XDK's declarations use
+ void FvfInputs(uint32_t fvf, VertexShader& out);
+ 
++// every vertex converted on the CPU, whatever the input assembler could read: a capture that lists them
++extern bool g_convert_vertices;
++
+ // false when there is nothing to draw
+ // indices: the title's 16 bit indices, null for an unindexed draw
+ bool Assemble(const State& s, uint32_t prim, uint32_t start, uint32_t count, const uint8_t* indices, Assembled& out);
+diff --git a/runtime/xdk/d3d8.cpp b/runtime/xdk/d3d8.cpp
+--- a/runtime/xdk/d3d8.cpp
++++ b/runtime/xdk/d3d8.cpp
+@@ -965,6 +965,7 @@ HLE_STDCALL(D3DDevice_SetVertexShader, 1) {
+     return 0;
+ }
+ 
++
+ HLE_FASTCALL(D3DDevice_SetVertexShaderConstant1Fast, 0) {
+     uint32_t reg = a[0];
+     if (reg < 192) std::memcpy(g_state.vsc[reg].data(), HostPtr(a[1]), 16);
+@@ -1290,6 +1291,7 @@ void EndPrimitive() {
+     static std::vector<float> packed;
+     uint32_t prim = g_im_prim, count = uint32_t(g_im_vertices.size() / 64), handle = g_state.vs_handle;
+     g_im_prim = 0;
++    if (prim && !count) LOG_FIRST(8, "d3d: immediate primitive %u ended without a vertex (slots %X)", prim, g_im_mask);
+     if (!prim || !count) return;
+     if (!(handle & 1) && (handle & 0xE) == 4) LOG_FIRST(1, "d3d: pretransformed immediate mode vertices are not supported");
+     auto bound = g_state.vs, from = handle & 1 ? bound : nullptr;
+@@ -1402,7 +1404,8 @@ void Walk(uint32_t end) {
+             uint32_t m = head & 0x40000000 ? method : method + i * 4;
+             uint32_t v = R32(p);
+             ApplyVisibilityMethod(m, v);
+-            if (!ApplyConstant(m, v)) ApplyImmediate(m, v);
++            if (!ApplyConstant(m, v) && !ApplyImmediate(m, v) && g_im_prim)
++                LOG_FIRST(16, "d3d: method %04X inside immediate primitive %u is not run", m, g_im_prim);
+         }
+     }
+     g_walk = end;

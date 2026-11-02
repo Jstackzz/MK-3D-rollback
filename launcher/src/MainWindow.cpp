@@ -26,6 +26,7 @@
 #include "GameProcess.h"
 #include "LobbyPage.h"
 #include "MatchController.h"
+#include "ReportSender.h"
 #include "PlayPages.h"
 #include "ServerClient.h"
 #include "Style.h"
@@ -52,6 +53,8 @@ MainWindow::MainWindow(const LaunchOptions& opts, QWidget* parent)
         cfg::set(QStringLiteral("server/fingerprint"), ServerClient::normalizeFingerprint(opts_.fingerprint));
     if (!opts_.practice.isEmpty())
         cfg::set(QStringLiteral("online/practice_while_waiting"), opts_.practice != QLatin1String("off"));
+    if (!opts_.searchAgain.isEmpty())
+        cfg::set(QStringLiteral("online/search_again"), opts_.searchAgain != QLatin1String("off"));
     if (!opts_.deathTraps.isEmpty())
         cfg::set(QStringLiteral("online/death_traps"), opts_.deathTraps != QLatin1String("off"));
 
@@ -66,6 +69,12 @@ MainWindow::MainWindow(const LaunchOptions& opts, QWidget* parent)
     notice_->setWordWrap(true);
     notice_->hide();
     v->addWidget(notice_);
+    // F3 in a game: what it drew goes to the server for the developers
+    auto* reports = new ReportSender(server_, [this] { return controller_->runningGames(); }, this);
+    connect(reports, &ReportSender::logLine, this, [this](const QString& text) {
+        applog::write(QStringLiteral("report: ") + text);
+        showNotice(text, false);
+    });
 
     stack_ = new QStackedWidget;
     ranked_ = new QueuePage(true, server_, controller_);
@@ -641,7 +650,7 @@ void MainWindow::onMatchFound(const QJsonObject& found) {
 }
 
 void MainWindow::onKasualSeries(const QJsonObject& series, const QString& title, const QString& score,
-                                const QString& info, bool canChoose, bool canSelect) {
+                                const QString& info, bool canChoose) {
     const QString state = series.value(QStringLiteral("state")).toString();
     if (state != QLatin1String("between")) {
         if (rematchDialog_) {
@@ -669,12 +678,12 @@ void MainWindow::onKasualSeries(const QJsonObject& series, const QString& title,
                 casual_->choose(choice);  // the prompt stays, waiting for the other player, until the match starts
             }
         });
-        dlg->update(title, score, info, canChoose, canSelect);
+        dlg->update(title, score, info, canChoose);
         popUp(dlg);
         QApplication::alert(this);
         return;
     }
-    if (rematchDialog_) rematchDialog_->update(title, score, info, canChoose, canSelect);
+    if (rematchDialog_) rematchDialog_->update(title, score, info, canChoose);
 }
 
 void MainWindow::popUp(QWidget* dialog) {
@@ -901,7 +910,8 @@ void MainWindow::cliLobbyMessage(const QJsonObject& msg) {
         cliLobbyReadyFor_ = cliLobbyDone_;
         applog::write(QStringLiteral("cli: ready in lobby %1").arg(lobby.value(QStringLiteral("id")).toString()));
         server_->send({{QStringLiteral("type"), QStringLiteral("lobby_ready")}, {QStringLiteral("ready"), true},
-                       {QStringLiteral("delay"), cfg::inputDelay()}, {QStringLiteral("relay"), cfg::hideIp()}});
+                       {QStringLiteral("delay"), cfg::inputDelay()}, {QStringLiteral("relay"), cfg::hideIp()},
+                       {QStringLiteral("hide_always"), cfg::hideIpAlways()}});
     }
     // both ready: the server starts the match after its countdown
     if (opts_.lobby == QLatin1String("host") && all_ready && cliLobbyStarts_ == cliLobbyDone_) {

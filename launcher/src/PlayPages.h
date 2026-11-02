@@ -21,7 +21,8 @@ public:
     QueuePage(bool ranked, ServerClient* server, MatchController* controller, QWidget* parent = nullptr);
     void setGame(const QString& gameId) override;
     bool startSearch(const QString& mode = {}, const QString& character = {});  // also used by --queue
-    // the series card's choices, the rematch prompt's too: "rematch" or "select", or leaving the series
+    // the series card's choice, the rematch prompt's too: "rematch" (in kombat, both back to character select), or
+    // leaving the series
     void choose(const QString& choice);
     void leaveSeries();
     void pressFind();  // FIND MATCH (or cancelling the search) as a click would, for a controller's START
@@ -29,7 +30,7 @@ public:
 signals:
     // the series card's state at every change (series {}: none any more), mirrored by the rematch prompt
     void seriesCard(const QJsonObject& series, const QString& title, const QString& score, const QString& info,
-                    bool canChoose, bool canSelect);
+                    bool canChoose);
 
 protected:
     void showEvent(QShowEvent* event) override;  // the other queue page may have changed the shared settings
@@ -63,6 +64,7 @@ private:
     QComboBox* maxPing_;
     QCheckBox* strict_;
     QCheckBox* practice_;  // practice while the search waits (shared by both queue pages)
+    QCheckBox* searchAgain_;  // search again once a set or series is over (shared too)
     QCheckBox* deathTraps_;  // the arenas' death traps (both queue pages)
     QLabel* delayInfo_;
     QPushButton* find_;
@@ -77,8 +79,7 @@ private:
     QLabel* seriesTitle_;
     QLabel* seriesScore_;
     QLabel* seriesInfo_;
-    QPushButton* rematch_;  // Kasual: the same fighters again
-    QPushButton* select_;   // Kasual: both back to character select
+    QPushButton* rematch_;  // Kasual: again, both back to character select (kombat)
     QPushButton* leave_;
     LogView* log_;
     QTimer clock_;
@@ -87,7 +88,7 @@ private:
     QJsonObject stats_;
     QJsonObject online_;      // the server's last online counts
     QJsonObject series_;      // this page's series (Kasual or ranked), {} when none
-    QString chosen_;  // "rematch" or "select" pressed, not seen by the server yet (sent once the game is ready)
+    QString chosen_;  // "rematch" pressed, not seen by the server yet (sent once the game is ready)
 };
 
 // the whole game with its own menus (arcade, its practice mode, the side modes), straight to practice with every

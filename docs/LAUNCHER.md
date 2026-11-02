@@ -136,10 +136,20 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    folder and executable (defaults: `games\<game>` and the executable in it
    beside the launcher of a player package, else `recomp/<game>` and
    `recomp/<game>/out/build/release/<MKD|MKA|MKDA>.exe`), input delay (0-4, 1
-   unless changed; a match takes the larger of the two players'),
-   region, max ping, the game UDP port (default 7001), *Hide my IP address
-   from opponents* (cfg `online/hide_ip`: `relay` in `queue_join` and
-   `lobby_ready`, PROTOCOL.md 1.7), *Play a sound when a match is found*
+   unless changed; a match takes the larger of the two players'), *More delay
+   when the ping is high* (0.1.18, cfg `online/auto_delay`, on by default:
+   `MatchController::matchDelay` raises `match_go`'s delay to `autoDelayFor`
+   its `rtt_ms`, the frames of the one-way trip but one, 6 at most; both games
+   play the larger of their two, netplay `AgreeDelay`), region, max ping, the
+   game UDP port (default 7001), *Hide my IP address from opponents* (cfg
+   `online/hide_ip`: `relay` in `queue_join` and `lobby_ready`, PROTOCOL.md
+   1.7; while ticked, a line under it says what it costs from here: twice the
+   ping to the server at least; a match relayed for it says so in the log,
+   `relay_why` in `match_peer`; past the server's `direct_above_ms` such a
+   match tries a direct connection, and the log says so and why: `direct_why`,
+   `relay_rtt`, `back`), under it *Even when the ping through the server is
+   high* (0.1.18, cfg `online/hide_ip_always`: `hide_always`, never tried
+   directly), *Play a sound when a match is found*
    (`online/match_sound`, on unless unticked: the MATCH FOUND window comes with
    a one-second chime, `data/sounds/match-found.wav`, which
    `tools/py/make_chime.py` makes, played from memory with `winutil::playWav`;
@@ -195,13 +205,18 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    `status.txt`, and parks the game again. *Your record* shows the wins and
    losses of that game and mode (and the Elo in Ranked). After the match a
    series card shows the score against that opponent (docs/PROTOCOL.md
-   1.9.1): Kasual offers *Rematch* (the same fighters, when both press it),
-   *Select* (both pick again on the select screen) and *Leave* for 60 s, after
-   every match, one that did not count included (0.1.14: a Kasual series ends
-   only when a player leaves it or lets that time run out); the
-   game reports the fighters with its result. A ranked set (first
-   to 2) asks for its next match by itself once the game is back at its hold
-   point, and *Leave set* asks first when leaving would lose the set.
+   1.9.1): Kasual offers *Rematch* (0.1.18: in kombat both go back to the
+   select screen and pick again, when both press it; the *Select* button is
+   gone) and *Leave* for 60 s, after every match, one that did not count
+   included (0.1.14: a Kasual series ends only when a player leaves it or lets
+   that time run out); the game reports the fighters with its result. A ranked
+   set (first to 2) asks for its next match by itself once the game is back at
+   its hold point, its matches after the first at the select screen too, and
+   *Leave set* asks first when leaving would lose the set. *Search again when
+   a set or series ends* (0.1.18, cfg `online/search_again`, on by default,
+   `--search-again on|off`): once a series is over, not left by this player,
+   the same search starts again by itself (`MatchController::
+   maybeSearchAfterSeries`, `searchesAgain`), practice while you wait with it.
    *CANCEL SEARCH* (`MatchController::cancelSearch`; while a match is offered
    it declines it first) closes what the search opened (0.1.14): practice it
    started and the match's game, unless a lobby's *Ready* wants that game
@@ -259,7 +274,9 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    series that ends (the server's `series` with state `over`: Kasual or a
    ranked set) starts practice again too, in the series' game, once the
    match's game parked (`MatchController::maybePracticeAfterSeries`, 0.1.17;
-   not with single player set aside, a lobby's game or a match to watch).
+   not with single player set aside, a lobby's game or a match to watch; from
+   0.1.18 the search that starts again brings practice instead, when *Search
+   again* is on).
    Practice opened with *PRACTICE* before a search goes the same way; single
    player is frozen as above. In a source build the **Local test** box
    starts two instances on this PC (UDP 7001/7002) with matching start lines,
@@ -360,7 +377,15 @@ The one abort every game had through 0.1.15 (`MKD.dll+2E01CE`, `MKA.dll+4361C6`,
 (recompiler patch 0033, `recomp/README.md`); a game logs `sfiber: switch to
 fiber N inside a catch block` if what caused it ever comes back.
 `tools/online-e2e.ps1 -CrashA N` crashes A's game N seconds into its match (a
-thread at address 0).
+thread at address 0). From 0.1.18 a game that cannot start its renderer (no
+Direct3D 12 on any of the PC's graphics cards: an old card, or no driver for
+it) tells its player so, logs `crash: fatal at no Direct3D 12 device (<card>)
+on a game thread` and ends with exit code 3, reported like a crash (runtime
+`app::Fatal`; before, it went on and crashed at its first draw, `C0000005 at
+<G>.exe+688C9`). A game whose window stopped answering for 5 s (runtime
+`WatchWindow`: a line `hang: ...`, the guest threads' stacks, a dump in
+CrashDumps `<G>.hang.<time>.dmp`) and was then ended from outside or by the
+launcher is reported as `hang: the game window stopped answering`.
 
 **Desync reports** (0.1.15, `MatchController::reportDesync`): a match whose
 games went out of step (the game's `desync` status) is reported with what the
@@ -386,6 +411,17 @@ changes how often), and says when a texture or render target could not be made.
 Render targets the game no longer uses give their views back once every view
 is taken (`EvictTargets`): before, a long session could run out, and what the
 game drew into a new target was lost without a word.
+
+**F3 reports** (0.1.18, `ReportSender`, PROTOCOL.md 1.13.2): every two seconds
+the launcher looks in its running games' sessions (`MatchController::
+runningGames`) for a new capture; once its last picture is saved (or 15 s on)
+it sends it to the server: the pictures as JPEG (the frame at most 1920 wide,
+the next ones 1280), the textures as PNG within 4 MB, the frame's draws, the end
+of the game log (256 KB, IP addresses and user folders taken out) and an
+`info.txt`, two parts of 11,400 bytes every 0.1 s, and says so in its notice
+line. The game shows a line at the top of its screen for 5 s once F3 is
+pressed (`mk3d::names` ReportNotice). The server keeps reports under
+`/var/lib/mk3d/reports/<day>/`; `scp -r` that folder to look at them.
 
 **How a game ended** (0.1.14, `MatchController::reportLeft`): a game that ends
 during a match reports `left` with `exit` and `exit_code` (PROTOCOL.md 1.9),
@@ -572,7 +608,10 @@ while the server runs (WAL mode).
   own public one); the game's start line in the log says `remote=(hidden)`. A
   direct match still lets the two PCs see each other's address at the network
   level; *Hide my IP address* (or a server run with `--relay-only`) relays the
-  match so neither does.
+  match so neither does, unless its ping that way is over the server's limit
+  (100 ms) and a direct connection is faster: then the two connect directly,
+  and say so, unless the player also ticked *Even when the ping through the
+  server is high*.
 - Results are self-reported: agreement counts, disagreement voids the match,
   a single report counts for nothing, and two colluding accounts can trade
   wins. Closing the game during a match loses a ranked set (PROTOCOL.md 1.9);

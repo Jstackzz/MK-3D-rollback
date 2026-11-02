@@ -14,6 +14,7 @@
 #include <cfloat>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <mutex>
 
@@ -160,7 +161,36 @@ void Window(void*) {
     }
 }
 
+namespace {
+
+// F3 in a game a launcher runs (captures on): for a few seconds, a line saying that what is on screen was saved and goes
+// to the developers (the runtime's capture saves it under the session, the launcher's ReportSender sends it)
+void ReportNotice() {
+    static const bool captures = [] {
+        const char* dir = std::getenv("XBE_CAPTURE_DIR");
+        return dir && *dir;
+    }();
+    static double until = 0;
+    if (!captures) return;
+    const double now = ImGui::GetTime();
+    if (ImGui::IsKeyPressed(ImGuiKey_F3, false)) until = now + 5.0;
+    if (now >= until) return;
+    const char* text = "F3: what is on screen was saved; the launcher sends it to the developers with your log";
+    const ImGuiIO& io = ImGui::GetIO();
+    ImFont* font = g_font ? g_font : ImGui::GetFont();
+    const float size = std::max(14.0f, io.DisplaySize.y / 40.0f);
+    const ImVec2 extent = font->CalcTextSizeA(size, FLT_MAX, 0.0f, text);
+    const float pad = size / 3, x = std::floor((io.DisplaySize.x - extent.x) / 2), y = std::floor(size);
+    ImDrawList* draw = ImGui::GetForegroundDrawList();
+    draw->AddRectFilled(ImVec2(x - pad, y - pad), ImVec2(x + extent.x + pad, y + extent.y + pad), IM_COL32(0, 0, 0, 190),
+                        pad);
+    draw->AddText(font, size, ImVec2(x, y), IM_COL32(255, 255, 255, 255), text);
+}
+
+}  // namespace
+
 void Ui(double) {
+    ReportNotice();
     std::string names[2];
     Place p;
     {

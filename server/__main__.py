@@ -38,6 +38,10 @@ def build_parser() -> argparse.ArgumentParser:
                     help="relay every match through this server: no player ever learns another's IP address, but "
                          "players far from the server get much more ping (by default only the matches of players "
                          "who ask to hide their address are relayed)")
+    ap.add_argument("--direct-above-ms", type=int, default=100,
+                    help="a match relayed only because a player hides their address, whose ping through the relay "
+                         "is over this, tries a direct connection and plays it if faster (0: never)")
+    ap.add_argument("--relay-test-delay-ms", type=int, default=0, help=argparse.SUPPRESS)  # development: a far relay
     ap.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     ap.add_argument("--log-file", default=None, help="also append the log to this file")
     ap.add_argument("--version", action="version", version=f"mk3d-server {__version__}")
@@ -58,10 +62,13 @@ def config_from_args(args: argparse.Namespace) -> ServerConfig:
         admins=tuple(a.strip() for a in args.admins.split(",") if a.strip()),
         min_client=args.min_client,
         update_file=args.update_file or os.path.join(base, "update.json"),
+        reports_dir=os.path.join(base, "reports"),
         accept_timeout=args.accept_timeout,
         relay=not args.no_relay,
         upnp=args.upnp,
         relay_only=args.relay_only,
+        direct_above_ms=max(0, args.direct_above_ms),
+        relay_test_delay_ms=max(0, args.relay_test_delay_ms),
         mm=MatchmakingConfig(allow_same_ip=args.allow_same_ip),
     )
 

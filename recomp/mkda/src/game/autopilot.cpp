@@ -83,6 +83,7 @@ struct Press {
     long cycle = -1;
     uint16_t buttons = 0;
     uint8_t a = 0;
+    bool x = false;
 };
 Press g_press[2];
 
@@ -197,17 +198,51 @@ void UnlockForPractice() {
 }
 
 // An online match whose players pick on the select screen: this PC's player picks for their side with their own
-// controller (the pads route it to that side's port, LocalPickPort), and the pick (character, costume) goes to the
-// other game with the HELLOs (net::SetLocalPick); the other side waits for the other player's pick, then the
-// autopilot makes it and gives it the same costume. A spectator's game waits for both players' picks that way. Each
-// costume is taken once its own game's pick is done and set once the other game's pick is: a mirror match only ever
-// turns the costume of the player picking, so both games end with each player's own.
+// controller (the pads route it to that side's port, LocalPickPort), and where their cursor is, then their pick
+// (character, costume, the arena they chose), goes to the other game with the HELLOs (net::SetLocalPick); there the
+// autopilot steers that side's cursor after it, then makes the pick and gives it the same costume. A spectator's game
+// follows both players' cursors and picks that way. Each costume is taken once its own game's pick is done and set
+// once the other game's pick is: a mirror match only ever turns the costume of the player picking, so both games end
+// with each player's own. Nobody's time runs out: the screen's own 2700 frames without a press (linkgame.cpp) are
+// held off, nobody's pick is made for them, and the waiting side's cursor stays where its player's is (0.1.17 took the
+// cursor's character after 75 s and moved the waiting side's cursor every 8 s). The pick (sub_001112A0) takes the
+// character under the cursor as it is confirmed, so it never lags the cursor as Armageddon's did.
+//
+// The arena: BLACK on the select screen, while a player still chooses, both players are in and no arena choice is
+// open, opens theirs (sub_0010EC90: +0x800 in the word that holds their costume, events.h kCostume); LEFT / RIGHT go
+// through the arenas (0x2EA658, of the table 0x274398), START takes the one shown (sub_00111F60, sub_001121F0:
+// 0x42C754, the engine's chosen arena, which the screen's setup sets to -1) and closes it. Nobody picks while one is
+// open (B and a second BLACK do not close it), and the autopilot presses nothing for the other side then; it has P2
+// join at once (X, which moves nothing), as the choice needs both players in. What 0x42C754 holds when a player picks
+// goes with the pick, and both games fight on the arena the two choices give (linkgame.cpp).
 constexpr int kWaitPick = -2;            // characters[]: the other player has not picked yet
-constexpr double kPlayerPickTime = 75;   // seconds this PC's player has, then the autopilot takes the cursor's
+// A cursor in the pick words: before the pick, a player's game sends where its player's cursor is as one word, the
+// slot tagged so that no character id can be taken for it (as Armageddon's)
+constexpr uint32_t kCursorWord = 0xC5000000u, kCursorTagMask = 0xFF000000u, kNoArena = 0xFFFFFFFFu;
+constexpr int kArenaChoices = 0x19;      // what the chosen arena takes: 0 to 24 (sub_0006F570)
+constexpr uint32_t kArenaOpen = 0x800;
+// One press a cycle for the side a player picks on their own PC: toward their cursor while they choose, then to their
+// pick and A on it. Quicker than the launcher's picks (0.25 s), so the cursor keeps up with theirs.
+constexpr double kFollowCycle = 0.1, kFollowPress = 0.05;
 bool g_local_pick_sent = false;
-bool g_local_forced = false;             // the time ran out: the autopilot picks for this PC's player
+int g_sent_cursor = -1;                  // this PC's player's cursor as last sent
+int g_their_cursor[2] = {-1, -1};        // the other player's (a spectator's game: both players') as it came
 bool g_costume_due[2] = {};              // a player's costume from their game, set once the autopilot picked
 uint32_t g_their_costume[2] = {};
+int g_agreed[2] = {-1, -1};              // the picks both games fight with: this player's as sent, the other's as it came
+uint32_t g_agreed_costume[2] = {};
+int g_agreed_arena[2] = {-1, -1};        // the arena each player chose with their pick (-1 none)
+
+int ArenaWord(uint32_t word) { return int32_t(word) >= 0 && int32_t(word) < kArenaChoices ? int(word) : -1; }
+
+// a player's arena choice is open on this screen
+bool ArenaOpen() {
+    for (uint32_t va : kCostume) {
+        const uint32_t word = kernel::R32(va);
+        if (word && (kernel::R32(word) & kArenaOpen)) return true;
+    }
+    return false;
+}
 // MKDA_TEST_COSTUME=<n> (tests): this PC's player's costume once picked, as if picked with the alternate's button
 const int g_test_costume = [] {
     const char* s = std::getenv("MKDA_TEST_COSTUME");
@@ -217,27 +252,39 @@ const int g_test_costume = [] {
 uint32_t CostumeOf(int side) { return kernel::R32(kernel::R32(kCostume[side])); }
 
 void ResetPlayerPicks() {
-    g_local_pick_sent = g_local_forced = false;
-    g_costume_due[0] = g_costume_due[1] = false;
-    for (int i = 0; i < 2; i++)
+    g_local_pick_sent = false;
+    g_sent_cursor = -1;
+    for (int i = 0; i < 2; i++) {
+        g_costume_due[i] = false;
+        g_their_cursor[i] = g_agreed[i] = g_agreed_arena[i] = -1;
+        g_agreed_costume[i] = 0;
         if (g_req.by_player[i]) g_req.characters[i] = i == g_req.local_side ? -1 : kWaitPick;
+    }
 }
 
-// this PC's player's pick, once made, to the other game; the other player's (a spectator's game: both players'),
-// once it came, to the autopilot
-void ExchangePicks(double t) {
+// this PC's player's cursor while they choose, then their pick, to the other game; the other player's (a spectator's
+// game: both players'), as they come, to the autopilot
+void ExchangePicks() {
     const int me = g_req.local_side;
     if (me < 0 && !g_req.watch) return;
     if (me >= 0 && g_req.by_player[me] && !g_local_pick_sent && kernel::R32(kPlayerState[me]) == 3) {
         if (g_test_costume >= 0) kernel::W32(kernel::R32(kCostume[me]), uint32_t(g_test_costume));
-        const uint32_t words[2] = {kernel::R32(kCharacter[me]), CostumeOf(me)};
-        mk3d::net::SetLocalPick(words, 2);
+        const int arena = ArenaWord(kernel::R32(kNextArena));
+        const uint32_t words[3] = {kernel::R32(kCharacter[me]), CostumeOf(me), arena >= 0 ? uint32_t(arena) : kNoArena};
+        mk3d::net::SetLocalPick(words, 3);
         g_local_pick_sent = true;
-        LOGI("autopilot: this player picked %s (%u), costume %u", Name(int(words[0])).c_str(), words[0], words[1]);
-    }
-    if (me >= 0 && g_req.by_player[me] && !g_local_forced && !g_local_pick_sent && t > kPlayerPickTime) {
-        g_local_forced = true;
-        LOGI("autopilot: no pick after %.0f s: this player gets the cursor's", kPlayerPickTime);
+        g_agreed[me] = int(words[0]);
+        g_agreed_costume[me] = words[1];
+        g_agreed_arena[me] = arena;
+        LOGR("autopilot: this player picked %s (%u), costume %u, arena %d", Name(int(words[0])).c_str(), words[0],
+             words[1], arena);
+    } else if (me >= 0 && g_req.by_player[me] && !g_local_pick_sent && kernel::R32(kPlayerState[me]) == 2) {
+        const int at = int(kernel::R32(kCursor[me]));
+        if (at >= 0 && at < kGridMax && at != g_sent_cursor) {
+            const uint32_t word = kCursorWord | uint32_t(at);
+            mk3d::net::SetLocalPick(&word, 1);
+            g_sent_cursor = at;
+        }
     }
     for (int other = 0; other < 2; other++) {
         if (other == me || !g_req.by_player[other]) continue;
@@ -245,12 +292,17 @@ void ExchangePicks(double t) {
             uint32_t words[4] = {};
             int n = 4;
             const bool in = g_req.watch ? mk3d::net::WatchPick(other, words, n) : mk3d::net::PeerPick(words, n);
-            if (in && n > 0 && int(words[0]) < kCharacters) {
+            if (in && n > 0 && (words[0] & kCursorTagMask) == kCursorWord) {
+                g_their_cursor[other] = int(words[0] & 0xFFu);
+            } else if (in && n > 0 && words[0] < uint32_t(kCharacters)) {
                 g_req.characters[other] = int(words[0]);
                 g_their_costume[other] = n > 1 ? words[1] : 0;
                 g_costume_due[other] = true;
-                LOGI("autopilot: P%d picked %s (%u), costume %u", other + 1, Name(int(words[0])).c_str(), words[0],
-                     g_their_costume[other]);
+                g_agreed[other] = int(words[0]);
+                g_agreed_costume[other] = g_their_costume[other];
+                g_agreed_arena[other] = n > 2 ? ArenaWord(words[2]) : -1;
+                LOGR("autopilot: P%d picked %s (%u), costume %u, arena %d", other + 1, Name(int(words[0])).c_str(),
+                     words[0], g_their_costume[other], g_agreed_arena[other]);
             }
         }
         if (g_costume_due[other] && kernel::R32(kPlayerState[other]) == 3) {
@@ -297,10 +349,39 @@ Press Decide(int character, int cursor_player) {
     return p;
 }
 
+// the press toward the other player's cursor as it is on their screen (none before it came, or once there)
+Press FollowCursor(int side) {
+    Press p;
+    const int cur = int(kernel::R32(kCursor[side])), to = g_their_cursor[side];
+    if (cur >= 0 && cur < kGridMax && to >= 0 && to < kGridMax && to != cur) p.buttons = Steer(cur, to);
+    return p;
+}
+
 // one port's character select; port 0 is P1, port 1 P2 (practice: port 0 picks both, the opponent second)
 void Select(int port, input::Pad& pad, double t) {
-    if (g_req.characters[port] == kWaitPick) {  // the other player has not picked: keep the screen awake
-        if (Pulse(t, 8.0, 0.08)) pad.buttons |= (long(t / 8) & 1) ? kLeft : kRight;
+    if (g_req.by_player[port] && port != g_req.local_side && GameMode() != kModePractice) {
+        // a player on their own PC: after their cursor, then to their pick and A on it; P2 joins at once
+        Press& p = g_press[port];
+        const long cycle = long(t / kFollowCycle);
+        if (cycle != p.cycle) {
+            p = Press{};
+            p.cycle = cycle;
+            if (kernel::R32(kPlayerState[port]) != 2 || ArenaOpen()) {
+            } else if (port == 1 && kernel::R32(kP2Port) != 1) {
+                p.x = true;
+            } else if (g_req.characters[port] == kWaitPick) {
+                p = FollowCursor(port);
+                p.cycle = cycle;
+            } else {
+                p = Decide(g_req.characters[port], port);
+                p.cycle = cycle;
+            }
+        }
+        if (Pulse(t, kFollowCycle, kFollowPress)) {
+            pad.buttons |= p.buttons;
+            if (p.a) pad.analog[0] = p.a;
+            if (p.x) pad.analog[2] = 0xFF;
+        }
         return;
     }
     long cycle = long(t / 0.25);
@@ -316,7 +397,7 @@ void Select(int port, input::Pad& pad, double t) {
                 p = Decide(g_req.characters[which], 0);
                 p.cycle = cycle;
             }
-        } else if (port == g_req.local_side && g_req.by_player[port] && !g_local_forced) {
+        } else if (port == g_req.local_side && g_req.by_player[port]) {
             // this PC's player picks for this side with their own controller
         } else if (kernel::R32(kPlayerState[port]) == 2) {
             p = Decide(g_req.characters[port], port);
@@ -411,9 +492,23 @@ void Rematch() {
 int LocalPickPort() {
     std::lock_guard<std::mutex> lock(g_lock);
     const int me = g_req.local_side;
-    if (g_phase != Phase::Select || me < 0 || !g_req.by_player[me] || g_local_forced || Since() < 1.5) return -1;
+    if (g_phase != Phase::Select || me < 0 || !g_req.by_player[me] || Since() < 1.5) return -1;
     if (kernel::R32(kMainTask) != kSelectTask || kernel::R32(kPlayerState[me]) == 3) return -1;  // not up, or picked
     return me;
+}
+
+bool AgreedPick(int side, int& character, uint32_t& costume, int& arena) {
+    std::lock_guard<std::mutex> lock(g_lock);
+    if (!g_have_request || side < 0 || side > 1 || !g_req.by_player[side] || g_agreed[side] < 0) return false;
+    character = g_agreed[side];
+    costume = g_agreed_costume[side];
+    arena = g_agreed_arena[side];
+    return true;
+}
+
+bool HoldsIdle() {
+    std::lock_guard<std::mutex> lock(g_lock);
+    return g_have_request && (g_req.local_side >= 0 || g_req.watch);
 }
 
 void Restart(const Request& req) {
@@ -436,10 +531,38 @@ void ExpectMenu() {
     Enter(Phase::ToMenu);
 }
 
+// The main menu falls back into the attract sequence (its state task 0x238E0: the title, the movies, the demo
+// fights) after 2700 frames without a press, as on the console: a launcher's game waiting at its hold point gets there
+// (a spectator's between two matches, a lobby whose players take their time), and its next start found no menu to
+// take it ("the main menu did not take item 1"). START brings the menu back, as at boot; a start waits for it.
+constexpr uint32_t kAttractTask = 0x238E0;
+bool BackFromAttract(int port, input::Pad& pad) {
+    static bool told = false;
+    if (kernel::R32(kMainTask) != kAttractTask) {
+        told = false;
+        return false;
+    }
+    if (!told) {
+        told = true;
+        LOGR("autopilot: the main menu went over to its attract sequence: START, back to the menu");
+    }
+    if (port == 0 && Pulse(std::chrono::duration<double>(Clock::now().time_since_epoch()).count(), 0.7, 0.1))
+        pad.buttons |= kStart;
+    return true;
+}
+
 void Apply(int port, input::Pad& pad) {
     std::lock_guard<std::mutex> lock(g_lock);
     if (port < 32 && (g_connected >> port & 1)) pad.connected = true;
-    if (g_phase == Phase::Off || g_phase == Phase::Done || g_phase == Phase::Hold) return;
+    if (g_phase == Phase::Hold) {
+        BackFromAttract(port, pad);
+        return;
+    }
+    if (g_phase == Phase::Settle && BackFromAttract(port, pad)) {
+        g_since = Clock::now();  // the settle's wait starts once the menu is back
+        return;
+    }
+    if (g_phase == Phase::Off || g_phase == Phase::Done) return;
     double t = Since();
     switch (g_phase) {
         case Phase::ToMenu:
@@ -532,10 +655,9 @@ void Apply(int port, input::Pad& pad) {
                 return;
             }
             if (g_hold_at_select) return;
-            // players picking on the select screen may take their time (75 s each, after that their cursor's)
-            const double limit = PlayersPick() ? 240 : 120;
-            if (FightSetups() > g_base_fights || t > limit) {
-                if (FightSetups() <= g_base_fights) LOGE("autopilot: no fight after %.0f s at character select", limit);
+            // players picking on the select screen take the time they want
+            if (FightSetups() > g_base_fights || (!PlayersPick() && t > 120)) {
+                if (FightSetups() <= g_base_fights) LOGE("autopilot: no fight after 120 s at character select");
                 Enter(Phase::Done);
                 return;
             }
@@ -546,7 +668,7 @@ void Apply(int port, input::Pad& pad) {
             }
             if (t < 1.5) return;  // the select screen fades in
             if (g_req.unlock_all) Unlock();
-            if (port == 0) ExchangePicks(t);
+            if (port == 0) ExchangePicks();
             if (!AllPicked() && (kernel::R32(kMainTask) == kSelectTask)) {
                 Select(port, pad, t);
             } else if (port == 0 && Pulse(t, 0.7, 0.1)) {

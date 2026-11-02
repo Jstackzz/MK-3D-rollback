@@ -218,7 +218,9 @@ void PadHook(int port, input::Pad& pad) {
         if (port == 0) player = pad;
         const bool connected = pad.connected;
         pad = port == pick_port ? player : input::Pad{};
-        pad.analog[1] = 0;      // B would leave the select screen (and the match with it)
+        // B would leave the select screen (and the match with it); in the arena panel (BLACK) it only closes the panel,
+        // the arena chosen before kept (the arena both games fight on: autopilot ChosenArena, linkgame.cpp)
+        if (!autopilot::ArenaPanelOpen()) pad.analog[1] = 0;
         pad.buttons &= ~0x20u;  // as BACK would
         pad.analog[2] = 0;      // X opens a panel there that only B closes; open, it takes A, so nobody would pick
         pad.connected = connected || port == pick_port;

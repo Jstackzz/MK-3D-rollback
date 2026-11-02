@@ -50,6 +50,61 @@ struct MatchOptions {
 };
 MatchOptions g_options;
 
+// The launcher match now is a fight online, or watched: the select screen's own arena choice and the picks there are
+// one game's alone, so both games set up the fight from what they agreed on (the hooks below)
+bool g_online_fight = false;
+
+// The select screen's arena panel (opened over the grid; sub_002086F0 moves through the arenas of table 0x561970)
+// keeps its choice in kTrackChoice (0x831A58, -1 for none; Motor Kombat's track select uses it too), and the fight
+// load's sub_000982D0 puts it over the arena the select task took from the list: online only the game of the player
+// who used the panel had it, the two games loaded different arenas and parted (8 of the 36 Armageddon desync reports
+// since 0.1.17). Online each player's choice goes to the other game with their pick (autopilot ChosenArena), and
+// both games (a spectator's too) put the same one there: AgreedArena.
+constexpr uint32_t kArenaChoiceLimit = 0x38;  // sub_000982D0 takes a choice below this
+uint32_t g_match_seed = 0;
+
+// The arena of an online fight whose players chose one on the select screen: both chose, the match's seed picks one
+// of the two (bit 7 set, P2's); one chose, that one; neither, -1 (the match's own, from the seed's place on the list)
+// A choice counts only when it is an arena a player can choose: on the versus list or in the arena panel's table
+// (0x561970: id, name, a group; the names in the image's read-only data). Both games take the same choices the same
+// way, so an arena word that names no arena (only another program could send one, and its load would end both games)
+// leaves the match's own.
+constexpr uint32_t kPanelTable = 0x561970;
+bool Choosable(int id) {
+    if (id < 0 || uint32_t(id) >= kArenaChoiceLimit) return false;
+    for (uint32_t i = 0; i < 64; i++) {
+        const int32_t listed = int32_t(kernel::R32(kArenaList + 4 * i));
+        if (listed < 0) break;
+        if (listed == id) return true;
+    }
+    for (uint32_t i = 0; i < 64; i++) {
+        const uint32_t entry = kPanelTable + 12 * i, name = kernel::R32(entry + 4);
+        if (name < 0x400000 || name >= 0x700000) break;
+        if (int32_t(kernel::R32(entry)) == id) return true;
+    }
+    return false;
+}
+
+int AgreedArena() {
+    int p1 = autopilot::ChosenArena(0), p2 = autopilot::ChosenArena(1);
+    if (!Choosable(p1)) p1 = -1;
+    if (!Choosable(p2)) p2 = -1;
+    if (p1 >= 0 && p2 >= 0) return (g_match_seed >> 7) & 1 ? p2 : p1;
+    return p1 >= 0 ? p1 : p2;
+}
+
+// A fight's two characters as it was set up: a result settled late (the versus fight already back on its select
+// screen, which sets the records to none, 0x40, and then to the cursors') named no characters, so the result names
+// the ones the fight set up with
+int g_fighters[2] = {-1, -1};
+const bool g_fighters_hooked = [] {
+    BeforeFightSetup([](X86Context&) {
+        g_fighters[0] = int(kernel::R32(kP1Character));
+        g_fighters[1] = int(kernel::R32(kP2Character));
+    });
+    return true;
+}();
+
 void ApplyOptions() {
     if (!g_options.set) return;
     if (g_options.wins_needed > 0) kernel::W32(kRoundsToWin, uint32_t(g_options.wins_needed));
@@ -75,6 +130,8 @@ void PickArena(uint32_t seed, const std::string& stage) {
 }
 
 void Prepare(const mk3d::link::game::Start& start) {
+    g_online_fight = (start.online || start.watch) && start.mode != "motor";
+    g_match_seed = start.seed;
     if (start.mode == "motor") {
         autopilot::SetTrack(start.seed, start.stage);
     } else {
@@ -152,11 +209,11 @@ bool Outcome(const std::string& mode, const net::Settled& s, int wins_needed, in
     return winner != 0;
 }
 
-// a fight's two characters (Motor Kombat's karts are picked again; 0x40 none)
+// a fight's two characters, as it was set up (Motor Kombat's karts are picked again; 0x40 none)
 bool Fighters(const std::string& mode, int out[2]) {
     if (mode == "motor") return false;
-    out[0] = int(kernel::R32(kP1Character));
-    out[1] = int(kernel::R32(kP2Character));
+    out[0] = g_fighters[0];
+    out[1] = g_fighters[1];
     return out[0] >= 0 && out[0] < 0x40 && out[1] >= 0 && out[1] < 0x40;
 }
 
@@ -166,6 +223,8 @@ X86_EXTERN_FUNC(__imp__sub_00236320);
 X86_EXTERN_FUNC(__imp__sub_00236150);
 X86_EXTERN_FUNC(__imp__sub_00235AF0);
 X86_EXTERN_FUNC(__imp__sub_0025D2D0);
+X86_EXTERN_FUNC(__imp__sub_000982D0);
+X86_EXTERN_FUNC(__imp__sub_002056E0);
 
 // the front end sets the game options (their defaults, or one menu item): a launcher match's go back over them
 X86_FUNC(sub_00236320) {
@@ -188,4 +247,53 @@ X86_FUNC(sub_0025D2D0) {
     if (!mka::g_options.set) return __imp__sub_0025D2D0(ctx, base);
     ctx.eax = mka::g_options.death_traps ? 1u : 0u;
     ctx.esp += 4;  // ret
+}
+
+// the fight load's arena (no arguments): online and watching, the arena both games agreed from the players' choices
+// on the select screen (AgreedArena), else the match's own: what this game's panel holds is one player's choice alone
+X86_FUNC(sub_000982D0) {
+    if (mka::g_online_fight) {
+        const int32_t choice = int32_t(kernel::R32(mka::kTrackChoice));
+        const int agreed = mka::AgreedArena();
+        if (agreed >= 0) {
+            LOGR("link: arena %d, as the players chose on the select screen (P1 %d, P2 %d)", agreed,
+                 mka::autopilot::ChosenArena(0), mka::autopilot::ChosenArena(1));
+            kernel::W32(mka::kTrackChoice, uint32_t(agreed));
+        } else if (choice >= 0 && uint32_t(choice) < mka::kArenaChoiceLimit) {
+            LOGR("link: the select screen's arena choice %d left out, the match's arena is %u", choice,
+                 kernel::R32(mka::kArena));
+            kernel::W32(mka::kTrackChoice, 0xFFFFFFFFu);
+        }
+    }
+    __imp__sub_000982D0(ctx, base);
+}
+
+// The select screen's end (no arguments: the records' characters from the characters under the cursors; the select
+// task then ORs the costume flags into the records and switches to the fight load). Online and watching, the records
+// get the picks both games fight with whatever this screen ended on (the autopilot sends the character under the
+// cursor, so they should never differ; a game set up with another character than the other's parts from it at once),
+// and P2 the other colours when both picked the same character in the same costume.
+X86_FUNC(sub_002056E0) {
+    __imp__sub_002056E0(ctx, base);
+    if (!mka::g_online_fight) return;
+    using namespace mka;
+    constexpr uint32_t kRecords[2] = {kP1Record, kP2Record};
+    constexpr uint32_t kAlternate[2] = {0x24, 0x58}, kColours[2] = {0x28, 0x5C};  // select block flags (autopilot.cpp)
+    const uint32_t block = SelectBlock();
+    int character[2] = {-1, -1};
+    uint32_t costume[2] = {};
+    for (int s = 0; s < 2; s++) {
+        if (!autopilot::AgreedPick(s, character[s], costume[s])) continue;
+        const uint32_t was = kernel::R32(kRecords[s] + kRecordCharacter);
+        if (was != uint32_t(character[s]))
+            LOGR("link: P%d ends the select screen on character %u, the match's pick is %d: that one", s + 1, was,
+                 character[s]);
+        kernel::W32(kRecords[s] + kRecordCharacter, uint32_t(character[s]));
+        kernel::W32(kRecords[s] + kRecordCostume, (kernel::R32(kRecords[s] + kRecordCostume) & ~3u) | costume[s]);
+        if (block) kernel::W32(block + kAlternate[s], costume[s]);
+    }
+    if (block && character[0] >= 0 && character[1] >= 0) {
+        kernel::W32(block + kColours[0], 0);
+        kernel::W32(block + kColours[1], character[0] == character[1] && costume[0] == costume[1] ? 1 : 0);
+    }
 }
