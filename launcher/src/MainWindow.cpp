@@ -610,8 +610,14 @@ void MainWindow::onMatchFound(const QJsonObject& found) {
     const GameMode* m = g ? g->mode(found.value(QStringLiteral("mode")).toString()) : nullptr;
     const QueueRequest req = controller_->lastRequest();
     if (matchDialog_) matchDialog_->done(2);
+    // ranked: the rank this player searched with (the server's queued reply)
+    const QJsonObject queued = controller_->lastQueued();
+    const QString rank = found.value(QStringLiteral("ranked")).toBool() && queued.contains(QStringLiteral("title"))
+                             ? tr("Your rank: %1 (%2 Elo)").arg(queued.value(QStringLiteral("title")).toString())
+                                   .arg(queued.value(QStringLiteral("elo")).toInt())
+                             : QString();
     auto* dlg = new MatchFoundDialog(found, g ? g->title : QString(), m ? m->name : QString(),
-                                     g ? g->characterName(req.character) : req.character, this);
+                                     g ? g->characterName(req.character) : req.character, rank, this);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     GamepadNav::keepFromBack(dlg);  // B, an attack button, never declines
     // over the games, and in front again whenever a game window takes the front: a match found the moment the search

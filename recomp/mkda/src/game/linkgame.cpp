@@ -55,6 +55,7 @@ void PickArena(uint32_t seed, const std::string& stage) {
 // match's arena (SetNextArena) went over it in both. Whatever 0x42C754 holds when a player picks goes with the pick,
 // and both games fight on what the two choices give (AgreeOnTheFight).
 uint32_t g_seed = 0;  // the match's seed (the launcher's start line)
+int64_t g_fight_costumes[2] = {-1, -1};  // both players' costumes as the select screen ended (-1 not yet)
 
 // The arena both games fight on from their players' choices on the select screen (-1 none): both chose, the match's
 // seed picks between them (bit 7 set: P2's, else P1's); one chose, that one; neither, -1: the match's own (PickArena).
@@ -96,6 +97,10 @@ void AgreeOnTheFight() {
     int character[2] = {-1, -1}, arena[2] = {-1, -1};
     uint32_t costume[2] = {};
     bool any = false;
+    for (int s = 0; s < 2; s++) {
+        const uint32_t word = kernel::R32(kCostume[s]);
+        g_fight_costumes[s] = word ? int64_t(kernel::R32(word)) : -1;
+    }
     for (int s = 0; s < 2; s++) {
         if (!autopilot::AgreedPick(s, character[s], costume[s], arena[s])) continue;
         any = true;
@@ -142,7 +147,11 @@ bool Begin(const Start& start) {
     // game takes both players' picks from their games)
     req.local_side = start.online && !start.watch ? start.side : -1;
     req.watch = start.watch;
-    for (int i = 0; i < 2; i++) req.by_player[i] = start.online && start.mode == "kombat" && start.picks[i].empty();
+    for (int i = 0; i < 2; i++) {
+        req.by_player[i] = start.online && start.mode == "kombat" && start.picks[i].empty();
+        req.costumes[i] = start.online && start.mode == "kombat" ? start.costumes[i] : -1;
+        g_fight_costumes[i] = -1;
+    }
     g_seed = start.seed;
     PickArena(start.seed, start.stage);
     SetOptions(start.wins_needed);
@@ -153,6 +162,7 @@ bool Begin(const Start& start) {
 // on the select screen pick again)
 void Rematch(const Start& start) {
     g_seed = start.seed;
+    g_fight_costumes[0] = g_fight_costumes[1] = -1;
     PickArena(start.seed, start.stage);
     SetOptions(start.wins_needed);
     autopilot::Rematch();
@@ -184,10 +194,12 @@ bool Outcome(const std::string&, const net::Settled& s, int wins_needed, int& wi
     return winner != 0;
 }
 
-// the fight's two characters (0x18 none)
-bool Fighters(const std::string&, int out[2]) {
+// the fight's two characters (0x18 none) and their costumes as the select screen ended
+bool Fighters(const std::string&, int out[2], int64_t costumes[2]) {
     out[0] = int(kernel::R32(kCharacter[0]));
     out[1] = int(kernel::R32(kCharacter[1]));
+    costumes[0] = g_fight_costumes[0];
+    costumes[1] = g_fight_costumes[1];
     return out[0] >= 0 && out[0] < 0x18 && out[1] >= 0 && out[1] < 0x18;
 }
 

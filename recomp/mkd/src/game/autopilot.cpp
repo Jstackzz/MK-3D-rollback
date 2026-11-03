@@ -235,8 +235,8 @@ constexpr double kFollowCycle = 0.1, kFollowPress = 0.05;
 bool g_local_pick_sent = false;
 int g_sent_cursor = -1;                  // this PC's player's cursor as last sent
 int g_their_cursor[2] = {-1, -1};        // the other player's (a spectator's game: both players') as it came
-bool g_costume_due[2] = {};              // a player's costume flags from their game, set once the autopilot picked
-uint32_t g_their_costume[2] = {};
+bool g_costume_due[2] = {};              // a side's costume flags to set once the autopilot picked it: a player's from
+uint32_t g_their_costume[2] = {};        // their game, or the launcher's (a fighter a ranked set's winner keeps)
 uint32_t g_their_team[2][5] = {};        // a player's Chess Kombat team from their game, in the order they picked it
 bool g_their_team_in[2] = {};
 int g_agreed[2] = {-1, -1};              // the picks both games fight with: this player's as sent, the other's as it came
@@ -258,6 +258,15 @@ void ResetPlayerPicks() {
         g_agreed_costume[i] = 0;
         g_follow[i] = Follow{};
         if (g_req.by_player[i]) g_req.characters[i] = i == g_req.local_side ? -1 : kWaitPick;
+        // a side the launcher picked with its costume flags (the fighter a ranked set's winner keeps, as they won with
+        // it): both games pick it and give it those flags, and fight with both whatever the select screen did with them
+        // (a mirror pick made in another order in each game)
+        if (!g_req.by_player[i] && g_req.costumes[i] >= 0 && g_req.characters[i] >= 0) {
+            g_their_costume[i] = g_agreed_costume[i] = uint32_t(g_req.costumes[i]);
+            g_costume_due[i] = true;
+            g_agreed[i] = g_req.characters[i];
+            LOGR("autopilot: P%d keeps character %d, costume flags %X", i + 1, g_agreed[i], g_agreed_costume[i]);
+        }
     }
 }
 
@@ -350,9 +359,11 @@ void ExchangePicks() {
                      g_their_costume[other], g_agreed_arena[other]);
             }
         }
-        if (g_costume_due[other] && Picked(other)) {
-            kernel::W32(kRecord[other] + kRecordCostume, g_their_costume[other]);
-            g_costume_due[other] = false;
+    }
+    for (int side = 0; side < 2; side++) {
+        if (g_costume_due[side] && Picked(side)) {
+            kernel::W32(kRecord[side] + kRecordCostume, g_their_costume[side]);
+            g_costume_due[side] = false;
         }
     }
 }

@@ -45,6 +45,8 @@ bool inFront(QWidget* window);
 // The game's window in front again (the largest visible window of that process or of one it started), so the player
 // is back in it without switching to it; false when it has none or did not get the foreground.
 bool bringProcessToFront(qint64 pid);
+// development (cfg::devBackground, tests on a PC someone uses): the two above never take the foreground
+void stayBehind(bool on);
 
 // A game set aside for another one: its windows hidden (kept in `hidden` for later), then the process and any it
 // started frozen, every thread stopped where it is; thawing runs them on and shows those windows again. A frozen game

@@ -15,13 +15,16 @@ struct Request {
     bool watch = false;        // a spectator's game: no player here, both picks come from the players' games
     bool by_player[2] = {};    // online: that side's player picks on the select screen (this PC's player with their
                                // own controller, the other one on their PC: their pick comes over netplay)
+    int64_t costumes[2] = {-1, -1};  // online, a side the launcher picked with its costume (the fighter a ranked
+                                     // set's winner keeps): both games give it that once it is picked
 };
 
 // the port this PC's player steers their own side's cursor with now (they pick on the select screen), -1 otherwise
 int LocalPickPort();
 // online, a side its player picked on the select screen: the pick both games fight with (this PC's player's as it went
 // to the other game, the other player's as it came; a spectator's game: both as they came), its costume and the arena
-// that player chose on the select screen (-1 none); false before the pick, or for a side the launcher picked
+// that player chose on the select screen (-1 none); a side the launcher picked with its costume: that one, no arena;
+// false before the pick, or for a side the launcher picked otherwise
 bool AgreedPick(int side, int& character, uint32_t& costume, int& arena);
 // a launcher match online or watched is under way: nobody's time runs out on its select screen (linkgame.cpp)
 bool HoldsIdle();

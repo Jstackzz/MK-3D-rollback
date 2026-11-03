@@ -23,6 +23,9 @@ struct Start {
     std::string mode;
     std::string picks[2];  // roster ids, empty for the cursor's own; online in a fight mode: that side's player picks
                            // on the select screen (on their own PC; the other game takes it over netplay, SetLocalPick)
+    // a pick's costume, -1 for the one the pick gives: online, a launcher's "<character>.<costume>" (the fighter a
+    // ranked set's winner keeps, as they won with it), which both games give that side once it is picked
+    int64_t costumes[2] = {-1, -1};
     uint32_t seed = 0;
     std::string stage;
     int wins_needed = 2;   // rounds a player must win (from the launcher's best of N)
@@ -54,7 +57,8 @@ void SettleNow(net::Settled& s);
 bool Outcome(const std::string& mode, const net::Settled& s, int wins_needed, int& winner, uint32_t& p1_rounds,
              uint32_t& p2_rounds);
 // the fighters of a fight mode's match (the game's character indices, which a start's picks take as numbers, so a
-// rematch can have the same two); false for a mode without them
-bool Fighters(const std::string& mode, int out[2]);
+// rematch can have the same two) and their costumes as the fight was set up (-1 not known, the game's own costume
+// words, which a start's picks take after the character); false for a mode without them
+bool Fighters(const std::string& mode, int out[2], int64_t costumes[2]);
 
 }  // namespace mk3d::link::game

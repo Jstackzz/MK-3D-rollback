@@ -32,6 +32,43 @@ void fillCharacters(QComboBox* box, const QList<Character>& roster, const QStrin
     const int i = box->findData(select);
     box->setCurrentIndex(i >= 0 ? i : qMin(fallback, box->count() - 1));
 }
+
+// The ranked titles by Elo as the server names them (welcome's ranks, lowest first: each from its Elo up to the next
+// one's), a line each: for the tooltips that show the whole ladder
+QString rankLadder(const QJsonArray& ranks) {
+    QStringList lines;
+    for (qsizetype i = 0; i < ranks.size(); ++i) {
+        const QJsonObject r = ranks.at(i).toObject();
+        const QJsonValue from = r.value(QStringLiteral("from"));
+        const QJsonValue next = ranks.at(i + 1).toObject().value(QStringLiteral("from"));  // past the end: undefined
+        const QString title = r.value(QStringLiteral("title")).toString();
+        if (from.isNull() || from.isUndefined()) lines << QueuePage::tr("%1: below %2").arg(title).arg(next.toInt());
+        else if (i + 1 == ranks.size()) lines << QueuePage::tr("%1: %2 and up").arg(title).arg(from.toInt());
+        else lines << QueuePage::tr("%1: %2 to %3").arg(title).arg(from.toInt()).arg(next.toInt() - 1);
+    }
+    return lines.join(QLatin1Char('\n'));
+}
+
+// the title a rating holds on the ladder ("" without the server's ladder)
+QString rankTitle(const QJsonArray& ranks, int elo) {
+    QString title;
+    for (const QJsonValue& v : ranks) {
+        const QJsonValue from = v.toObject().value(QStringLiteral("from"));
+        if (!from.isDouble() || from.toInt() <= elo) title = v.toObject().value(QStringLiteral("title")).toString();
+    }
+    return title;
+}
+
+// the next title up from a rating, and the Elo it starts at ("" at the top, or without the server's ladder)
+QString nextRank(const QJsonArray& ranks, int elo) {
+    for (const QJsonValue& v : ranks) {
+        const QJsonValue from = v.toObject().value(QStringLiteral("from"));
+        if (from.isDouble() && from.toInt() > elo)
+            return QueuePage::tr("%1 at %2").arg(v.toObject().value(QStringLiteral("title")).toString())
+                .arg(from.toInt());
+    }
+    return {};
+}
 }  // namespace
 
 // --- QueuePage -------------------------------------------------------------------------------------
@@ -43,9 +80,9 @@ QueuePage::QueuePage(bool ranked, ServerClient* server, MatchController* control
     root->setSpacing(14);
     root->addWidget(ui::pageHeader(
         ranked ? tr("Ranked Kombat") : tr("Kasual Kombat"),
-        ranked ? tr("Sets against one opponent: the first to win 2 matches takes the set, and Elo changes once, when "
-                    "it ends. Leaving a set after a match of it has counted loses it. Your opponent is revealed once "
-                    "both have accepted.")
+        ranked ? tr("Sets against one opponent, the first to win 3 matches takes it: the winner of each match keeps "
+                    "their fighter, the loser picks again. Elo changes once per set and gives your rank. Leaving a set "
+                    "after a match of it has counted loses it. Your opponent is revealed once both have accepted.")
                : tr("Quick matches against the first compatible player in your region, with a rematch whenever you "
                     "both want one. Wins and losses are recorded; Elo is not touched.")));
 
@@ -162,6 +199,9 @@ QueuePage::QueuePage(bool ranked, ServerClient* server, MatchController* control
     tiles->addWidget(ui::statTile(tr("Wins"), &wins_));
     tiles->addWidget(ui::statTile(tr("Losses"), &losses_));
     rec->addLayout(tiles);
+    // ranked: the title the Elo gives (the server's), and the next one up; the whole ladder in the tooltip
+    rank_ = ranked ? ui::label(QString(), "Rank") : nullptr;
+    if (rank_) rec->addWidget(rank_);
 
     find_ = new QPushButton(tr("FIND MATCH"));
     find_->setObjectName(QStringLiteral("Primary"));
@@ -361,6 +401,18 @@ void QueuePage::updateStats() {
     if (elo_) elo_->setText(online ? QString::number(entry.value(QStringLiteral("elo")).toInt(1500)) : QStringLiteral("-"));
     wins_->setText(online ? QString::number(entry.value(QStringLiteral("wins")).toInt()) : QStringLiteral("-"));
     losses_->setText(online ? QString::number(entry.value(QStringLiteral("losses")).toInt()) : QStringLiteral("-"));
+    if (rank_) {
+        // a mode never played has no entry: the title of the Elo everyone starts with, from the ladder
+        const QJsonArray ranks = server_->welcome().value(QStringLiteral("ranks")).toArray();
+        const int elo = entry.value(QStringLiteral("elo")).toInt(1500);
+        const QString title = entry.contains(QStringLiteral("title")) ? entry.value(QStringLiteral("title")).toString()
+                                                                      : rankTitle(ranks, elo);
+        const QString next = nextRank(ranks, elo);
+        rank_->setText(!online || title.isEmpty() ? QString()
+                       : next.isEmpty()           ? tr("RANK: %1").arg(title.toUpper())
+                                                  : tr("RANK: %1   (next: %2)").arg(title.toUpper(), next));
+        rank_->setToolTip(ranks.isEmpty() ? QString() : tr("Ranks by Elo:\n%1").arg(rankLadder(ranks)));
+    }
 }
 
 bool QueuePage::startSearch(const QString& mode, const QString& character) {
@@ -530,9 +582,21 @@ void QueuePage::updateSeries() {
                                   : tr("KASUAL  |  VS %1").arg(opp.toUpper()));
     seriesScore_->setText(tr("YOU %1 - %2 %3").arg(series_.value(QStringLiteral("you")).toInt())
                               .arg(series_.value(QStringLiteral("them")).toInt()).arg(opp.toUpper()));
+    // a ranked set's next match in kombat: the last match's winner keeps their fighter, the loser picks again
+    const QString keeps = series_.value(QStringLiteral("keeps")).toString();
+    const QString oppTitle = series_.value(QStringLiteral("opponent_title")).toString();
+    const int number = series_.value(QStringLiteral("played")).toInt() + 1;
     QString info;
     if (!between)
-        info = tr("Match %1 against %2 under way.").arg(series_.value(QStringLiteral("played")).toInt() + 1).arg(opp);
+        info = oppTitle.isEmpty() ? tr("Match %1 against %2 under way.").arg(number).arg(opp)
+                                  : tr("Match %1 against %2 (%3) under way.").arg(number).arg(opp, oppTitle);
+    else if (ranked_ && !keeps.isEmpty())
+        info = (keeps == server_->accountName()
+                    ? tr("You keep your fighter, %1 picks again: the next match starts as soon as both games are ready "
+                         "(%2 s). Leaving the set now counts as losing it.").arg(opp)
+                    : tr("%1 keeps their fighter, you pick yours again: the next match starts as soon as both games "
+                         "are ready (%2 s). Leaving the set now counts as losing it.").arg(opp))
+                   .arg(left);
     else if (ranked_)
         info = (select ? tr("The next match starts at character select as soon as both games are ready (%1 s). "
                             "Leaving the set now counts as losing it.")
@@ -586,6 +650,13 @@ QString QueuePage::seriesOverText(const QJsonObject& s) const {
         text += tr(" Elo %1 -> %2 (%3%4).").arg(e.value(QStringLiteral("before")).toInt())
                     .arg(e.value(QStringLiteral("after")).toInt())
                     .arg(delta >= 0 ? QStringLiteral("+") : QString()).arg(delta);
+        // the title the new Elo gives, and whether it is another one
+        const QString was = e.value(QStringLiteral("title_before")).toString();
+        const QString now = e.value(QStringLiteral("title_after")).toString();
+        if (!now.isEmpty() && was != now)
+            text += (delta > 0 ? tr(" Ranked up to %1!") : tr(" Ranked down to %1.")).arg(now);
+        else if (!now.isEmpty())
+            text += tr(" Rank: %1.").arg(now);
     }
     return text;
 }
@@ -789,7 +860,8 @@ LeaderboardPage::LeaderboardPage(ServerClient* server, QWidget* parent) : Page(p
     auto* root = new QVBoxLayout(this);
     root->setContentsMargins(28, 20, 28, 16);
     root->setSpacing(12);
-    root->addWidget(ui::pageHeader(tr("Leaderboard"), tr("Top ranked players per game and mode, by Elo.")));
+    root->addWidget(ui::pageHeader(tr("Leaderboard"), tr("Top ranked players per game and mode, by Elo, with the rank "
+                                                         "it gives (hover over Rank for every rank's Elo).")));
     auto* row = new QHBoxLayout;
     mode_ = new QComboBox;
     mode_->setMinimumWidth(200);
@@ -800,10 +872,12 @@ LeaderboardPage::LeaderboardPage(ServerClient* server, QWidget* parent) : Page(p
     row->addStretch();
     row->addWidget(me_);
     root->addLayout(row);
-    table_ = new QTableWidget(0, 6);
-    table_->setHorizontalHeaderLabels({tr("Rank"), tr("Player"), tr("Elo"), tr("Wins"), tr("Losses"), tr("Win %")});
+    table_ = new QTableWidget(0, 7);
+    table_->setHorizontalHeaderLabels({tr("#"), tr("Player"), tr("Rank"), tr("Elo"), tr("Wins"), tr("Losses"),
+                                       tr("Win %")});
     table_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     table_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    table_->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);  // "Elder God of Destruction"
     table_->verticalHeader()->hide();
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -853,6 +927,7 @@ void LeaderboardPage::onMessage(const QJsonObject& msg) {
         const int w = r.value(QStringLiteral("wins")).toInt(), l = r.value(QStringLiteral("losses")).toInt();
         const QStringList cells = {QString::number(r.value(QStringLiteral("rank")).toInt()),
                                    r.value(QStringLiteral("name")).toString(),
+                                   r.value(QStringLiteral("title")).toString(),
                                    QString::number(r.value(QStringLiteral("elo")).toInt()),
                                    QString::number(w),
                                    QString::number(l),
@@ -864,8 +939,14 @@ void LeaderboardPage::onMessage(const QJsonObject& msg) {
             table_->setItem(i, c, item);
         }
     }
+    // every rank's Elo, from the server's ladder
+    const QJsonArray ranks = server_->welcome().value(QStringLiteral("ranks")).toArray();
+    if (QTableWidgetItem* head = table_->horizontalHeaderItem(2))
+        head->setToolTip(ranks.isEmpty() ? QString() : tr("Ranks by Elo:\n%1").arg(rankLadder(ranks)));
     const QJsonObject me = msg.value(QStringLiteral("me")).toObject();
-    me_->setText(me.isEmpty() ? QString() : tr("You: #%1  |  %2").arg(me.value(QStringLiteral("rank")).toInt())
-                                                     .arg(me.value(QStringLiteral("elo")).toInt()));
+    me_->setText(me.isEmpty() ? QString()
+                              : tr("You: #%1  |  %2  |  %3").arg(me.value(QStringLiteral("rank")).toInt())
+                                    .arg(me.value(QStringLiteral("elo")).toInt())
+                                    .arg(me.value(QStringLiteral("title")).toString()));
     info_->setText(tr("%1 ranked players").arg(msg.value(QStringLiteral("total")).toInt()));
 }

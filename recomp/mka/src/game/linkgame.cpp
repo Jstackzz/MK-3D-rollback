@@ -95,12 +95,15 @@ int AgreedArena() {
 
 // A fight's two characters as it was set up: a result settled late (the versus fight already back on its select
 // screen, which sets the records to none, 0x40, and then to the cursors') named no characters, so the result names
-// the ones the fight set up with
+// the ones the fight set up with, and their costumes (0 or 1, the alternate: the records' bit 0)
 int g_fighters[2] = {-1, -1};
+int64_t g_fight_costumes[2] = {-1, -1};
 const bool g_fighters_hooked = [] {
     BeforeFightSetup([](X86Context&) {
         g_fighters[0] = int(kernel::R32(kP1Character));
         g_fighters[1] = int(kernel::R32(kP2Character));
+        g_fight_costumes[0] = kernel::R32(kP1Record + kRecordCostume) & 1;
+        g_fight_costumes[1] = kernel::R32(kP2Record + kRecordCostume) & 1;
     });
     return true;
 }();
@@ -165,7 +168,10 @@ bool Begin(const Start& start) {
     // game takes both players' picks from their games)
     req.local_side = start.online && !start.watch ? start.side : -1;
     req.watch = start.watch;
-    for (int i = 0; i < 2; i++) req.by_player[i] = start.online && start.mode == "kombat" && start.picks[i].empty();
+    for (int i = 0; i < 2; i++) {
+        req.by_player[i] = start.online && start.mode == "kombat" && start.picks[i].empty();
+        req.costumes[i] = start.online && start.mode == "kombat" ? start.costumes[i] : -1;
+    }
     g_request = req;
     Prepare(start);
     return autopilot::Begin(req);
@@ -209,11 +215,13 @@ bool Outcome(const std::string& mode, const net::Settled& s, int wins_needed, in
     return winner != 0;
 }
 
-// a fight's two characters, as it was set up (Motor Kombat's karts are picked again; 0x40 none)
-bool Fighters(const std::string& mode, int out[2]) {
+// a fight's two characters and their costumes, as it was set up (Motor Kombat's karts are picked again; 0x40 none)
+bool Fighters(const std::string& mode, int out[2], int64_t costumes[2]) {
     if (mode == "motor") return false;
     out[0] = g_fighters[0];
     out[1] = g_fighters[1];
+    costumes[0] = g_fight_costumes[0];
+    costumes[1] = g_fight_costumes[1];
     return out[0] >= 0 && out[0] < 0x40 && out[1] >= 0 && out[1] < 0x40;
 }
 

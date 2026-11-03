@@ -13,6 +13,7 @@
 #include "GameData.h"
 #include "MainWindow.h"
 #include "Style.h"
+#include "WinUtil.h"
 
 int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
@@ -105,6 +106,7 @@ int main(int argc, char* argv[]) {
     cli.process(app);
 
     paths::init(cli.value(configOpt));
+    winutil::stayBehind(cfg::devBackground());
     applog::write(QStringLiteral("launcher %1 starting, settings %2").arg(QStringLiteral(MK3D_LAUNCHER_VERSION), paths::configFile()));
 
     // not "<ini>.lock": QSettings locks that file itself while it syncs. Started by an update, the old launcher is

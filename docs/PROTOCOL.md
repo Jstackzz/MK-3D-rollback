@@ -89,10 +89,20 @@ C: {"type":"hello","proto":1,"client":"mk3d-launcher","version":"0.1.0","os":"wi
 S: {"type":"welcome","proto":1,"server":"mk3d-server","version":"0.1.0","udp_port":7778,
     "motd":"Welcome!","online":12,"min_client":"0.1.0",
     "games":{"mkda":["kombat"],"mkd":["kombat","chess","puzzle"],"mka":["kombat","motor"]},
-    "regions":["na","sa","eu","me","af","as","oc"],"direct_above_ms":100}
+    "regions":["na","sa","eu","me","af","as","oc"],"direct_above_ms":100,
+    "ranks":[{"title":"Ed Boon","from":null},{"title":"Apprentice","from":1300},
+             {"title":"Kombatant","from":1450}, ...,{"title":"Elder God of Destruction","from":2000}]}
 ```
 
 - `proto` must equal the server's `PROTO`, else `error{code:"proto_mismatch"}`.
+- `ranks` (0.1.21): the ranked titles by Elo, lowest first, each held from its
+  `from` up to the next one's (the first, `null`, below the second's): Ed Boon
+  below 1300, Apprentice 1300, Kombatant 1450 (everyone starts at 1500),
+  Warrior 1550, Gladiator 1600, Master 1650, Grand Master 1700, Demigod 1750,
+  God 1800, Elder God 1850, Elder God Supreme 1900, Elder God of Destruction
+  2000 (server/elo.py `RANKS`). Every ranked rating the server sends comes with
+  its `title` (1.5, 1.7, 1.8, 1.9.1, 1.11); the launcher shows the ladder in
+  tooltips and the next title on the Ranked page.
 - `direct_above_ms` (0.1.18): a match relayed only because a player hides their
   address tries a direct connection when its ping through the relay is over
   this (1.7 `relay`; 0: never), for the launcher's Settings to say.
@@ -155,13 +165,14 @@ S: {"type":"logged_out"}
 ```json
 C: {"type":"profile"}                    (own profile; or {"type":"profile","name":"Raijin"})
 S: {"type":"profile","name":"Raijin","created":1761300000,
-    "stats":{"mkd":{"kombat":{"ranked":{"elo":1532,"wins":4,"losses":2},
+    "stats":{"mkd":{"kombat":{"ranked":{"elo":1532,"title":"Kombatant","wins":4,"losses":2},
                               "casual":{"wins":10,"losses":7}}}}}
 ```
 
 Stats exist per game per mode: ranked Elo (start 1500, moved per set) with
-ranked match wins/losses, and casual wins/losses. A missing entry means "never played"
-(Elo 1500, 0-0).
+its title (1.3 `ranks`, 0.1.21) and ranked match wins/losses, and casual
+wins/losses. A missing entry means "never played" (Elo 1500, a Kombatant,
+0-0).
 
 ### 1.6 Online count and notices
 
@@ -196,7 +207,7 @@ C: {"type":"queue_join","game":"mkd","mode":"kombat","ranked":false,"region":"eu
     "max_ping":150,"strict":false,"character":"Scorpion","delay":2,"server_rtt":24,"relay":false,
     "link":"ethernet"}
 S: {"type":"queued","game":"mkd","mode":"kombat","ranked":false,"region":"eu",
-    "max_ping":150,"strict":false,"since":1761300000.5,"in_queue":3,"elo":1500,
+    "max_ping":150,"strict":false,"since":1761300000.5,"in_queue":3,"elo":1500,"title":"Kombatant",
     "ping_widen":{"after":30.0,"every":15.0,"step":25,"cap":250}}
 C: {"type":"queue_leave"}
 S: {"type":"queue_left","reason":"left"}
@@ -278,7 +289,7 @@ S: {"type":"queue_left","reason":"left"}
    ```json
    S: {"type":"match_found","match":"5f2c9a01d4e3","game":"mkd","mode":"kombat","ranked":false,
        "side":1,"accept_timeout":20,"accept_required":true,"lobby":null,"death_traps":true,
-       "opponent":{"name":"Fujin","elo":null,"region":"eu","character":"Raiden"},
+       "opponent":{"name":"Fujin","elo":null,"title":null,"region":"eu","character":"Raiden"},
        "connection":{"link":"wifi","ping":42,"estimate":null,"measured":false}}
    ```
    In ranked, `opponent` is `null` until both have accepted (no dodging by
@@ -304,8 +315,10 @@ S: {"type":"queue_left","reason":"left"}
    S: {"type":"match_peer","match":"5f2c9a01d4e3","side":1,"key":"<32 hex>","punch_timeout":10,
        "same_nat":true,
        "peer":{"public":"203.0.113.7:7001","lan":"192.168.1.20:7001"},
-       "opponent":{"name":"Fujin","elo":1488,"region":"eu","character":"Raiden"}}
+       "opponent":{"name":"Fujin","elo":1488,"title":"Kombatant","region":"eu","character":"Raiden"}}
    ```
+   In ranked the opponent's `elo` (as they searched) and its `title` come with
+   it (0.1.21; `null` in casual).
    No IP address is revealed before both players have accepted, and `lan`
    only to a player behind the same public address (`same_nat`; empty
    otherwise). A match with a player who hides their address (`relay` in
@@ -370,7 +383,7 @@ S: {"type":"queue_left","reason":"left"}
 Both launchers report what their game wrote to `status.txt`:
 
 ```json
-C: {"type":"result","match":"5f2c9a01d4e3","winner":1,"p1_rounds":2,"p2_rounds":1,"p1_char":"12","p2_char":"7"}
+C: {"type":"result","match":"5f2c9a01d4e3","winner":1,"p1_rounds":2,"p2_rounds":1,"p1_char":"12.1","p2_char":"7.0"}
 C: {"type":"result","match":"5f2c9a01d4e3","outcome":"desync","frame":1234}
 C: {"type":"result","match":"5f2c9a01d4e3","outcome":"disconnected"}
 C: {"type":"result","match":"5f2c9a01d4e3","outcome":"left","exit":"window closed","exit_code":0}
@@ -383,10 +396,12 @@ S: {"type":"match_result","match":"5f2c9a01d4e3","status":"agreed","winner":1,
   match counts as a win and a loss (ranked or casual wins/losses). Elo moves
   per ranked set, not per match (1.9.1).
 - `p1_char`/`p2_char` (optional, from the game's `result` line: its own
-  character ids, absent in modes without fighters) are the match's fighters.
-  When both reports name the same ones, a casual rematch can start with them
-  (1.9.1); they never decide the result, and a value the server does not take
-  is ignored.
+  character ids, absent in modes without fighters) are the match's fighters,
+  from 0.1.21 with the costume they fought in after a dot (`12.1`: character
+  12, the game's costume word 1). When both reports name the same ones, a
+  ranked set's next match gives its winner that fighter and a casual rematch
+  can start with them (1.9.1); they never decide the result, and a value the
+  server does not take is ignored.
 - **Disagree**: status `disputed`; nothing changes, both reports stay in the
   database and the server logs a `DISPUTE` line.
 - **Desync or disconnect** reports: status `no_contest`; nothing changes;
@@ -417,22 +432,25 @@ S: {"type":"match_result","match":"5f2c9a01d4e3","status":"agreed","winner":1,
 After a queue match (once its `match_result` went out) the two players are in
 a series. Casual: another match whenever both want one, with the same fighters
 or after both pick again, without end (0.1.14: matches that did not count
-included); it ends only when a player leaves it or lets the time run out. Ranked: a set, won by the first to win 2 matches
-(`need`); Elo moves once, when it ends. A player is in one series at a time;
-searching again or creating/joining a lobby leaves it.
+included); it ends only when a player leaves it or lets the time run out. Ranked: a set, won by the first to win 3 matches
+(`need`; 2 before 0.1.21), each match's winner keeping their fighter for the next one; Elo moves once, when it ends. A
+player is in one series at a time; searching again or creating/joining a lobby leaves it.
 
 ```json
 S: {"type":"series","series":"8d01c3e2a9f4","game":"mkd","mode":"kombat","ranked":true,
-    "state":"between","need":2,"played":1,"opponent":"Fujin","you":1,"them":0,
+    "state":"between","need":3,"played":1,"opponent":"Fujin","you":1,"them":0,
     "you_ready":false,"them_ready":false,"you_choice":"","them_choice":"",
-    "same_fighters":true,"seconds_left":90}
+    "same_fighters":true,"seconds_left":90,"keeps":"Raijin","opponent_elo":1500,
+    "opponent_title":"Kombatant"}
 C: {"type":"series_ready","series":"8d01c3e2a9f4","ready":true,"choice":"rematch"}
 S: {"type":"series_ack","series":"8d01c3e2a9f4"}
 C: {"type":"series_ready","series":"8d01c3e2a9f4","ready":false}
 S: {"type":"series_left","series":"8d01c3e2a9f4"}
 S: {"type":"series","series":"8d01c3e2a9f4", ...,"state":"over","outcome":"won","winner":"Raijin",
-    "left":null,"elo":{"Raijin":{"before":1500,"after":1516,"delta":16},
-                       "Fujin":{"before":1500,"after":1484,"delta":-16}}}
+    "left":null,"elo":{"Raijin":{"before":1500,"after":1516,"delta":16,"title_before":"Kombatant",
+                                 "title_after":"Kombatant"},
+                       "Fujin":{"before":1500,"after":1484,"delta":-16,"title_before":"Kombatant",
+                                "title_after":"Kombatant"}}}
 ```
 
 - `state`: `between` (the server waits for both players' `series_ready`),
@@ -447,9 +465,16 @@ S: {"type":"series","series":"8d01c3e2a9f4", ...,"state":"over","outcome":"won",
   match: `match_found` with `accept_required` false, `"series"` and the same
   sides, then the usual setup (1.8).
 - In `kombat` (the server's `SELECT_SCREEN_MODES`, 0.1.18) every match of a
-  series after the first goes back to the game's select screen, casual and
-  ranked alike (`match_go` `p1`/`p2` `-`): both players pick again there,
-  whatever `choice` says (the launcher has one button, REMATCH).
+  series after the first goes back to the game's select screen (`match_go`
+  `p1`/`p2` `-`), whatever `choice` says (the launcher has one button,
+  REMATCH): in casual both players pick again there. In a ranked set (0.1.21)
+  only the last counted match's loser does: its winner keeps the fighter both
+  reports named for them (1.9 `p1_char`/`p2_char`, with its costume), which
+  `match_go` gives their side (`"p1":"12.1","p2":"-"`) and the autopilot picks
+  in both games; `keeps` names that player (`null`: both pick, as after a win
+  without fighters both reports agreed on). A match that did not count (a
+  desync) is played again the same way. `opponent_elo` and `opponent_title`:
+  the other player's rating as they searched, in ranked (`null` in casual).
 - `choice` (casual, other modes; default `rematch`): `rematch` plays the last
   match's fighters again when both choose it (`match_go` `p1`/`p2` are the
   game's character ids from both results, the autopilot picks them); `select`
@@ -466,7 +491,8 @@ S: {"type":"series","series":"8d01c3e2a9f4", ...,"state":"over","outcome":"won",
   - `won`: a set's `winner` reached `need` wins. Elo update with `K = 32`,
     `E_a = 1 / (1 + 10^((R_b - R_a) / 400))`, `d = round(K * (S_a - E_a))`
     (half away from zero), `R_a' = R_a + d`, `R_b' = R_b - d` (zero-sum,
-    integer ratings); `elo` lists both players' change.
+    integer ratings); `elo` lists both players' change, with the title of the
+    rating before and after (`title_before`, `title_after`).
   - `forfeit`: `left` left the set after at least one of its matches counted:
     `series_ready` false, its time ran out while the other was ready, the next
     match was cancelled on their side, or they searched or went to a lobby. They
@@ -601,13 +627,13 @@ S: {"type":"spectate_end","match":"5f2c9a01d4e3","status":"agreed","winner":1,
 ```json
 C: {"type":"leaderboard","game":"mkd","mode":"kombat","limit":100,"offset":0}
 S: {"type":"leaderboard","game":"mkd","mode":"kombat","total":57,
-    "rows":[{"rank":1,"name":"Raijin","elo":1712,"wins":40,"losses":12}],
-    "me":{"rank":9,"elo":1580,"wins":8,"losses":3}}
+    "rows":[{"rank":1,"name":"Raijin","elo":1712,"title":"Grand Master","wins":40,"losses":12}],
+    "me":{"rank":9,"elo":1580,"title":"Warrior","wins":8,"losses":3}}
 ```
 
 Accounts with at least one ranked game in that game and mode, ordered by Elo,
-then wins, then name; `limit` at most 200. `me` is present when the asking
-account is ranked there.
+then wins, then name, each with the title of their Elo (1.3 `ranks`); `limit`
+at most 200. `me` is present when the asking account is ranked there.
 
 ### 1.12 Keepalive and disconnects
 
@@ -948,7 +974,10 @@ identical on both sides); `p1`/`p2` (roster ids, identical on both sides,
 `-` when the mode picks in the game: Chess Kombat's teams by the game; in
 `kombat` the player of that side picks on the game's own select screen with
 their own controller, and the other game takes the pick over netplay, see
-below); `rounds` (best of N); `ranked` (0 or
+below; a game character id with a costume after a dot, `12.1`, is a fighter
+the autopilot picks in both games and gives that costume once picked, whatever
+a mirror pick made in another order on each PC turned it to: a ranked set's
+winner keeping theirs, 0.1.21); `rounds` (best of N); `ranked` (0 or
 1); `traps` (the arenas' death traps, 1 or 0; Deception and Armageddon set
 their options' DEATH TRAPS from it, and the round time and blood level to
 their defaults, whatever each PC's options and profile say); `match` (id,
@@ -1005,7 +1034,7 @@ first line.
 | `ready` | parked at the hold point, able to take `start` |
 | `starting match=<id>` | took a `start`: off the hold point, setting the match up (picks, loading), until `in_match` (0.1.11) |
 | `in_match match=<id>` | a match (or practice: `match=practice`) is running |
-| `result winner=1 p1_rounds=2 p2_rounds=1 p1_char=12 p2_char=7 match=<id>` | the match ended normally (`winner` is 1 or 2; `p1_char`/`p2_char`, the fighters as the game's character ids, which `start` takes as `p1`/`p2`, only in modes with fighters); the game stays on its result screen until `park`, `rematch` or `quit` |
+| `result winner=1 p1_rounds=2 p2_rounds=1 p1_char=12.1 p2_char=7.0 match=<id>` | the match ended normally (`winner` is 1 or 2; `p1_char`/`p2_char`, the fighters as the game's character ids with the costume each fought in after a dot (0.1.21: Deception's costume flags, Armageddon's alternate 0 or 1, Deadly Alliance's costume word; none when the game did not see the fight set up online), which `start` takes as `p1`/`p2`, only in modes with fighters); the game stays on its result screen until `park`, `rematch` or `quit` |
 | `desync frame=N match=<id>` | the two simulations diverged at frame N; the match is aborted |
 | `disconnected match=<id>` | the peer stopped answering |
 | `error <text>` | something failed (`error no connection`, `error bad command`); free text to the end of the line |

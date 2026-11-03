@@ -145,7 +145,7 @@ void LoginDialog::onMessage(const QJsonObject& msg) {
 // --- MatchFoundDialog ------------------------------------------------------------------------------
 
 MatchFoundDialog::MatchFoundDialog(const QJsonObject& found, const QString& gameTitle, const QString& modeName,
-                                   const QString& characterName, QWidget* parent)
+                                   const QString& characterName, const QString& rankText, QWidget* parent)
     : QDialog(parent) {
     matchId_ = found.value(QStringLiteral("match")).toString();
     setWindowTitle(tr("Match found"));
@@ -201,6 +201,11 @@ MatchFoundDialog::MatchFoundDialog(const QJsonObject& found, const QString& game
         auto* you = ui::label(tr("You play %1").arg(characterName), "Muted");
         you->setAlignment(Qt::AlignCenter);
         v->addWidget(you);
+    }
+    if (!rankText.isEmpty()) {
+        auto* rank = ui::label(rankText, "Rank");
+        rank->setAlignment(Qt::AlignCenter);
+        v->addWidget(rank);
     }
     bar_ = new QProgressBar;
     bar_->setTextVisible(false);

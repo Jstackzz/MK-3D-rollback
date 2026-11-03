@@ -40,6 +40,7 @@ constexpr uint32_t kArenaList = 0x3E4D30, kArenaCycle = 0x620F44;
 constexpr uint32_t kArenaChoice = 0x62031C;
 bool g_online_match = false;  // the launcher match now is online, or watched
 uint32_t g_seed = 0;          // the match's seed (the launcher's start line)
+int64_t g_fight_costumes[2] = {-1, -1};  // both players' costume flags as the fight was set up (-1 not yet)
 
 // The arena both games fight on from their players' choices on the select screen (-1 none): both chose, the match's
 // seed picks between them (bit 7 set: P2's, else P1's); one chose, that one; neither, -1: the match's own (the cycle's,
@@ -81,6 +82,7 @@ void AgreeOnTheFight() {
         kernel::W32(kRecords[s] + kRecordCharacter, uint32_t(character[s]));
         kernel::W32(kRecords[s] + kRecordCostume, costume[s]);
     }
+    for (int s = 0; s < 2; s++) g_fight_costumes[s] = kernel::R32(kRecords[s] + kRecordCostume);
     const int own = int32_t(kernel::R32(kArenaChoice));
     const int agreed = AgreedArena(arena[0], arena[1], g_seed);
     if (agreed >= 0 || own >= 0)
@@ -166,7 +168,11 @@ bool Begin(const Start& start) {
     req.local_side = start.online && !start.watch ? start.side : -1;
     req.watch = start.watch;
     const bool picks = start.mode == "kombat" || start.mode == "puzzle" || start.mode == "chess";
-    for (int i = 0; i < 2; i++) req.by_player[i] = start.online && picks && start.picks[i].empty();
+    for (int i = 0; i < 2; i++) {
+        req.by_player[i] = start.online && picks && start.picks[i].empty();
+        req.costumes[i] = start.online && start.mode == "kombat" ? start.costumes[i] : -1;
+        g_fight_costumes[i] = -1;
+    }
     g_request = req;
     g_online_match = start.online;
     g_seed = start.seed;
@@ -178,6 +184,7 @@ bool Begin(const Start& start) {
 // Versus and Puzzle Kombat return to their select screen after a match, a chess game to the main menu
 void Rematch(const Start& start) {
     g_seed = start.seed;
+    g_fight_costumes[0] = g_fight_costumes[1] = -1;
     PickArena(start.seed, start.stage);
     SetOptions(start);
     if (start.mode == "chess") autopilot::Restart(g_request);
@@ -218,11 +225,14 @@ bool Outcome(const std::string& mode, const net::Settled& s, int wins_needed, in
     return winner != 0;
 }
 
-// a fight's two characters (the side modes' teams and wells are picked again)
-bool Fighters(const std::string& mode, int out[2]) {
+// a fight's two characters (the side modes' teams and wells are picked again), and their costume flags as an online
+// fight was set up
+bool Fighters(const std::string& mode, int out[2], int64_t costumes[2]) {
     if (mode == "chess" || mode == "puzzle") return false;
     out[0] = int(kernel::R32(kP1Character));
     out[1] = int(kernel::R32(kP2Character));
+    costumes[0] = g_fight_costumes[0];
+    costumes[1] = g_fight_costumes[1];
     return out[0] >= 0 && out[0] < 40 && out[1] >= 0 && out[1] < 40;
 }
 

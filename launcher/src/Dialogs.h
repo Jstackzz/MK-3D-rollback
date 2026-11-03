@@ -47,8 +47,9 @@ private:
 class MatchFoundDialog : public QDialog {
     Q_OBJECT
 public:
+    // rankText: ranked, the player's own rank and Elo (the opponent's stay hidden until both accept)
     MatchFoundDialog(const QJsonObject& found, const QString& gameTitle, const QString& modeName,
-                     const QString& characterName, QWidget* parent = nullptr);
+                     const QString& characterName, const QString& rankText = {}, QWidget* parent = nullptr);
     QString matchId() const { return matchId_; }
 
 private:

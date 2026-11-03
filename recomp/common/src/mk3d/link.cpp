@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -121,6 +122,24 @@ std::string Key(const Command& c, const char* k, const char* def = "") {
     return it == c.keys.end() ? def : it->second;
 }
 
+// a pick "<character id>.<costume>" (a fighter a ranked set's winner keeps, with the costume they won in): the
+// costume taken off the pick, -1 for any other pick
+int64_t TakeCostume(std::string& pick) {
+    const size_t dot = pick.find('.');
+    if (dot == std::string::npos || dot == 0 || dot + 1 == pick.size()) return -1;
+    for (size_t i = 0; i < pick.size(); i++)
+        if (i != dot && !std::isdigit(static_cast<unsigned char>(pick[i]))) return -1;
+    const int64_t costume = std::strtoll(pick.c_str() + dot + 1, nullptr, 10);
+    if (costume > 0xFFFFFFFFll) return -1;
+    pick.resize(dot);
+    return costume;
+}
+
+// a fighter as the result names it: the character id, then its costume when the game knows it
+std::string FighterWord(int character, int64_t costume) {
+    return std::to_string(character) + (costume >= 0 ? "." + std::to_string(costume) : std::string());
+}
+
 void Start(const Command& c) {
     std::string mode = Key(c, "mode", "kombat");
     if (!game::ModeKnown(mode)) {
@@ -132,8 +151,11 @@ void Start(const Command& c) {
         return;
     }
     std::string picks[2] = {Key(c, "p1"), Key(c, "p2")};
-    for (std::string& p : picks)
-        if (p == "-") p.clear();
+    int64_t costumes[2] = {-1, -1};
+    for (int i = 0; i < 2; i++) {
+        if (picks[i] == "-") picks[i].clear();
+        costumes[i] = TakeCostume(picks[i]);
+    }
     int rounds = std::atoi(Key(c, "rounds", "3").c_str());
     g_wins_needed = rounds > 1 ? rounds / 2 + 1 : 1;
     g_match = Key(c, "match", mode == "practice" ? "practice" : "none");
@@ -171,6 +193,8 @@ void Start(const Command& c) {
     start.mode = mode;
     start.picks[0] = picks[0];
     start.picks[1] = picks[1];
+    start.costumes[0] = costumes[0];
+    start.costumes[1] = costumes[1];
     start.seed = uint32_t(std::strtoul(Key(c, "seed", "0").c_str(), nullptr, 10));
     start.stage = Key(c, "stage");
     start.wins_needed = g_wins_needed;
@@ -189,7 +213,7 @@ void Start(const Command& c) {
         g_in_match = false;
         return;
     }
-    LOGR("link: start %s (%s vs %s), match %s, %s%s", mode.c_str(), picks[0].c_str(), picks[1].c_str(),
+    LOGR("link: start %s (%s vs %s), match %s, %s%s", mode.c_str(), Key(c, "p1").c_str(), Key(c, "p2").c_str(),
          g_match.c_str(), watch ? "watching" : g_online ? "online" : "offline",
          start.death_traps ? "" : ", no death traps");
     // off the hold point from now on: a launcher still reading "ready" until the fight began would send its next
@@ -294,8 +318,10 @@ void Update() {
     if (game::Outcome(g_start.mode, s, g_wins_needed, winner, r1, r2) && (winner == 1 || winner == 2)) {
         std::string fighters;
         int chars[2] = {-1, -1};
-        if (game::Fighters(g_start.mode, chars) && chars[0] >= 0 && chars[1] >= 0)
-            fighters = " p1_char=" + std::to_string(chars[0]) + " p2_char=" + std::to_string(chars[1]);
+        int64_t costumes[2] = {-1, -1};
+        if (game::Fighters(g_start.mode, chars, costumes) && chars[0] >= 0 && chars[1] >= 0)
+            fighters = " p1_char=" + FighterWord(chars[0], costumes[0]) +
+                       " p2_char=" + FighterWord(chars[1], costumes[1]);
         WriteStatus("result winner=" + std::to_string(winner) + " p1_rounds=" + std::to_string(r1) +
                     " p2_rounds=" + std::to_string(r2) + fighters + " match=" + g_match);
         g_reported = true;

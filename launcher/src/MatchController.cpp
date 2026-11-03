@@ -686,6 +686,7 @@ void MatchController::onServerMessage(const QJsonObject& msg) {
     const QString type = str(msg, "type");
     const QString match = str(msg, "match");
     if (type == QLatin1String("queued")) {
+        queued_ = msg;
         pingWiden_ = msg.value(QStringLiteral("ping_widen")).toObject();
         if (phase_ == Phase::Idle) {
             searchClock_.start();
@@ -734,6 +735,11 @@ void MatchController::onServerMessage(const QJsonObject& msg) {
         }, 30);
     } else if (type == QLatin1String("match_peer")) {
         if (match != str(found_, "match")) return;
+        const QJsonObject opp = msg.value(QStringLiteral("opponent")).toObject();
+        // ranked: who it is, their rating and its rank, once both accepted
+        if (found_.value(QStringLiteral("opponent")).toObject().isEmpty() && !str(opp, "title").isEmpty())
+            log(tr("Your opponent: %1, %2 (%3 Elo)").arg(str(opp, "name"), str(opp, "title"))
+                    .arg(opp.value(QStringLiteral("elo")).toInt()));
         found_.insert(QStringLiteral("opponent"), msg.value(QStringLiteral("opponent")));
         const int punchMs = msg.value(QStringLiteral("punch_timeout")).toInt(10) * 1000;
         if (msg.value(QStringLiteral("tunnel")).toBool()) {

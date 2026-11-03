@@ -227,8 +227,8 @@ constexpr double kFollowCycle = 0.1, kFollowPress = 0.05;
 bool g_local_pick_sent = false;
 int g_sent_cursor = -1;                  // this PC's player's cursor as last sent
 int g_their_cursor[2] = {-1, -1};        // the other player's (a spectator's game: both players') as it came
-bool g_costume_due[2] = {};              // a player's costume from their game, set once the autopilot picked
-uint32_t g_their_costume[2] = {};
+bool g_costume_due[2] = {};              // a side's costume to set once the autopilot picked it: a player's from their
+uint32_t g_their_costume[2] = {};        // game, or the launcher's (a fighter a ranked set's winner keeps)
 int g_agreed[2] = {-1, -1};              // the picks both games fight with: this player's as sent, the other's as it came
 uint32_t g_agreed_costume[2] = {};
 int g_agreed_arena[2] = {-1, -1};        // the arena each player chose with their pick (-1 none)
@@ -259,6 +259,16 @@ void ResetPlayerPicks() {
         g_their_cursor[i] = g_agreed[i] = g_agreed_arena[i] = -1;
         g_agreed_costume[i] = 0;
         if (g_req.by_player[i]) g_req.characters[i] = i == g_req.local_side ? -1 : kWaitPick;
+        // a side the launcher picked with its costume (the fighter a ranked set's winner keeps, as they won with it):
+        // both games pick it and then give it that costume, whatever a mirror pick made in another order in each game
+        // turned it to, and fight with both
+        if (!g_req.by_player[i] && g_req.costumes[i] >= 0 && g_req.characters[i] >= 0) {
+            g_their_costume[i] = g_agreed_costume[i] = uint32_t(g_req.costumes[i]);
+            g_costume_due[i] = true;
+            g_agreed[i] = g_req.characters[i];
+            LOGR("autopilot: P%d keeps %s (%d), costume %u", i + 1, Name(g_agreed[i]).c_str(), g_agreed[i],
+                 g_agreed_costume[i]);
+        }
     }
 }
 
@@ -305,9 +315,11 @@ void ExchangePicks() {
                      words[0], g_their_costume[other], g_agreed_arena[other]);
             }
         }
-        if (g_costume_due[other] && kernel::R32(kPlayerState[other]) == 3) {
-            kernel::W32(kernel::R32(kCostume[other]), g_their_costume[other]);
-            g_costume_due[other] = false;
+    }
+    for (int side = 0; side < 2; side++) {
+        if (g_costume_due[side] && kernel::R32(kPlayerState[side]) == 3) {
+            kernel::W32(kernel::R32(kCostume[side]), g_their_costume[side]);
+            g_costume_due[side] = false;
         }
     }
 }
@@ -499,7 +511,7 @@ int LocalPickPort() {
 
 bool AgreedPick(int side, int& character, uint32_t& costume, int& arena) {
     std::lock_guard<std::mutex> lock(g_lock);
-    if (!g_have_request || side < 0 || side > 1 || !g_req.by_player[side] || g_agreed[side] < 0) return false;
+    if (!g_have_request || side < 0 || side > 1 || g_agreed[side] < 0) return false;
     character = g_agreed[side];
     costume = g_agreed_costume[side];
     arena = g_agreed_arena[side];

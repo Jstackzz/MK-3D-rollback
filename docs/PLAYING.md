@@ -81,7 +81,7 @@ whether to trust it: compare it with your host's.
   it to choose your fighter in the launcher instead. Puzzle Kombat's fighter is
   picked the same way, and Chess Kombat's team (leader, champion, sorcerer,
   shifter, grunt) always on the game's own select screen. Your record (wins, losses,
-  and Elo in Ranked) is on the right of the page, and above it how many play the
+  and Elo and rank in Ranked) is on the right of the page, and above it how many play the
   game right now: searching (and how many of them in the mode you picked, the
   ones you can meet), in matches and in lobbies, then who is searching right
   now in each of the three games (point at the line to see whether each one
@@ -96,12 +96,36 @@ whether to trust it: compare it with your host's.
   Kasual rematches never run out: the series goes on until one of you presses
   LEAVE (or Find match), or lets the 60 seconds pass. The Kasual page shows the
   same choice.
-- Ranked is played in sets against one opponent: the first to win 2 matches
+- Ranked is played in sets against one opponent: the first to win 3 matches
   takes the set, and your Elo changes once, when it ends. The set's next match
-  starts by itself once both games are ready, at character select, where you
-  each pick again (nobody picks for you). Leaving a set after one of its
-  matches has counted (LEAVE SET, searching again, quitting, or not being back
-  within 90 seconds) loses it: one match won and gone gains nothing.
+  starts by itself once both games are ready, at character select. The winner
+  of the last match keeps their fighter (and costume): the game picks it for
+  them. The loser picks again (nobody picks for them, and they may choose the
+  arena where the game's select screen offers it). Leaving a set after one of
+  its matches has counted (LEAVE SET, searching again, quitting, or not being
+  back within 90 seconds) loses it: one match won and gone gains nothing.
+- Your Elo gives your rank, shown on the Ranked page (with the next one and
+  the Elo it starts at), on the Leaderboard and when a set ends. Everyone starts
+  at 1500, a Kombatant:
+
+  | Rank | Elo |
+  |---|---|
+  | Ed Boon | below 1300 |
+  | Apprentice | 1300 to 1449 |
+  | Kombatant | 1450 to 1549 |
+  | Warrior | 1550 to 1599 |
+  | Gladiator | 1600 to 1649 |
+  | Master | 1650 to 1699 |
+  | Grand Master | 1700 to 1749 |
+  | Demigod | 1750 to 1799 |
+  | God | 1800 to 1849 |
+  | Elder God | 1850 to 1899 |
+  | Elder God Supreme | 1900 to 1999 |
+  | Elder God of Destruction | 2000 and up |
+
+  A set against a player with your Elo moves it 16, more against a better one
+  and less against a weaker one: about four sets won take a new player to
+  Warrior.
 - When a ranked set or a Kasual series is over, the launcher searches again by
   itself, the same search as before (with practice while you wait, if that is
   on), unless you left it yourself. Untick "Search again when a set or series

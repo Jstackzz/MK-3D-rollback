@@ -221,6 +221,12 @@ bool GameProcess::start(const QString& exe, QString* error, bool netMode) {
         proc_->setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments* a) {
             a->flags |= CREATE_NO_WINDOW;  // the development stand-in has no window of its own
         });
+    } else if (cfg::devBackground()) {
+        // tests on a PC someone uses: the game's window comes up minimized, without taking the foreground
+        proc_->setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments* a) {
+            a->startupInfo->dwFlags |= STARTF_USESHOWWINDOW;
+            a->startupInfo->wShowWindow = SW_SHOWMINNOACTIVE;
+        });
     }
     connect(proc_, &QProcess::readyRead, this, [this] {
         outBuf_.append(proc_->readAll());

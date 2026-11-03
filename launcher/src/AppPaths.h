@@ -59,6 +59,7 @@ void writeDisplayFile();
 int localTestPort(int instance);
 bool udpLoopback();  // development: matches on loopback only (one-PC tests, no firewall prompt)
 bool udpBlocked();   // development: nothing goes to the server's UDP port, as from a PC whose UDP never gets there
+bool devBackground();  // development: tests on a PC in use: games start minimized, no window comes to the front
 bool upnp();         // open the game UDP port on the router (UPnP)
 bool hideIp();       // matches through the server's relay: no opponent learns this player's address
 bool hideIpAlways(); // ... even when the ping that way is high (else such a match tries a direct connection)

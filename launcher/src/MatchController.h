@@ -50,6 +50,8 @@ public:
     }
     QString phaseText() const { return phaseText_; }
     QueueRequest lastRequest() const { return request_; }
+    // the server's reply to the last search (queued): the rating it searches with in ranked, `elo` and its `title`
+    QJsonObject lastQueued() const { return queued_; }
     QJsonObject currentFound() const { return found_; }
     int searchSeconds() const;
     // the max ping the server raised this search's to, waiting for a match (0: not raised): the rule it gave with
@@ -198,6 +200,7 @@ private:
     QString nextChoice_ = QStringLiteral("rematch");
     QElapsedTimer searchClock_;
     QJsonObject pingWiden_;  // the server's rule for raising the max ping ({} when it is not raised)
+    QJsonObject queued_;     // the server's reply to the last search
     QTimer parkTimer_, keepaliveTimer_, startTimeout_, finishTimeout_, watchTimeout_;
     QTimer watchEndTimeout_;  // the watched match ended early: the watching game's while to be in it, else it parks
     bool watchInMatch_ = false;  // the watching game plays the watched match (it was at its meeting point)

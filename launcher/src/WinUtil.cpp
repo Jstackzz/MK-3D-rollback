@@ -101,7 +101,12 @@ void useDarkTitleBar(QWidget* window) {
     DwmSetWindowAttribute(reinterpret_cast<HWND>(window->winId()), kUseImmersiveDarkMode, &dark, sizeof dark);
 }
 
+static bool g_stayBehind = false;
+
+void stayBehind(bool on) { g_stayBehind = on; }
+
 static bool forceForeground(HWND hwnd) {
+    if (g_stayBehind) return false;
     HWND fg = GetForegroundWindow();
     const DWORD me = GetCurrentThreadId();
     // never a hidden one's thread: a game set aside (freezeProcess) hides its window first and answers nothing after
@@ -120,6 +125,7 @@ static bool forceForeground(HWND hwnd) {
 bool bringToFront(QWidget* window) {
     if (!window) return false;
     window->show();
+    if (g_stayBehind) return false;
     window->raise();
     const bool front = forceForeground(reinterpret_cast<HWND>(window->winId()));
     window->activateWindow();

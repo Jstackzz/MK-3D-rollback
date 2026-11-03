@@ -42,6 +42,8 @@ param(
     [int]$DelayB = 0,            # seconds before B starts (and queues): time for A's practice to come up
     [int]$AcceptB = 3,           # seconds before B accepts a match found; -1: never (the match times out, A searches again)
     [int]$Pads = 2,              # controllers each game reports at least (<GAME>_PADS); 0: only what is plugged in, as a player's PC
+    [switch]$Background,         # on a PC someone uses: the launchers offscreen, the games minimized, and nothing takes
+                                 # the foreground ([dev] background)
     [switch]$PickInGame,         # both players pick on the game's own select screen (their scripts move the cursor
                                  # and press A first); otherwise the launchers pick CharA and CharB
     [switch]$MixedPicks,         # with -PickInGame: only A picks in the game, B's launcher picks CharB
@@ -110,6 +112,7 @@ resolution=960x720
 [dev]
 udp_loopback=true
 udp_blocked=$(if ($NoUdpA -and $p[0] -eq 'a') { 'true' } else { 'false' })
+background=$(if ($Background) { 'true' } else { 'false' })
 "@
     Set-Content -Path "$work\$($p[0])\mk3d-launcher.ini" -Value $ini -Encoding ascii
 }
@@ -126,7 +129,8 @@ $pickA = if ($PickInGame) { "1.0:RIGHT,1.6:RIGHT,2.4:$PickButtonA," } else { '' 
 $pickB = if ($PickInGame -and -not $MixedPicks) { '1.2:DOWN,2.0:LEFT,2.8:A,3.6:A,' } else { '' }
 if (-not $InputA) { $InputA = $pickA + $attacks }
 if (-not $InputB) { $InputB = $pickB + $attacks }
-$vars = @('MK3D_DEV_PASSWORD', "${x}_INPUT", "${x}_PADS", "${x}_EVENT_LOG", "${x}_NET_LOG", 'SDL_ASSERT')
+$vars = @('MK3D_DEV_PASSWORD', "${x}_INPUT", "${x}_PADS", "${x}_EVENT_LOG", "${x}_NET_LOG", 'SDL_ASSERT',
+          'QT_QPA_PLATFORM')
 $env:MK3D_DEV_PASSWORD = 'e2e-password-123'
 Set-Item "env:${x}_INPUT" $InputA
 Set-Item "env:${x}_PADS" "$Pads"
@@ -134,6 +138,13 @@ Set-Item "env:${x}_EVENT_LOG" '1'
 Set-Item "env:${x}_NET_LOG" "$work\net-{side}-{match}.log"
 $env:SDL_ASSERT = 'always_ignore'
 $launcher = if ($Launcher) { (Resolve-Path $Launcher).Path } else { Join-Path $root 'build\launcher\MK3DLauncher.exe' }
+if ($Background) {
+    # the launchers' windows nowhere on the screen: Qt's offscreen platform, which windeployqt leaves out
+    $plugin = Join-Path (Split-Path -Parent $launcher) 'platforms\qoffscreen.dll'
+    $qtPlugin = Join-Path $root 'external\qt\6.12.0\msvc2022_64\plugins\platforms\qoffscreen.dll'
+    if (-not (Test-Path $plugin) -and (Test-Path $qtPlugin)) { Copy-Item $qtPlugin $plugin }
+    $env:QT_QPA_PLATFORM = 'offscreen'
+}
 $stamp = Get-Date -Format 'HHmmss'
 $userA = if ($NameA) { $NameA } else { "e2eA$stamp" }
 $userB = if ($NameB) { $NameB } else { "e2eB$stamp" }

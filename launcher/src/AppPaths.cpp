@@ -150,6 +150,7 @@ void writeDisplayFile() {
 }
 bool udpLoopback() { return get(QStringLiteral("dev/udp_loopback"), false).toBool(); }
 bool udpBlocked() { return get(QStringLiteral("dev/udp_blocked"), false).toBool(); }
+bool devBackground() { return get(QStringLiteral("dev/background"), false).toBool(); }
 bool upnp() { return get(QStringLiteral("online/upnp"), true).toBool(); }
 bool hideIp() { return get(QStringLiteral("online/hide_ip"), false).toBool(); }
 bool hideIpAlways() { return get(QStringLiteral("online/hide_ip_always"), false).toBool(); }

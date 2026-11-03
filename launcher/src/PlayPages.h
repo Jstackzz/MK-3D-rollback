@@ -74,6 +74,7 @@ private:
     QLabel* elo_;
     QLabel* wins_;
     QLabel* losses_;
+    QLabel* rank_;  // ranked: the title the Elo gives and the next one
     QWidget* mmCard_;
     QWidget* seriesCard_;
     QLabel* seriesTitle_;
