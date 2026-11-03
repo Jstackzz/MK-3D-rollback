@@ -205,15 +205,24 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    `status.txt`, and parks the game again. *Your record* shows the wins and
    losses of that game and mode (and the Elo in Ranked). After the match a
    series card shows the score against that opponent (docs/PROTOCOL.md
-   1.9.1): Kasual offers *Rematch* (0.1.18: in kombat both go back to the
-   select screen and pick again, when both press it; the *Select* button is
+   1.9.1; in Ranked also the opponent's rank, and who keeps their fighter for
+   the next match): Kasual offers *Rematch* (0.1.18: in kombat both go back to
+   the select screen and pick again, when both press it; the *Select* button is
    gone) and *Leave* for 60 s, after every match, one that did not count
    included (0.1.14: a Kasual series ends only when a player leaves it or lets
    that time run out); the game reports the fighters with its result. A ranked
-   set (first to 2) asks for its next match by itself once the game is back at
-   its hold point, its matches after the first at the select screen too, and
-   *Leave set* asks first when leaving would lose the set. *Search again when
-   a set or series ends* (0.1.18, cfg `online/search_again`, on by default,
+   set (first to 3; first to 2 before 0.1.21) asks for its next match by itself
+   once the game is back at its hold point, its matches after the first at the
+   select screen too, where only the last match's loser picks (the winner's
+   fighter and costume are picked by the game), and *Leave set* asks first when
+   leaving would lose the set. The Ranked page's record shows the rank the Elo
+   gives and the next one (the server's `welcome.ranks`; the whole ladder in
+   its tooltip), the Leaderboard a Rank column, the ranked *Match found* window
+   your rank, and a set's end the rank change. `[dev] background`
+   (`cfg::devBackground`, tests on a PC someone uses, `tools/online-e2e.ps1
+   -Background`): games start minimized and no window is brought to the front.
+   *Search again when a set or series ends* (0.1.18, cfg
+   `online/search_again`, on by default,
    `--search-again on|off`): once a series is over, not left by this player,
    the same search starts again by itself (`MatchController::
    maybeSearchAfterSeries`, `searchesAgain`), practice while you wait with it.
