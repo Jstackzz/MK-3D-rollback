@@ -26,7 +26,7 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any
 
-from . import auth
+from . import auth, elo
 from . import protocol as P
 from . import upnp
 from .db import Database, NameTaken
@@ -94,7 +94,7 @@ class ServerConfig:
     login_fail_window: float = 300.0
     chat_interval: float = 0.5
     default_rounds: int = 3
-    set_wins: int = 2             # a ranked set goes to the first to win this many matches
+    set_wins: int = 3             # a ranked set goes to the first to win this many matches (2 before 0.1.21)
     # casual: both choose a rematch within this, or the series ends; it starts with the result, and the launcher asks
     # once the game has played the match's end (the finisher, a fatality, the winner's pose: up to 30 s)
     rematch_timeout: float = 60.0
@@ -274,8 +274,9 @@ class SeriesPlayer:
 @dataclass(eq=False)
 class Series:
     """The matches two players play one after another from a queue match. Casual: another one whenever both want a
-    rematch. Ranked: a set, won by the first to win `need` matches; Elo moves once, at its end, and a player who
-    leaves before then (declines the next match, lets its time run out, searches again) loses it."""
+    rematch. Ranked: a set, won by the first to win `need` matches, each match's winner keeping their fighter for the
+    next one; Elo moves once, at its end, and a player who leaves before then (declines the next match, lets its time
+    run out, searches again) loses it."""
     id: str
     game: str
     mode: str
@@ -289,6 +290,9 @@ class Series:
     played: int = 0
     no_contests: int = 0  # in a row
     last_picks: tuple[str, str] | None = None  # P1's and P2's fighters in the last agreed match (game character ids)
+    # ranked: the last counted match's winner and the fighter they won with (a game character id), theirs again in the
+    # next match while the loser picks again; None when the games did not agree on the fighters (both pick then)
+    winner_keeps: tuple[SeriesPlayer, str] | None = None
     death_traps: bool = True
 
     def player_for(self, account_id: int | None) -> SeriesPlayer | None:
@@ -797,6 +801,7 @@ class Server:
             "udp_port": self.udp_port, "motd": self.cfg.motd, "online": len(self.by_account),
             "min_client": self.cfg.min_client, "games": {g: list(m) for g, m in P.GAMES.items()},
             "regions": list(P.REGIONS), "direct_above_ms": self.cfg.direct_above_ms,
+            "ranks": elo.ladder(),  # the ranked titles by Elo (0.1.21)
         }
         if update:
             welcome["update"] = update
@@ -1153,11 +1158,12 @@ class Server:
         queued = {
             "type": "queued", "game": game, "mode": mode, "ranked": ranked, "region": region,
             "max_ping": max_ping, "strict": strict, "since": now, "in_queue": waiting, "elo": rating,
+            "title": elo.title(rating),
         }
         if max_ping > 0 and not strict:
             queued["ping_widen"] = self.cfg.mm.widen_rule()  # how the server raises it while nobody is found
         self._reply(s, msg, queued)
-        log.info("queue %s %s (elo %d, %s, ping<=%s%s)", s.name, entry.queue_name, rating, region,
+        log.info("queue %s %s (elo %d %s, %s, ping<=%s%s)", s.name, entry.queue_name, rating, elo.title(rating), region,
                  max_ping or "any", ", strict" if strict else "")
         self._mark_online()
         self._run_matchmaking(now)
@@ -1248,7 +1254,9 @@ class Server:
 
     @staticmethod
     def _opponent(m: Match, o: MatchPlayer) -> dict[str, Any]:
-        return {"name": o.name, "elo": o.elo if m.ranked else None, "region": o.region, "character": o.character}
+        rating = o.elo if m.ranked else None
+        return {"name": o.name, "elo": rating, "title": elo.title(rating) if rating is not None else None,
+                "region": o.region, "character": o.character}
 
     # --- match flow -------------------------------------------------------------------------------
 
@@ -1718,12 +1726,16 @@ class Server:
 
     def _series_msg(self, series: Series, p: SeriesPlayer, now: float) -> dict[str, Any]:
         o = series.other(p)
+        keeper = series.winner_keeps[0] if series.winner_keeps and series.mode in P.SELECT_SCREEN_MODES else None
         return {
             "type": "series", "series": series.id, "game": series.game, "mode": series.mode, "ranked": series.ranked,
             "state": series.state, "need": series.need, "played": series.played, "opponent": o.name,
             "you": p.wins, "them": o.wins, "you_ready": p.ready, "them_ready": o.ready,
             "you_choice": p.choice, "them_choice": o.choice, "same_fighters": series.last_picks is not None,
             "seconds_left": max(0, round(series.deadline - now)) if series.state == "between" else None,
+            # a set's next match: the one who keeps their fighter (the last match's winner), None when both pick
+            "keeps": keeper.name if keeper else None,
+            "opponent_elo": o.elo, "opponent_title": elo.title(o.elo) if o.elo is not None else None,
         }
 
     def _send_series(self, series: Series, extra: dict[str, Any] | None = None) -> None:
@@ -1779,6 +1791,8 @@ class Server:
             if sp is not None:
                 sp.wins += 1
             series.no_contests = 0
+            if series.ranked:  # the winner keeps the fighter they won with; a match that did not count changes nothing
+                series.winner_keeps = (sp, fighters[winner - 1]) if sp is not None and fighters else None
         else:
             series.no_contests += 1
         champion = next((p for p in series.players if series.need and p.wins >= series.need), None)
@@ -1824,11 +1838,15 @@ class Server:
     def _series_picks(self, series: Series) -> tuple[str, str]:
         """P1's and P2's characters in a series' next match ("" picks on the select screen). A mode whose players can
         pick on the game's select screen goes back there for every match after the first, casual or ranked (the
-        rematch is character select). Other modes, casual: the last match's fighters when both want a rematch, the
-        select screen when either wants to select (the characters they queued with when the last match's are not
-        known); ranked: the queued ones."""
+        rematch is character select); in a ranked set only the last match's loser picks there, its winner keeps the
+        fighter they won with (the autopilot picks it in both games). Other modes, casual: the last match's fighters
+        when both want a rematch, the select screen when either wants to select (the characters they queued with when
+        the last match's are not known); ranked: the queued ones."""
         p1, p2 = sorted(series.players, key=lambda p: p.side)
         if series.mode in P.SELECT_SCREEN_MODES:
+            if series.ranked and series.winner_keeps is not None:
+                keeper, fighter = series.winner_keeps
+                return (fighter, "") if keeper.side == 1 else ("", fighter)
             return "", ""
         if series.ranked:
             return p1.character, p2.character
@@ -1903,13 +1921,17 @@ class Server:
                 loser = series.other(winner)
                 changes = self.db.record_ranked_set(winner.account_id, loser.account_id, series.game, series.mode, now)
                 extra["elo"] = {p.name: {"before": changes[p.account_id][0], "after": changes[p.account_id][1],
-                                         "delta": changes[p.account_id][1] - changes[p.account_id][0]}
+                                         "delta": changes[p.account_id][1] - changes[p.account_id][0],
+                                         "title_before": elo.title(changes[p.account_id][0]),
+                                         "title_after": elo.title(changes[p.account_id][1])}
                                 for p in series.players}
             p1, p2 = sorted(series.players, key=lambda p: p.side)
             self.db.log_set(series.id, series.game, series.mode, p1.account_id, p2.account_id, series.created, now,
                             outcome, winner.account_id if winner else None, p1.wins, p2.wins, changes)
-            log.info("SET %s over: %s, %s %d-%d %s%s", series.id, outcome, p1.name, p1.wins, p2.wins, p2.name,
-                     f", {winner.name} wins it" if winner else ", no rating change")
+            ratings = "".join(f", {p.name} {changes[p.account_id][0]} -> {changes[p.account_id][1]} "
+                              f"{elo.title(changes[p.account_id][1])}" for p in (p1, p2)) if changes else ""
+            log.info("SET %s over: %s, %s %d-%d %s%s%s", series.id, outcome, p1.name, p1.wins, p2.wins, p2.name,
+                     f", {winner.name} wins it" if winner else ", no rating change", ratings)
         else:
             log.info("series %s over: %s after %d matches%s", series.id, outcome, series.played,
                      f" ({left.name} left)" if left else "")

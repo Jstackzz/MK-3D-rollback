@@ -1,6 +1,7 @@
 """Series after a queue match: casual rematches while both want one (in kombat back to character select, both picking
-again; in other modes with the same fighters or both picking again); ranked sets to two match wins, Elo moving once per
-set, and a player who leaves a set with a match counted loses it."""
+again; in other modes with the same fighters or both picking again); ranked sets to three match wins, each match's
+winner keeping their fighter while the loser picks again, Elo moving once per set, and a player who leaves a set with a
+match counted loses it."""
 
 from __future__ import annotations
 
@@ -54,29 +55,56 @@ async def ranked_stats(conn, name):
     return prof["stats"]["mkd"]["kombat"]["ranked"]
 
 
-async def test_ranked_set_ends_at_two_wins_with_one_elo_change(server, connect, udp_peers):
+async def test_ranked_set_ends_at_three_wins_with_one_elo_change(server, connect, udp_peers):
     sides, gos = await first_match(server, connect, udp_peers, ["Shujinko", "Onaga"], ranked=True)
     (c1, _), (c2, _) = sides[1], sides[2]
     p1, p2 = gos[1]["p1_name"], gos[1]["p2_name"]
     s1, s2 = await play(c1, c2, gos[1]["match"], 1)
-    assert s1["state"] == "between" and s1["ranked"] and s1["need"] == 2 and s1["opponent"] == p2
+    assert s1["state"] == "between" and s1["ranked"] and s1["need"] == 3 and s1["opponent"] == p2
     assert (s1["you"], s1["them"], s2["you"], s2["them"]) == (1, 0, 0, 1)
+    assert s1["opponent_elo"] == 1500 and s1["opponent_title"] == "Kombatant"
     # the match counts at once, the rating waits for the set
-    assert await ranked_stats(c1, p1) == {"elo": 1500, "wins": 1, "losses": 0}
+    assert await ranked_stats(c1, p1) == {"elo": 1500, "title": "Kombatant", "wins": 1, "losses": 0}
 
     gos2 = await next_match(server, sides, s1["series"])
     assert gos2[1]["match"] != gos[1]["match"] and gos2[1]["p1_name"] == p1  # same sides
-    over1, over2 = await play(c1, c2, gos2[1]["match"], 1)
+    s1, _ = await play(c1, c2, gos2[1]["match"], 1)
+    # two wins took a set before 0.1.21: now it goes on to the third
+    assert s1["state"] == "between" and (s1["you"], s1["them"]) == (2, 0)
+    assert await ranked_stats(c1, p1) == {"elo": 1500, "title": "Kombatant", "wins": 2, "losses": 0}
+    gos3 = await next_match(server, sides, s1["series"])
+    over1, over2 = await play(c1, c2, gos3[1]["match"], 1)
     assert over1["state"] == "over" and over1["outcome"] == "won" and over1["winner"] == p1
-    assert (over1["you"], over1["them"]) == (2, 0)
-    assert over1["elo"][p1] == {"before": 1500, "after": 1516, "delta": 16}
-    assert over2["elo"][p2] == {"before": 1500, "after": 1484, "delta": -16}
-    assert await ranked_stats(c1, p1) == {"elo": 1516, "wins": 2, "losses": 0}
-    assert await ranked_stats(c1, p2) == {"elo": 1484, "wins": 0, "losses": 2}
+    assert (over1["you"], over1["them"]) == (3, 0)
+    assert over1["elo"][p1] == {"before": 1500, "after": 1516, "delta": 16,
+                                "title_before": "Kombatant", "title_after": "Kombatant"}
+    assert over2["elo"][p2] == {"before": 1500, "after": 1484, "delta": -16,
+                                "title_before": "Kombatant", "title_after": "Kombatant"}
+    assert await ranked_stats(c1, p1) == {"elo": 1516, "title": "Kombatant", "wins": 3, "losses": 0}
+    assert await ranked_stats(c1, p2) == {"elo": 1484, "title": "Kombatant", "wins": 0, "losses": 3}
     row = server.db.set_row(over1["series"])
-    assert row["outcome"] == "won" and (row["p1_wins"], row["p2_wins"]) == (2, 0)
+    assert row["outcome"] == "won" and (row["p1_wins"], row["p2_wins"]) == (3, 0)
     assert (row["p1_elo_after"], row["p2_elo_after"]) == (1516, 1484)
     assert not server.series and not server.series_of
+
+
+async def test_ranked_set_goes_to_a_fifth_match_at_two_all(server, connect, udp_peers, caplog):
+    sides, gos = await first_match(server, connect, udp_peers, ["Kitana", "Mileena"], ranked=True)
+    (c1, _), (c2, _) = sides[1], sides[2]
+    p1, p2 = gos[1]["p1_name"], gos[1]["p2_name"]
+    match = gos[1]["match"]
+    for n, winner in enumerate((1, 2, 1, 2), start=1):
+        s1, _ = await play(c1, c2, match, winner)
+        assert s1["state"] == "between" and s1["played"] == n
+        match = (await next_match(server, sides, s1["series"]))[1]["match"]
+    assert (s1["you"], s1["them"]) == (2, 2)
+    with caplog.at_level("INFO", logger="mk3d.server"):
+        _, over2 = await play(c1, c2, match, 2)
+    assert over2["state"] == "over" and over2["outcome"] == "won" and over2["winner"] == p2 and over2["played"] == 5
+    assert (over2["you"], over2["them"]) == (3, 2)
+    # the server's log says the set's score and both new ratings with their titles
+    assert any(f"over: won, {p1} 2-3 {p2}, {p2} wins it, {p1} 1500 -> 1484 Kombatant, {p2} 1500 -> 1516 Kombatant"
+               in r.getMessage() for r in caplog.records)
 
 
 async def test_one_match_won_and_gone_loses_the_set(server, connect, udp_peers):
@@ -89,8 +117,8 @@ async def test_one_match_won_and_gone_loses_the_set(server, connect, udp_peers):
     over = await c2.expect("series", state="over")
     assert over["outcome"] == "forfeit" and over["left"] == p1 and over["winner"] == p2
     assert over["elo"][p1]["delta"] == -16 and over["elo"][p2]["delta"] == 16
-    assert await ranked_stats(c2, p1) == {"elo": 1484, "wins": 1, "losses": 0}
-    assert await ranked_stats(c2, p2) == {"elo": 1516, "wins": 0, "losses": 1}
+    assert await ranked_stats(c2, p1) == {"elo": 1484, "title": "Kombatant", "wins": 1, "losses": 0}
+    assert await ranked_stats(c2, p2) == {"elo": 1516, "title": "Kombatant", "wins": 0, "losses": 1}
 
 
 async def test_searching_again_in_a_set_loses_it(server, connect, udp_peers):
@@ -204,13 +232,65 @@ async def test_other_modes_rematch_without_agreed_fighters_uses_the_queued_ones(
     assert (gos2[1]["p1"], gos2[1]["p2"]) == ("Jax", "Jax")
 
 
-async def test_ranked_set_picks_again_on_the_select_screen(server, connect, udp_peers):
+async def test_ranked_winner_keeps_their_fighter_and_the_loser_picks_again(server, connect, udp_peers):
+    # queued with fighters from the launcher (or "" to pick in the game): the first match plays what each queued with;
+    # after it, the last match's winner keeps the fighter they won with (the autopilot picks it in both games) and only
+    # the loser goes back to the select screen, whatever each chose
     sides, gos = await first_match(server, connect, udp_peers, ["Dairou", "Darrius"], ranked=True)
     (c1, _), (c2, _) = sides[1], sides[2]
+    p1, p2 = gos[1]["p1_name"], gos[1]["p2_name"]
     assert (gos[1]["p1"], gos[1]["p2"]) == ("Scorpion", "Scorpion")
-    s1, _ = await play(c1, c2, gos[1]["match"], 1, fighters=(("3", "4"), ("3", "4")))
-    gos2 = await next_match(server, sides, s1["series"], choices=("rematch", "rematch"))
+    s1, s2 = await play(c1, c2, gos[1]["match"], 1, fighters=(("3", "4"), ("3", "4")))
+    assert s1["keeps"] == p1 and s2["keeps"] == p1  # both are told who keeps their fighter
+    gos2 = await next_match(server, sides, s1["series"], choices=("rematch", "select"))
+    assert (gos2[1]["p1"], gos2[1]["p2"]) == ("3", "-") and (gos2[2]["p1"], gos2[2]["p2"]) == ("3", "-")
+
+    # P2 wins the next one with a fighter picked again: now P1 picks, P2 keeps theirs
+    s1, _ = await play(c1, c2, gos2[1]["match"], 2, fighters=(("3", "9"), ("3", "9")))
+    assert s1["keeps"] == p2 and (s1["you"], s1["them"]) == (1, 1)
+    gos3 = await next_match(server, sides, s1["series"])
+    assert (gos3[1]["p1"], gos3[1]["p2"]) == ("-", "9") and (gos3[2]["p1"], gos3[2]["p2"]) == ("-", "9")
+
+    # a match that does not count (the games parted) is played again the same way
+    for c in (c1, c2):
+        await c.request({"type": "result", "match": gos3[1]["match"], "outcome": "desync", "frame": 40})
+    s1 = await c1.expect("series", state="between")
+    c2.take_all("series")
+    assert s1["keeps"] == p2 and (s1["you"], s1["them"]) == (1, 1)
+    gos4 = await next_match(server, sides, s1["series"])
+    assert (gos4[1]["p1"], gos4[1]["p2"]) == ("-", "9")
+
+    # the winner keeps what they won with, here the same fighter again
+    s1, _ = await play(c1, c2, gos4[1]["match"], 2, fighters=(("12", "9"), ("12", "9")))
+    assert s1["keeps"] == p2 and (s1["you"], s1["them"]) == (1, 2)
+    gos5 = await next_match(server, sides, s1["series"])
+    assert (gos5[1]["p1"], gos5[1]["p2"]) == ("-", "9")
+    s1, _ = await play(c1, c2, gos5[1]["match"], 1, fighters=(("7", "9"), ("7", "9")))
+    assert s1["keeps"] == p1 and (s1["you"], s1["them"]) == (2, 2)
+    gos6 = await next_match(server, sides, s1["series"])
+    assert (gos6[1]["p1"], gos6[1]["p2"]) == ("7", "-")
+    over, _ = await play(c1, c2, gos6[1]["match"], 1, fighters=(("7", "2"), ("7", "2")))
+    assert over["state"] == "over" and over["winner"] == p1 and (over["you"], over["them"]) == (3, 2)
+
+
+async def test_ranked_winner_whose_fighter_is_not_known_picks_again(server, connect, udp_peers):
+    sides, gos = await first_match(server, connect, udp_peers, ["Reiko", "Rain"], ranked=True, character="")
+    (c1, _), (c2, _) = sides[1], sides[2]
+    assert (gos[1]["p1"], gos[1]["p2"]) == ("-", "-")  # both pick in the game
+    # the two games named different fighters (or none): nothing to keep, both pick again
+    s1, _ = await play(c1, c2, gos[1]["match"], 2, fighters=(("3", "4"), ("3", "5")))
+    assert s1["keeps"] is None
+    gos2 = await next_match(server, sides, s1["series"])
     assert (gos2[1]["p1"], gos2[1]["p2"]) == ("-", "-")
+    s1, _ = await play(c1, c2, gos2[1]["match"], 2, fighters=(("3", "4"), ("3", "4")))
+    assert s1["keeps"] == gos[1]["p2_name"]
+    gos3 = await next_match(server, sides, s1["series"])
+    assert (gos3[1]["p1"], gos3[1]["p2"]) == ("-", "4")
+    # a later win without agreed fighters lets the winner pick again too
+    s1, _ = await play(c1, c2, gos3[1]["match"], 1)
+    assert s1["keeps"] is None
+    gos4 = await next_match(server, sides, s1["series"])
+    assert (gos4[1]["p1"], gos4[1]["p2"]) == ("-", "-")
 
 
 async def test_ranked_motor_set_keeps_the_queued_karts(server, connect, udp_peers):

@@ -1,9 +1,43 @@
-"""Elo rating arithmetic (zero-sum, integer ratings)."""
+"""Elo rating arithmetic (zero-sum, integer ratings) and the ranked titles the ratings hold."""
 
 from __future__ import annotations
 
+from typing import Any
+
 INITIAL = 1500
 K_FACTOR = 32
+
+# The ranked titles by Elo, lowest to highest: each holds from its Elo up to the next one's, the lowest below 1300.
+# A new player starts at INITIAL, a Kombatant; a set against an equal player moves 16, so Warrior is four set wins
+# away and Apprentice four losses. The bands narrow above it, where a set against lower rated players gains less. Set
+# from the live ladders on 2026-11-03: 111 ranked records after nine days, 1416 to 1717, nine in ten 1450 to 1599.
+RANKS: tuple[tuple[int | None, str], ...] = (
+    (None, "Ed Boon"),
+    (1300, "Apprentice"),
+    (1450, "Kombatant"),
+    (1550, "Warrior"),
+    (1600, "Gladiator"),
+    (1650, "Master"),
+    (1700, "Grand Master"),
+    (1750, "Demigod"),
+    (1800, "God"),
+    (1850, "Elder God"),
+    (1900, "Elder God Supreme"),
+    (2000, "Elder God of Destruction"),
+)
+
+
+def title(rating: int) -> str:
+    """The ranked title a rating holds."""
+    for floor, name in reversed(RANKS):
+        if floor is None or rating >= floor:
+            return name
+    raise AssertionError("RANKS starts with a title for every rating")
+
+
+def ladder() -> list[dict[str, Any]]:
+    """The titles in order with the Elo each starts at (None: the lowest, below the next one's)."""
+    return [{"title": name, "from": floor} for floor, name in RANKS]
 
 
 def expected(rating_a: float, rating_b: float) -> float:
