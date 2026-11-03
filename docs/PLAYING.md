@@ -211,21 +211,26 @@ whether to trust it: compare it with your host's.
   ending, then closes and practice opens again, with the next search running
   (see "Search again" above). Untick the box to wait at the game's menu
   instead.
-- Frame data in practice (all three games): a small panel at the left shows
-  player 1's last attack, counted in frames (60 a second) from the press as
-  frame 1. **Startup** is the frame the attack can first hit, **Active** how
-  many frames it can hit (a move that hits more than once lists each hit's
-  frames, with the gap between them in brackets), **Recovery** the frames
-  after that until you can act again, **Total** the whole move. After a hit or
-  a block it shows the frame advantage, **On hit** or **On block**: how many
-  frames before (+, green) or after (-, red) the dummy you can act again. A hit
-  that lands on a later active frame than the first (from further away) gives
-  more advantage, so the panel names that frame. The dummy stands still in
-  every game's practice; **F8** makes it hold block, then crouch-block (lows
-  are blocked only crouching), then stand again, for the on-block numbers.
-  **F7** shows or hides the panel; **Settings → Frame data in practice** sets
-  whether it is shown when practice starts. None of it is ever in an online
-  match.
+- Frame data in practice (all three games): a small panel at the bottom of the
+  screen, in the middle, shows player 1's last attack, counted in frames (60 a
+  second) from the press as frame 1. **Startup** is the frame the attack can
+  first hit, **Active** how many frames it can hit (a move that hits more than
+  once lists each hit's frames, with the gap between them in brackets),
+  **Recovery** the frames after that until you can act again, **Total** the
+  whole move. After a hit or a block it shows the frame advantage, **On hit**
+  or **On block**: how many frames before (+, green) or after (-, red) the
+  dummy you can act again. A hit that lands on a later active frame than the
+  first (from further away) gives more advantage, so the panel names that
+  frame. In Deadly Alliance a fighter back on their feet after some moves
+  (specials above all) can block several frames before they can attack again,
+  and the panel then adds how far behind that is: Jax's Piston Punch is **On
+  block -27 (-9 to block)**, so only an attack that hits within 9 frames, and
+  still reaches you after the push back, could punish it. The dummy stands
+  still in every game's practice; **F8** makes it hold block, then
+  crouch-block (lows are blocked only crouching), then stand again, for the
+  on-block numbers. **F7** shows or hides the panel; **Settings → Frame data
+  in practice** sets whether it is shown when practice starts. None of it is
+  ever in an online match.
 - Player names (all three games): in an online match, and in a lobby match you
   watch, each player's account name stands just above their health bar,
   player 1's at the left and player 2's at the right. They come and go with

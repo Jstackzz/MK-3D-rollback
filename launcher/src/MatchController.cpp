@@ -217,6 +217,17 @@ QStringList desyncLines(const QString& sessionDir) {
     return out + match;
 }
 
+// A game log's last lines as a report carries them: what a game that ended before its match started said last
+QStringList lastLines(const QString& sessionDir, int n) {
+    QFile file(QDir(sessionDir).filePath(QStringLiteral("game.log")));
+    if (!file.open(QIODevice::ReadOnly)) return {};
+    file.seek(std::max<qint64>(0, file.size() - 16384));
+    QStringList out;
+    for (const QByteArray& raw : file.readAll().split('\n'))
+        if (!raw.trimmed().isEmpty()) out << reportLine(raw);
+    return out.mid(std::max<qsizetype>(0, out.size() - n));
+}
+
 // The game's files as extracted from the player's disc (its assets folder): how many, how large, and a hash of
 // their names and sizes; two copies that differ there (a modded disc, files left out of a smaller copy) play two
 // different games. Once a run per game.
@@ -1242,6 +1253,13 @@ void MatchController::reportLeft() {
         fields.insert(QStringLiteral("exit"), why);
         fields.insert(QStringLiteral("exit_code"), game_->exitCode());
         log(tr("Your game ended during the match (%1, exit code %2)").arg(why).arg(game_->exitCode()));
+        // before the match started (no in_match from the game yet): what its log said last goes to the server's log,
+        // which then says why (a game that came up and closed, or never got to its hold point)
+        if (phase_ == Phase::Starting) {
+            QJsonArray lines;
+            for (const QString& l : lastLines(game_->sessionDir(), 20)) lines.append(l);
+            if (!lines.isEmpty()) fields.insert(QStringLiteral("lines"), lines);
+        }
     }
     reportResult(fields);
 }
@@ -1308,6 +1326,12 @@ bool MatchController::startSolo(const QString& gameId, QString* error, bool prac
         t.start();
         while (waiting->isRunning() && t.elapsed() < 3000) QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
         waiting->deleteLater();
+        // a match found during that wait (a search after a set finds the opponent waiting at once) has its game
+        // starting now: practice would come up beside it, two games of this launcher at once
+        if (game_ || (phase_ != Phase::Idle && phase_ != Phase::Searching)) {
+            if (error) *error = tr("a match was found meanwhile");
+            return false;
+        }
     }
     auto* g = new GameProcess(gameId, 1, this);
     if (practice) g->setEnv(QStringLiteral("MK3D_TRAINING"), QStringLiteral("1"));

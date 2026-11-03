@@ -377,10 +377,64 @@ async def test_closing_the_game_mid_match_loses_a_ranked_set_even_at_nil(server,
     sides, gos = await first_match(server, connect, udp_peers, ["Kai", "Sareena"], ranked=True)
     (c1, _), (c2, _) = sides[1], sides[2]
     p1, p2 = gos[1]["p1_name"], gos[1]["p2_name"]
+    c2.send({"type": "match_state", "match": gos[1]["match"], "state": "in_match"})  # P2's game took the start
     await c2.request({"type": "result", "match": gos[1]["match"], "outcome": "left"})
     over = await c1.expect("series", state="over")
     assert over["outcome"] == "forfeit" and over["left"] == p2 and over["winner"] == p1
     assert over["elo"][p1]["delta"] == 16 and over["elo"][p2]["delta"] == -16
+
+
+async def test_a_game_that_never_started_a_sets_first_match_changes_no_rating(server, connect, udp_peers, caplog):
+    """A set's first match whose leaver's own game never took the start (it failed to come up or closed while
+    loading; the other's game may have): nothing of the set was played, so the set is void, as a declined match."""
+    sides, gos = await first_match(server, connect, udp_peers, ["Kitana", "Jade"], ranked=True)
+    (c1, _), (c2, _) = sides[1], sides[2]
+    p2 = gos[1]["p2_name"]
+    c1.send({"type": "match_state", "match": gos[1]["match"], "state": "in_match"})  # only P1's game started
+    with caplog.at_level("INFO", logger="mk3d.server"):
+        await c2.request({"type": "result", "match": gos[1]["match"], "outcome": "left",
+                          "exit": "window closed", "exit_code": 0})
+        over = await c1.expect("series", state="over")
+    assert over["outcome"] == "void" and over["winner"] is None and "elo" not in over
+    assert (await c2.expect("series", state="over"))["outcome"] == "void"
+    for name in ("Kitana", "Jade"):
+        assert server.db.rating(server.db.account_by_name(name)["id"], "mkd", "kombat")["elo"] == 1500
+    assert any(f"{p2}'s game never started its first match: void" in r.getMessage() for r in caplog.records)
+
+
+async def test_a_game_that_ended_before_its_match_sends_its_last_log_lines(server, connect, udp_peers, caplog):
+    """Its launcher sends the game log's last lines with the left report: the server's log has them; junk lines are
+    dropped, never refused."""
+    sides, gos = await first_match(server, connect, udp_peers, ["Ashrah", "Havik"], ranked=True)
+    (_, _), (c2, _) = sides[1], sides[2]
+    with caplog.at_level("INFO", logger="mk3d.server"):
+        ack = await c2.request({"type": "result", "match": gos[2]["match"], "outcome": "left", "exit": "window closed",
+                                "exit_code": 0, "lines": ["[   21.5] link: status booting", "[   48.2] Exit (0)"]})
+        assert ack["type"] == "result_ack"
+    said = [r.getMessage() for r in caplog.records if "LEFT_REPORT" in r.getMessage()]
+    assert "its game ended before the match started, 2 lines" in said[0] and said[2].endswith("| [   48.2] Exit (0)")
+
+    sides, gos = await first_match(server, connect, udp_peers, ["Dairou", "Darrius"], ranked=True)
+    (_, _), (c2, _) = sides[1], sides[2]
+    caplog.clear()
+    with caplog.at_level("INFO", logger="mk3d.server"):
+        ack = await c2.request({"type": "result", "match": gos[2]["match"], "outcome": "left",
+                                "lines": ["ok", "x" * 201]})
+        assert ack["type"] == "result_ack"
+    assert not any("LEFT_REPORT" in r.getMessage() for r in caplog.records)
+
+
+async def test_leaving_a_later_match_of_a_set_before_its_start_still_loses_it(server, connect, udp_peers):
+    """Only a set's first match: once a match of it was played, a game closed before the next one starts loses the
+    set, so closing it never saves a losing set."""
+    sides, gos = await first_match(server, connect, udp_peers, ["Rain", "Tremor"], ranked=True)
+    (c1, _), (c2, _) = sides[1], sides[2]
+    p1, p2 = gos[1]["p1_name"], gos[1]["p2_name"]
+    s1, _ = await play(c1, c2, gos[1]["match"], 1)  # P1 leads 1-0
+    gos = await next_match(server, sides, s1["series"])
+    await c2.request({"type": "result", "match": gos[2]["match"], "outcome": "left"})
+    over = await c1.expect("series", state="over")
+    assert over["outcome"] == "forfeit" and over["left"] == p2 and over["winner"] == p1
 
 
 async def test_a_player_who_vanishes_mid_match_loses_the_set(server, connect, udp_peers):

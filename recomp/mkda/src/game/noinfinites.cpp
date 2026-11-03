@@ -1,7 +1,7 @@
-// Deadly Alliance's rules against infinites (MK3D Online 0.1.21):
+// Deadly Alliance's rules against infinites (MK3D Online 0.1.21; crouching and crouch blocking end a combo in 0.1.22):
 //   - Bo' Rai Cho's Puke Puddle (back, forward + 2) cannot come out while the opponent is in a combo: hit since they
-//     last stood, walked, attacked or blocked (down or getting up counts), or slipping in a puddle (the puddle as they
-//     get up from a knockdown, a hit while they slip, a knockdown, the puddle again);
+//     last stood, crouched, walked, attacked or blocked (down or getting up counts), or slipping in a puddle (the
+//     puddle as they get up from a knockdown, a hit while they slip, a knockdown, the puddle again);
 //   - Frost's Ground Ice (down, back + 3) cannot come out once the combo has 3 hits or more;
 //   - Drahmin's Ground Smash (back, down + 4) cannot come out once the combo has 6 hits or more (it stands a fighter
 //     who is down or getting up back up, stunned, for another combo, another knockdown, the smash again);
@@ -77,10 +77,12 @@ int Side(uint32_t fighter) {
     return -1;
 }
 
-// free again: standing (crouched too), walking (0x2000 forward, 0x2001 back), attacking or blocking
+// free again: standing, crouching (0x100 going down, 0x101 down), walking (0x2000 forward, 0x2001 back), attacking,
+// or blocking standing (0x0Axx) or crouching (0x900 holding it, 0x901: the crouch block routines set them)
 bool Free(uint32_t state) {
     const uint32_t kind = state & 0xFF00;
-    return state == 0 || kind == 0x2000 || kind == 0x1200 || kind == 0x1300 || kind == 0x0A00;
+    return state == 0 || kind == 0x0100 || kind == 0x2000 || kind == 0x1200 || kind == 0x1300 || kind == 0x0A00 ||
+           kind == 0x0900;
 }
 
 void EachFrame(uint64_t) {

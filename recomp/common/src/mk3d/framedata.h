@@ -19,6 +19,8 @@ namespace mk3d::framedata {
 struct Fighter {
     bool can_act = false;       // the game would start a new move for it in this frame (its own gate)
     bool can_act_next = false;  // holding block where letting go is possible now: it could attack from the next frame
+    bool can_block = false;     // it would block in this frame, holding block (a game that lets a fighter block
+                                // before its gate lets it start a move says so; else false)
     bool striking = false;      // its attack's hit window is open (counts active frames after a contact)
     int contact = 0;            // its current attack's result: 0 none yet, 1 hit, 2 blocked
 };

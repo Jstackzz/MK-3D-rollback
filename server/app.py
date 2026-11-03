@@ -44,6 +44,7 @@ NEEDS_LOGIN = {
 CRASH_REPORTS_PER_SESSION = 20  # a game crashing over and over says so this many times, then no more
 DESYNC_REPORTS_PER_SESSION = 10  # matches out of step a session reports, then no more
 DESYNC_LINES = 40  # a desync report's lines from the game's log, 200 characters each at most
+LEFT_LINES = 20  # a game that ended before its match started: its log's last lines, 200 characters each at most
 CRASH_TEXT = re.compile(r"[\x20-\x7E]*")  # printable ASCII only: it goes into the log as is
 # F3 reports (what a player saw drawn wrong: the game's capture, its log), docs/PROTOCOL.md 1.13.2
 REPORTS_PER_SESSION = 3
@@ -217,6 +218,7 @@ class MatchPlayer:
     server_rtt: int | None = None  # their round trip to this server, ms
     ping: dict[str, Any] | None = None
     result: dict[str, Any] | None = None
+    game_state: str = ""  # what their own game last said of the match (match_state): "in_match" once it took the start
 
 
 @dataclass(eq=False)
@@ -1588,6 +1590,9 @@ class Server:
         state = msg.get("state")
         if isinstance(state, str) and len(state) <= 32:
             m.game_state = state
+            p = m.player_for(s.account_id)
+            if p is not None:
+                p.game_state = state
 
     # --- results ----------------------------------------------------------------------------------
 
@@ -1620,6 +1625,15 @@ class Server:
                     report["exit"] = why
                 if isinstance(code, int) and not isinstance(code, bool) and -2**31 <= code < 2**32:
                     report["exit_code"] = code
+                # one that ended before its match started also sends its log's last lines (launcher 0.1.22): why it
+                # did goes into this log; dropped, never refused, when they are not plain text lines
+                lines = msg.get("lines")
+                if (isinstance(lines, list) and 0 < len(lines) <= LEFT_LINES and
+                        all(isinstance(line, str) and len(line) <= 200 and CRASH_TEXT.fullmatch(line) for line in lines)):
+                    log.info("LEFT_REPORT %s (launcher %s) match %s: its game ended before the match started, %d lines",
+                             s.name, s.client_version or "?", m.id, len(lines))
+                    for line in lines:
+                        log.info("LEFT_REPORT %s | %s", s.name, line)
         else:
             report = {
                 "winner": P.get_int(msg, "winner", lo=1, hi=2),
@@ -1768,6 +1782,7 @@ class Server:
     def _series_after_match(self, m: Match, status: str, winner: int | None, now: float,
                             fighters: tuple[str, str] | None = None, *, fault: MatchPlayer | None = None,
                             broken: bool = False) -> None:
+        first = m.series is None  # the set or series starts with this match
         series = m.series if m.series is not None else self._new_series(m, now)
         if series.state == "over":  # a player left it while the other's report was outstanding
             return
@@ -1775,9 +1790,15 @@ class Server:
         series.played += 1
         series.last_picks = fighters
         if fault is not None and series.ranked:
+            sp = series.player_for(fault.account_id)
+            if sp is not None and first and fault.game_state != "in_match":
+                # a set's first match their own game never took the start of: it failed to come up or closed while
+                # loading, before anything of the set was played, which changes nothing, as declining the match would
+                log.info("set %s: %s's game never started its first match: void", series.id, fault.name)
+                self._end_series(series, "void", now=now)
+                return
             # a player whose game closed mid-match (or who vanished) left the set: whatever the score, that loses it,
             # so quitting a match never saves a player from its loss
-            sp = series.player_for(fault.account_id)
             if sp is not None:
                 self._end_series(series, "forfeit", left=sp, now=now)
                 return

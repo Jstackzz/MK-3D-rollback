@@ -481,6 +481,57 @@ Players who pick on the select screen (the launcher's `p1=- p2=-`), brought in l
   loaded that arena. 0 frames differ between the players and against the spectator in every match (1433 to 1861
   frames).
 
+## Combos, reach and blocking (0.1.22, 2026-11-03)
+
+Found with the debug monitor stepping versus fights (scratchpad r30: `versus_trace.py`, `stringedge.py`,
+`jaxblock.py`) and the generated code:
+
+- Fighter states (+0x194) go through the setter sub_000565C0(state) for the fighter whose task runs. Besides 0 (stance),
+  0x12xx / 0x13xx (attacks), 0x20xx (walking: 0x2000 forward, 0x2001 back, 0x2003 sub_000C0630) and 0x06xx (hit
+  reactions, 0x600 to 0x604): 0x100 / 0x101 crouching (sub_000BFB00, sub_000C0290 the crouch, sub_000E7B70 letting go
+  of block with down held), 0x900 / 0x901 crouch blocking (sub_000E7110 starting to block, sub_000E7B70 holding it,
+  sub_000E7480), 0xA00 to 0xA03 standing block (sub_000E7480 holding it, its reactions), 0x42xx down and getting up,
+  0x3200 to 0x3203 jumps. A hit's victim who crouch blocks goes from 0x600 straight to 0x900, and the game clears its
+  combo count (+0x1A0) there; the 0.1.21 rules took only 0xA00 for blocking and kept the combo going until the
+  victim stood (Bo's puddle, Frost's Ground Ice held back). 0.1.22 takes 0x01xx and 0x09xx as free too.
+- A strike's reach: the hit test sub_000547B0(kind, scale, reach) stores the kind at +0xDFC and calls sub_00047DE0 ->
+  sub_000483D0(kind, scale, reach), which walks the limb list 0x25B18C[kind] (ids, a negative one between limbs, 0
+  at the end), finds each id in the table at 0x2324A8 (0x14 bytes an entry: id | 0x1000, a side flag at +4 for the
+  mirrored limb, the radius at +0xC), and puts a sphere of scale x radius on that bone. With a reach, the end of each
+  limb gets one more sphere that far past the last one along the line from the one before (the length is (L + reach)
+  / L of that segment). Then sub_00048A80 tests the spheres against the other fighter: 1 a hit. The strike loop
+  sub_00054900 passes reach 0.
+- Moves run scripts: +0x9F0 is the block of the move's script (it starts with the names of its animations,
+  "drunken_2", "mizong_entry_2center", ...), +0x9F8 the command it is at, which stays the same through a strike's
+  window. Bo' Rai Cho's Mi Zong 2, 2, 1, 1, style change (Y, Y, X, X, LT; 5 hits, startup 11, hits on frames 10,
+  26, 45, 61 and 79 from 1.24 apart) strikes from +0x5C4, +0x688, +0x76C and +0x810 of the "drunken_2" block and,
+  after the style change (routine 0x11C360), from +0x1D4 of the "mizong_entry_2center" block. Each hit pushes the
+  victim about 0.4 back and the next strike lunges in again; started from the first hit's longer reaches (1.25 apart
+  and more), the later hits came out short: 4 of 5 in one of three tries against Scorpion on 0.1.21 (the user's clip:
+  "4 hits, last on frame 63"; Mavado: 2 of 5 started 1.25 apart, the second hit landing late on frame 29).
+  `recomp/mkda/src/game/combos.cpp` makes hits 2 to 5 test with their spheres 2.5 times larger (scale x 2.5) while
+  the victim is in a hit reaction from the hit before: all five landed on all 23 fighters. A reach did not do it:
+  the limb lists for kinds 6 and 7 (0x25B18C: [15, 18, 20, 22, 24] and [17, 19, 21, 23, 25], the arms, radius
+  0.125 at the hand) end in the hand, and the extra sphere goes along its last bone, up for an upright palm strike.
+- A body point of each fighter: +0xA28 / +0xA2C / +0xA30 (x, y about 1.0, z), recomputed every frame (a write does
+  not move the fighter); the distance between the two fighters' x and z is about 1.0 when a jab lands, 2.6 at a
+  round's start.
+- Blocking before acting: standing (sub_000BFCC0) and crouching (sub_000C0290) check block first each frame, through
+  sub_00057E20 (not in 0x605 or 0x3202, +0x158 and +0x15C clear, +0x160 no later than now, 0x42C744 set, the block
+  action held), which leaves out the move gate's +0x168; the reset between a move and stance (sub_000BFB00) does not
+  block. After some moves a fighter stands in stance for frames before +0x168 lets it attack: Jax's Piston Punch
+  (down, forward + 1, six hits) on block is -27 to attack and -9 to block (stance from move frame 81, the gate at 99),
+  and its last hits push the blocker from about 1.6 to 2.3 apart, so nothing punishes it. The frame data shows both
+  ("On block -27 (-9 to block)").
+- Tech rolls: a knockdown that can be teched runs the check sub_00051290 for the fighter as it lands (up or down
+  rolls, away rolls back, the computer rolls at random; a roll switches the fighter's task to 0xE4A90, 0xE4AF0 or
+  0xE4BA0). Ten reaction routines call it: sub_001183C0, sub_00119280, sub_001198A0, sub_00119AD0, sub_0011A160,
+  sub_0011A250, sub_0011A350, sub_0011AA50, sub_0011BC40, sub_0011DB60. Untechable knockdowns run twins without the
+  call: Scorpion's uppercut (down + 3) knocks down through sub_00119280 (the check about 45 frames after the hit, then
+  sub_00057690 down on the floor, sub_00053160 up again), Bo' Rai Cho's sweep (back + 3) through sub_00119390 (the same
+  calls but the check), Frost's slide through the scripted reaction sub_0011AE80 and sub_00053160. The game clears a
+  victim's combo count (+0x1A0) about 22 frames into the knockdown.
+
 ## Tools
 
 `tools/ghidra-import.ps1` takes `-Research research\mkda-rev1` (new optional parameter; the default stays

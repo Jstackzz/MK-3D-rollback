@@ -59,8 +59,9 @@ struct Move {
     int contact = 0;          // 1 hit (any of its contacts), 2 blocked (all of them)
     uint32_t contact_at = 0;  // the frame of its last contact
     int hits = 0;
-    uint32_t p1_free = 0;  // the first frame player 1 can act again
-    uint32_t p2_free = 0;  // the first frame player 2 can act again after the last contact
+    uint32_t p1_free = 0;   // the first frame player 1 can act again
+    uint32_t p1_block = 0;  // the first frame player 1 can block again, where that comes sooner
+    uint32_t p2_free = 0;   // the first frame player 2 can act again after the last contact
 
     void Active(uint32_t frame) {
         if (windows && frame <= window_end[windows - 1] + 1) {
@@ -84,6 +85,8 @@ struct Shown {
     bool advantage_known = false;
     bool advantage_at_least = false;  // player 2 had not recovered yet when player 1 attacked again
     int advantage = 0;
+    bool block_known = false;  // player 1 can block before it can act again (Deadly Alliance): that advantage too
+    int block_advantage = 0;
     char name[32] = {};
 };
 
@@ -133,6 +136,10 @@ void Publish(const Move& m, bool interrupted, uint32_t now) {
     if (m.contact && m.p1_free && m.p2_free) {
         s.advantage_known = true;
         s.advantage = int(m.p2_free) - int(m.p1_free);
+        if (m.p1_block && m.p1_block < m.p1_free) {
+            s.block_known = true;
+            s.block_advantage = int(m.p2_free) - int(m.p1_block);
+        }
     } else if (m.contact && m.p1_free && interrupted) {
         // player 1 attacked again in frame now, before player 2 could act
         s.advantage_known = s.advantage_at_least = true;
@@ -140,7 +147,12 @@ void Publish(const Move& m, bool interrupted, uint32_t now) {
     }
     if (g_game.name)
         if (const char* n = g_game.name(0)) std::snprintf(s.name, sizeof s.name, "%s", n);
-    if (s.advantage_known)
+    if (s.block_known)
+        LOGR("framedata: %s startup %d active %s recovery %d total %d, %s %+d, %+d to block "
+             "(%d hits, the last in frame %d)",
+             s.name, s.startup, s.active, s.recovery, s.total, ContactText(s.contact), s.advantage, s.block_advantage,
+             s.hits, s.contact_frame);
+    else if (s.advantage_known)
         LOGR("framedata: %s startup %d active %s recovery %d total %d, %s %s%+d (%d hits, the last in frame %d)", s.name,
              s.startup, s.active, s.recovery, s.total, ContactText(s.contact), s.advantage_at_least ? ">= " : "",
              s.advantage, s.hits, s.contact_frame);
@@ -207,6 +219,7 @@ void OnFrame(uint64_t) {
                 m.p2_free = 0;
             }
             if (!m.p1_free && t > m.start && p[0].can_act) m.p1_free = t;
+            if (!m.p1_block && !m.p1_free && t > m.start && p[0].can_block) m.p1_block = t;
             if (m.contact && !m.p2_free && t > m.contact_at) {
                 if (p[1].can_act) m.p2_free = t;
                 else if (p[1].can_act_next) m.p2_free = t + 1;
@@ -279,7 +292,10 @@ void Ui(double) {
     }
     const ImGuiIO& io = ImGui::GetIO();
     const float px = std::max(14.0f, io.DisplaySize.y / 34.0f);  // text height
-    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.02f, io.DisplaySize.y * 0.17f), ImGuiCond_Always);
+    // two lines at the bottom of the screen, in the middle, just above Deadly Alliance's fighting style names (they
+    // stay from 89 % of the height down the whole fight)
+    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.87f), ImGuiCond_Always,
+                            ImVec2(0.5f, 1.0f));
     ImGui::SetNextWindowBgAlpha(0.55f);
     const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
                                    ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoNav |
@@ -289,26 +305,40 @@ void Ui(double) {
     if (ImGui::Begin("##mk3d_framedata", nullptr, flags)) {
         ImGui::SetWindowFontScale(px / (g_font ? kFontPixels : 13.0f));
         const ImVec4 dim(0.75f, 0.75f, 0.75f, 1.0f);
+        const float gap = px;  // between the parts of a line
         const Dummy dummy = Dummy(g_dummy.load(std::memory_order_relaxed));
         if (!s.valid) {
             ImGui::TextColored(dim, "Frame data: attack with player 1");
+            ImGui::SameLine(0.0f, gap);
             ImGui::TextColored(dim, "F8: the dummy %s", DummyText(dummy));
         } else {
-            if (s.name[0]) ImGui::TextColored(dim, "%s", s.name);
-            ImGui::Text("Startup %d   Active %s", s.startup, s.active);
-            if (s.total) ImGui::Text("Recovery %d   Total %d", s.recovery, s.total);
+            if (s.name[0]) {
+                ImGui::TextColored(dim, "%s", s.name);
+                ImGui::SameLine(0.0f, gap);
+            }
+            if (s.total)
+                ImGui::Text("Startup %d   Active %s   Recovery %d   Total %d", s.startup, s.active, s.recovery,
+                            s.total);
+            else
+                ImGui::Text("Startup %d   Active %s", s.startup, s.active);
             if (!s.contact) {
                 ImGui::TextColored(dim, "Whiff");
             } else {
-                const ImVec4 color = !s.advantage_known ? ImVec4(1.0f, 1.0f, 1.0f, 1.0f)
-                                     : s.advantage > 0  ? ImVec4(0.45f, 0.9f, 0.45f, 1.0f)
-                                     : s.advantage < 0  ? ImVec4(1.0f, 0.45f, 0.4f, 1.0f)
-                                                        : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+                const auto tint = [](int advantage) {
+                    return advantage > 0   ? ImVec4(0.45f, 0.9f, 0.45f, 1.0f)
+                           : advantage < 0 ? ImVec4(1.0f, 0.45f, 0.4f, 1.0f)
+                                           : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+                };
                 if (!s.advantage_known)
-                    ImGui::TextColored(color, "%s ?", ContactText(s.contact));
+                    ImGui::TextColored(ImVec4(1.0f, 1.0f, 1.0f, 1.0f), "%s ?", ContactText(s.contact));
                 else
-                    ImGui::TextColored(color, "%s %s%+d", ContactText(s.contact), s.advantage_at_least ? ">= " : "",
-                                       s.advantage);
+                    ImGui::TextColored(tint(s.advantage), "%s %s%+d", ContactText(s.contact),
+                                       s.advantage_at_least ? ">= " : "", s.advantage);
+                // back on its feet it blocks sooner than it can attack: how far behind that is (what a punish beats)
+                if (s.block_known) {
+                    ImGui::SameLine();
+                    ImGui::TextColored(tint(s.block_advantage), "(%+d to block)", s.block_advantage);
+                }
                 // a hit that did not land on the first active frame changes the advantage: name its frame
                 if (s.hits > 1 || s.contact_frame != s.startup) {
                     ImGui::SameLine();
@@ -316,7 +346,10 @@ void Ui(double) {
                     else ImGui::TextColored(dim, "(on frame %d)", s.contact_frame);
                 }
             }
-            if (dummy != Dummy::Stands) ImGui::TextColored(dim, "The dummy %s (F8)", DummyText(dummy));
+            if (dummy != Dummy::Stands) {
+                ImGui::SameLine(0.0f, gap);
+                ImGui::TextColored(dim, "The dummy %s (F8)", DummyText(dummy));
+            }
         }
         ImGui::SetWindowFontScale(1.0f);
     }

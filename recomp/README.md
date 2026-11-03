@@ -283,9 +283,9 @@ for p in recomp/patches/xboxxberecomp-*.patch; do git -C external/XboxXBERecomp 
   skip it, or draw a picture over the whole target in its place: the PNG
   `select_background.png` beside the game (any picture Windows' imaging
   decodes), the 4:3 middle of it, or all of it when the game is stretched to
-  16:9. Deadly Alliance's select screen draws it in place of its clouds
-  (`recomp/mkda/src/game/userbackground.cpp`). F3 captures write such a draw
-  as `user image`.
+  16:9. F3 captures write such a draw as `user image`. Deadly Alliance's
+  select screen drew it in place of its clouds in 0.1.21; since 0.1.22 no
+  game sets a filter, so nothing changes what is drawn.
 
 `tools/py/lib_audit.py <game dir> <xbsdb symbols>` lists the XDK library
 functions the game calls that still run console code against host objects,

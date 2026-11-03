@@ -51,7 +51,8 @@ std::wstring g_cmd, g_status;
 bool g_on = false;
 
 std::mutex g_lock;
-std::string g_last_status;
+std::string g_last_status;     // the status the launcher has
+std::string g_pending_status;  // one whose file was busy: written again from the loop until it is
 std::string g_match = "none";
 game::Start g_start;
 bool g_in_match = false;      // a start was taken and not parked
@@ -71,20 +72,40 @@ std::wstring Widen(const char* s) {
     return w;
 }
 
-void WriteStatus(const std::string& line) {
-    if (line == g_last_status) return;
-    g_last_status = line;
+bool PutStatus(const std::string& line) {
     std::wstring tmp = g_status + L".tmp";
     FILE* f = _wfopen(tmp.c_str(), L"wb");
-    if (!f) return;
+    if (!f) return false;
     std::string text = line + "\n";
     std::fwrite(text.data(), 1, text.size(), f);
     std::fclose(f);
-    for (int i = 0; i < 200; i++) {
-        if (MoveFileExW(tmp.c_str(), g_status.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) break;
+    for (int i = 0; i < 10; i++) {
+        if (MoveFileExW(tmp.c_str(), g_status.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) return true;
         Sleep(5);
     }
-    LOGI("link: status %s", line.c_str());
+    return false;
+}
+
+// The status not written yet, again: its file can be held a while by another program (an antivirus scanning it, a
+// cloud folder syncing it). Dropped, a "ready" left the launcher waiting for a game long at its hold point and the
+// match never started; a ranked set's player who closed that game lost the set (0.1.21).
+void FlushStatus() {
+    if (g_pending_status.empty()) return;
+    if (!PutStatus(g_pending_status)) {
+        static bool told = false;
+        if (!told) LOGR("link: the status file is busy (another program holds it): writing it again");
+        told = true;
+        return;
+    }
+    g_last_status = g_pending_status;
+    g_pending_status.clear();
+    LOGI("link: status %s", g_last_status.c_str());
+}
+
+void WriteStatus(const std::string& line) {
+    if (line == g_last_status && g_pending_status.empty()) return;
+    g_pending_status = line;  // the newest status wins over one still waiting
+    FlushStatus();
 }
 
 bool ClaimCommand(std::string& out) {
@@ -376,6 +397,7 @@ void Loop() {
         }
         {
             std::lock_guard<std::mutex> lock(g_lock);
+            FlushStatus();
             Update();
         }
         WatchFrames();

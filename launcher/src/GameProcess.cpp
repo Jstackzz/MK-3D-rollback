@@ -168,7 +168,12 @@ bool GameProcess::start(const QString& exe, QString* error, bool netMode) {
     const QFileInfoList old = QDir(paths::sessionsDir()).entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Time);
     for (int i = kKeepSessions; i < old.size(); i++) QDir(old[i].absoluteFilePath()).removeRecursively();
     const QString stamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-hhmmss"));
-    sessionDir_ = QDir(paths::sessionsDir()).filePath(QStringLiteral("%1-%2-%3").arg(gameId_, stamp).arg(instance_));
+    // a folder of its own: two games started within the same second (a match's game and practice after a set) shared
+    // one, its log and the files the launcher and the game talk through
+    const QString name = QStringLiteral("%1-%2-%3").arg(gameId_, stamp).arg(instance_);
+    sessionDir_ = QDir(paths::sessionsDir()).filePath(name);
+    for (int n = 2; QFileInfo::exists(sessionDir_); n++)
+        sessionDir_ = QDir(paths::sessionsDir()).filePath(QStringLiteral("%1-%2").arg(name).arg(n));
     QDir().mkpath(sessionDir_);
     cmdPath_ = QDir(sessionDir_).filePath(QStringLiteral("cmd.txt"));
     statusPath_ = QDir(sessionDir_).filePath(QStringLiteral("status.txt"));
