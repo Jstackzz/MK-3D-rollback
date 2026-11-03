@@ -72,7 +72,11 @@ uint32_t FighterHash(uint32_t record) {
 
 // what a side mode match is made of: Chess Kombat's game (0x46CEDC: 0x1BC bytes, its board +0x38 0x1454 bytes, each
 // side's 17 pieces 0x90 bytes each through +0x3C / +0x40, from +8), Puzzle Kombat's (0x46CE5C: 0x148 bytes, the two
-// wells +0x4C / +0x50 0x8C0 bytes each, and the players' blocks at 0x5FDEAC, 0x5E0 bytes each)
+// wells +0x4C / +0x50 0x8C0 bytes each, the two players +0x54 / +0x58 0x554 bytes each, their next pieces +0x5C to
+// +0x68 0x28 bytes each; all made by its setup sub_000F2BD0). Not the static range from 0x5FDEAC its players point
+// to (+0x4C8): that is P1's profile (0x5FDF60, 0x5E0 bytes; P2's is 0x5FD980), loaded resources' handles and the
+// engine's random generator, each PC's own (a profile from that PC's save), not the match's. Hashing it there made
+// two games of the same match part at frame 0.
 void SideModeBlocks(std::vector<std::pair<uint32_t, uint32_t>>& out) {
     uint32_t mode = GameMode();
     if (mode == kModeChess) {
@@ -87,12 +91,13 @@ void SideModeBlocks(std::vector<std::pair<uint32_t, uint32_t>>& out) {
         }
     } else if (mode == kModePuzzle) {
         uint32_t game = kernel::R32(kPuzzleGame);
-        if (game && mem::IsCommitted(game)) {
-            out.push_back({game, 0x148});
-            out.push_back({kernel::R32(game + 0x4C), 0x8C0});
-            out.push_back({kernel::R32(game + 0x50), 0x8C0});
-        }
-        out.push_back({0x5FDEAC, 0x5E0 * 2});
+        if (!game || !mem::IsCommitted(game)) return;
+        out.push_back({game, 0x148});
+        out.push_back({kernel::R32(game + 0x4C), 0x8C0});
+        out.push_back({kernel::R32(game + 0x50), 0x8C0});
+        out.push_back({kernel::R32(game + 0x54), 0x554});
+        out.push_back({kernel::R32(game + 0x58), 0x554});
+        for (uint32_t next = 0x5C; next <= 0x68; next += 4) out.push_back({kernel::R32(game + next), 0x28});
     }
 }
 

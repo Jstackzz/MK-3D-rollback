@@ -623,6 +623,32 @@ Players who pick on the select screen (the launcher's `p1=- p2=-`), brought in l
   once it had sat out a rematch the players played. RT, LS, B, BACK, LT and WHITE through the player's own pad while
   choosing: the screen stays.
 
+### Players' reports for 0.1.20 (2026-11-03)
+
+- Puzzle Kombat's false desyncs. The state check's puzzle blocks took 0x5E0 * 2 bytes from 0x5FDEAC as "the
+  players' blocks", because the setup sub_000F2BD0 hands the players 0x5FDEAC and 0x5FE48C (their +0x4C8). That range
+  is not the match's: dozens of variables (refs-in-range over Ghidra), among them the memory unit state (0x5FDF40,
+  0x5FDF44, 0x5FDF48: P1 signed in), P1's profile (0x5FDF60, 0x5E0 bytes, name "EMPTY" at +8 without one; P2's is
+  0x5FD980), the chess and puzzle records in it, loaded resources' handles (0x5FE540..0x5FE8C0) and the random
+  generator's index and first state words (0x5FE9F4, 0x5FEA00). A profile from one PC's save made every puzzle match
+  between two players part at frame 0: the 0.1.20 build with one game's profile name and koins changed through the
+  monitor gave `DESYNC at frame 0 (ours B75DA635/9BE17165, theirs B71978C9/9BE17165, loading)`, the players'
+  reports exactly. The match is its game block, the two wells, the two players (+0x54 / +0x58, 0x554 bytes: the well,
+  the next pieces, the record, the character's puzzle type +0x510 and its table values +0x500 / +0x51C) and their next
+  pieces (+0x5C..+0x68, 0x28 bytes; two offline runs differ there first, the random generator not reseeded offline);
+  that is what the check hashes now. With the same profile change: a whole puzzle match in sync (11249 frames, 120
+  ms, the mirror with costume flags 2 and 0), another at 180 ms (10 vs 6, 8762 frames). Two mid-match reports
+  (frames 2520 and 11310 between one pair) were not reproduced; the old range could change mid-match on one PC only
+  (the memory unit state, a profile's records), and the check now leaves it out.
+- A crash outside a match, `C0000005 MKD.dll+20508E`. The code DLL is built on the player's PC, so offsets need that
+  version's DLL: 0.1.20's, built from its zip (`MKD.exe --prepare` with the zip's toolchain), puts +0x20508E in
+  sub_000DEFF0 at the read of a light's +8 just after sub_000DF200 (the current build's exports had said
+  sub_000DEEB0). sub_000DEFF0(list, group) sets an arena area's lights (sub_0002D210) from three settings, each
+  kind 1 or 3 looked up in the scene's light group by sub_000DF200, which gives 0 when the group no longer has that
+  light (it holds weak references) and sub_000DEFF0 never asks (sub_000DFA60 does). `src/game/lights.cpp` makes the
+  same walk with lookups first and leaves the lights as they are when one is gone; through the monitor (a kind 1
+  setting, an empty group: the 0.1.20 crash) it logs `lights: ... a light is gone` and the game runs on.
+
 ### Next
 
 - The same layers for Armageddon (with its Motor Kombat side mode) and Deadly Alliance, from a shared core.
