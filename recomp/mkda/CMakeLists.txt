@@ -56,3 +56,6 @@ add_custom_command(TARGET MKDA POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/data ${CMAKE_CURRENT_BINARY_DIR})
 target_link_libraries(MKDA PRIVATE dbghelp)
 target_include_directories(MKDA PRIVATE ${MK3D_COMMON})
+# the executable's version and publisher, as Windows and antivirus programs read them (recomp/common/version)
+include(${MK3D_COMMON}/../version/version.cmake)
+mk3d_version_info(MKDA MKDA "MK3D Online: Deadly Alliance")

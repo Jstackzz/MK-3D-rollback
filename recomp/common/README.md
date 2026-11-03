@@ -17,6 +17,11 @@ executable (`src/mk3d/*.cpp`, added by the game's `CMakeLists.txt`) and lives in
 | `mk3d/names.h/.cpp` | the players' account names in an online or a watched fight (the start line's `p1_name` / `p2_name`), just above the health bars while the fight's HUD is up, fading with the game's screen fades |
 | `mk3d/game.cpp` | `Env()`: environment variables under the game's prefix |
 
+`version/` (outside `src/`): `mk3d_version_info()` gives each game executable and the launcher a Windows version
+resource (product MK3D Online, publisher, description, the release's version from `launcher/CMakeLists.txt`).
+Antivirus programs read it, and their machine learning is quicker to take an executable without one for malware
+(Defender's `Trojan:Win32/Bearfoos.A!ml` took players' 0.1.21 launchers).
+
 ## What a game provides
 
 | header | implemented in the game's | what |

@@ -48,6 +48,9 @@ qt_add_executable(MK3DLauncher WIN32
     src/MainWindow.cpp src/MainWindow.h
     data/logo/MK3DLauncher.rc  # the exe's icon
 )
+# its version and publisher, as Windows and antivirus programs read them (the games share it)
+include(${CMAKE_CURRENT_SOURCE_DIR}/../recomp/common/version/version.cmake)
+mk3d_version_info(MK3DLauncher MK3DLauncher "MK3D Online launcher")
 
 qt_add_resources(MK3DLauncher "gamedata"
     PREFIX "/data"

@@ -53,3 +53,6 @@ add_custom_command(TARGET MKA_code POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_BINARY_DIR}/MKA.pdb ${CMAKE_CURRENT_BINARY_DIR}/pdb-dll/MKA.pdb)
 target_link_libraries(MKA PRIVATE dbghelp)
 target_include_directories(MKA PRIVATE ${MK3D_COMMON})
+# the executable's version and publisher, as Windows and antivirus programs read them (recomp/common/version)
+include(${MK3D_COMMON}/../version/version.cmake)
+mk3d_version_info(MKA MKA "MK3D Online: Armageddon")

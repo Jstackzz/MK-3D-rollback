@@ -1,0 +1,33 @@
+// @MK3D_FILE_NAME@'s version and publisher, as Windows shows them (the file's Properties > Details) and antivirus
+// programs read them: made by mk3d_version_info() (version.cmake) from the release's version.
+#include <winver.h>
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION @MK3D_VERSION_MAJOR@,@MK3D_VERSION_MINOR@,@MK3D_VERSION_PATCH@,0
+ PRODUCTVERSION @MK3D_VERSION_MAJOR@,@MK3D_VERSION_MINOR@,@MK3D_VERSION_PATCH@,0
+ FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
+ FILEFLAGS 0
+ FILEOS VOS_NT_WINDOWS32
+ FILETYPE VFT_APP
+ FILESUBTYPE VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName", "Jstackzz"
+            VALUE "FileDescription", "@MK3D_FILE_DESCRIPTION@"
+            VALUE "FileVersion", "@MK3D_VERSION@"
+            VALUE "InternalName", "@MK3D_FILE_NAME@"
+            VALUE "LegalCopyright", "Copyright (c) 2026 Jstackzz. MIT License."
+            VALUE "OriginalFilename", "@MK3D_FILE_NAME@.exe"
+            VALUE "ProductName", "MK3D Online"
+            VALUE "ProductVersion", "@MK3D_VERSION@"
+            VALUE "Comments", "https://github.com/Jstackzz/MK-3D-rollback"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

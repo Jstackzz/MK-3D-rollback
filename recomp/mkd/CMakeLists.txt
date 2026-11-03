@@ -53,3 +53,6 @@ add_custom_command(TARGET MKD_code POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_BINARY_DIR}/MKD.pdb ${CMAKE_CURRENT_BINARY_DIR}/pdb-dll/MKD.pdb)
 target_link_libraries(MKD PRIVATE dbghelp)
 target_include_directories(MKD PRIVATE ${MK3D_COMMON})
+# the executable's version and publisher, as Windows and antivirus programs read them (recomp/common/version)
+include(${MK3D_COMMON}/../version/version.cmake)
+mk3d_version_info(MKD MKD "MK3D Online: Deception")
