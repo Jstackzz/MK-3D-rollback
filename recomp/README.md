@@ -254,12 +254,29 @@ for p in recomp/patches/xboxxberecomp-*.patch; do git -C external/XboxXBERecomp 
   (Deadly Alliance's `D3DDevice_SetPalette` at 0x1D5760), and Deadly
   Alliance's three calls pass a texture object's palette, NULL for one
   without. Drawn with no palette, a P8 texture decodes as grey with an
-  opaque black for index 0: a streamer's long session showed its menu text
-  as white on a black box for single frames and Shang Tsung's select
-  portrait grey for seconds (`XBE_TEST_PALETTE_NULL=drop` after every set
+  opaque black for index 0 (`XBE_TEST_PALETTE_NULL=drop` after every set
   gives that picture, `hold` the right one). A copy of the palette's header
   stands in, since the palette itself may be freed once released. F3
   captures name each P8 texture's palette (`pal <address>` or `pal none`).
+  A streamer's long session had shown such pictures (menu text white on a
+  black box for single frames, Shang Tsung's select portrait grey for
+  seconds); no game here was seen to set a NULL palette, and 0040 found
+  what drew them.
+- `0040-p8-textures-are-never-targets` (0.1.20): a P8 texture is never
+  sampled as a render target. The renderer keeps a target after its memory
+  goes to other data, and a texture of the same size loaded there was taken
+  for the target (`BindTargetTexture`), its memory decoded as the target's
+  copy without the palette: grey on an opaque black, or what the target
+  last held. Deadly Alliance's select screen fire is an animation of
+  128x128 P8 textures, and the one loaded where a 128x128 target had been
+  came out so once each time it came round (captured as `target` in its
+  draw line; `d3d12: P8 texture ... where a target was` in the log now).
+  Targets pile up as a session goes on (10 to 76 in 18 minutes of practice),
+  so such pictures got more frequent the longer the game ran. The GPU
+  renders no palettized surface, so a P8 texture is always its own memory
+  and palette. `LOGR_FIRST` (`core/log.h`) writes that note, and 0039's
+  `SetPalette(.., NULL)` one, in release logs too: `LOG_FIRST` logs at
+  `LOGI`, which a release build leaves out.
 
 `tools/py/lib_audit.py <game dir> <xbsdb symbols>` lists the XDK library
 functions the game calls that still run console code against host objects,

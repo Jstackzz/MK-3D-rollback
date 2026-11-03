@@ -1,0 +1,54 @@
+diff --git a/runtime/core/log.h b/runtime/core/log.h
+--- a/runtime/core/log.h
++++ b/runtime/core/log.h
+@@ -35,3 +35,10 @@ inline constexpr bool kVerbose = true;
+         static std::atomic<int> _c{0};                     \
+         if (_c.fetch_add(1, std::memory_order_relaxed) < (n)) LOGI(__VA_ARGS__); \
+     } while (0)
++
++// the same at the Report level: in a release build's log too (LOGI is not)
++#define LOGR_FIRST(n, ...)                                 \
++    do {                                                   \
++        static std::atomic<int> _c{0};                     \
++        if (_c.fetch_add(1, std::memory_order_relaxed) < (n)) LOGR(__VA_ARGS__); \
++    } while (0)
+diff --git a/runtime/xdk/d3d8.cpp b/runtime/xdk/d3d8.cpp
+--- a/runtime/xdk/d3d8.cpp
++++ b/runtime/xdk/d3d8.cpp
+@@ -911,8 +911,8 @@ HLE_STDCALL(D3DDevice_SetPalette, 2) {
+         g_state.palettes[stage] = pal;
+     } else if (g_state.palettes[stage]) {
+         HoldPalette(stage);  // before the release, which may free the palette
+-        LOG_FIRST(4, "d3d: SetPalette(%u, NULL) from %08X: the stage keeps its palette, as the console's GPU does",
+-                  stage, R32(ctx.esp));
++        LOGR_FIRST(4, "d3d: SetPalette(%u, NULL) from %08X: the stage keeps its palette, as the console's GPU does",
++                   stage, R32(ctx.esp));
+     }
+     Release(ctx, old);
+     // XBE_TEST_PALETTE_NULL (tests): each palette set as if a SetPalette(stage, NULL) followed it, for the renderer:
+diff --git a/runtime/gpu/d3d12.cpp b/runtime/gpu/d3d12.cpp
+--- a/runtime/gpu/d3d12.cpp
++++ b/runtime/gpu/d3d12.cpp
+@@ -1931,12 +1931,20 @@ ID3D12Resource* D3D12Backend::BindTexture(const State& s, int stage, DrawTexture
+     info.kind = TextureKind(d);
+     info.rect = d.linear;
+ 
+-    // rendered by the GPU: sample the target itself; DXT data loaded over a target's memory is not it
++    // rendered by the GPU: sample the target itself; DXT data loaded over a target's memory is not it, nor is a P8
++    // texture, which the GPU never renders. A target stays known after its memory goes to other data, and a P8 texture
++    // loaded there was decoded from memory as the target's copy, without its palette: grey on an opaque black (Deadly
++    // Alliance: one frame of the select screen's fire animation each time it came round, menu text, portraits; more
++    // of them the longer the game ran, as targets piled up)
++    constexpr uint32_t kFmtP8 = 0x0B;
+     uint64_t alt = 0;
+     bool box = true;
+     if (ext_) ext_->Sample(d.data, fi.depth, stage, alt, stages.k[stage], box);
+     auto tit = targets_.find(SizedTargetKey(d.data, fi.depth, d.width, d.height) | alt);
+-    if (tit != targets_.end() && !d.cube && d.depth == 1 && !fi.compressed) {
++    if (tit != targets_.end() && d.format == kFmtP8)
++        LOGR_FIRST(4, "d3d12: P8 texture %08X %ux%u where a target was: decoded with its palette", d.data, d.width,
++                   d.height);
++    if (tit != targets_.end() && !d.cube && d.depth == 1 && !fi.compressed && d.format != kFmtP8) {
+         target_used_[d.data] = frame_;  // sampled counts as used: a target only read keeps its view (EvictTargets)
+         return BindTargetTexture(s, stage, d, tit->second, box, stages);
+     }
