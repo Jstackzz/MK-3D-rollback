@@ -1,0 +1,204 @@
+diff --git a/runtime/gpu/backend.h b/runtime/gpu/backend.h
+index 14a066a..e5f0799 100644
+--- a/runtime/gpu/backend.h
++++ b/runtime/gpu/backend.h
+@@ -65,4 +65,8 @@ inline std::atomic<uint64_t> g_perf_sync_late{0}, g_perf_sync_block{0};  // read
+ // F3: save the next frame, every draw and target, under diag::CaptureDir
+ inline std::atomic<bool> g_capture{false};
+ 
++// a draw's primitive that is no primitive: the image in <exe dir>/select_background.png over the whole target instead
++// (d3d::SetDrawFilter's kDrawImage; a PNG, or another picture Windows' imaging decodes)
++constexpr uint32_t kUserImagePrim = 0x55494D47;
++
+ }  // namespace gpu
+diff --git a/runtime/gpu/d3d12.cpp b/runtime/gpu/d3d12.cpp
+index 30a98ba..653785d 100644
+--- a/runtime/gpu/d3d12.cpp
++++ b/runtime/gpu/d3d12.cpp
+@@ -10,7 +10,10 @@
+ #include <d3d12sdklayers.h>
+ #include <d3dcompiler.h>
+ #include <dxgi1_6.h>
++#include <wincodec.h>
+ #include <wrl/client.h>
++#pragma comment(lib, "windowscodecs.lib")
++#pragma comment(lib, "uuid.lib")
+ 
+ #include <algorithm>
+ #include <chrono>
+@@ -693,6 +696,10 @@ private:
+     FILE* cap_ = nullptr;
+     std::filesystem::path cap_dir_;
+     uint32_t cap_next_ = 0;  // frames after a capture whose pictures are still to be saved (a flicker shows in them)
++    ComPtr<ID3D12Resource> user_image_;  // kUserImagePrim's picture, loaded at its first draw
++    uint32_t user_w_ = 0, user_h_ = 0;
++    bool user_image_tried_ = false;
++    void DrawUserImage(const State& s);
+     uint32_t cap_i_ = 0;
+     uint32_t cap_rt_ = 0;
+     std::unordered_set<uint32_t> cap_seen_;
+@@ -1373,6 +1380,65 @@ ComPtr<ID3D12Resource> D3D12Backend::CreatePixelTexture(const std::vector<uint8_
+     return tex;
+ }
+ 
++// a picture file (PNG, or whatever else Windows' imaging decodes) as BGRA rows, none when it cannot be read
++static std::vector<uint8_t> LoadPicture(const std::filesystem::path& path, uint32_t& w, uint32_t& h) {
++    std::vector<uint8_t> px;
++    const HRESULT co = CoInitializeEx(nullptr, COINIT_MULTITHREADED);  // fails harmlessly where COM already runs
++    {
++        ComPtr<IWICImagingFactory> wic;
++        ComPtr<IWICBitmapDecoder> decoder;
++        ComPtr<IWICBitmapFrameDecode> frame;
++        ComPtr<IWICBitmapSource> bgra;
++        UINT pw = 0, ph = 0;
++        if (SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic))) &&
++            SUCCEEDED(wic->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ,
++                                                     WICDecodeMetadataCacheOnDemand, &decoder)) &&
++            SUCCEEDED(decoder->GetFrame(0, &frame)) &&
++            SUCCEEDED(WICConvertBitmapSource(GUID_WICPixelFormat32bppBGRA, frame.Get(), &bgra)) &&
++            SUCCEEDED(bgra->GetSize(&pw, &ph)) && pw && ph && pw <= 8192 && ph <= 8192) {
++            px.resize(size_t(pw) * ph * 4);
++            if (FAILED(bgra->CopyPixels(nullptr, pw * 4, UINT(px.size()), px.data()))) px.clear();
++            w = pw;
++            h = ph;
++        }
++    }
++    if (SUCCEEDED(co)) CoUninitialize();
++    return px;
++}
++
++// the user's image over the whole target (kUserImagePrim): the 4:3 picture is stretched to 16:9 when Settings say so,
++// so the image goes in whole then, else its middle 4:3
++void D3D12Backend::DrawUserImage(const State& s) {
++    if (!user_image_tried_) {
++        user_image_tried_ = true;
++        const auto path = app::ExeDir() / "select_background.png";
++        uint32_t w = 0, h = 0;
++        std::vector<uint8_t> px = LoadPicture(path, w, h);
++        if (px.empty()) {
++            LOGR("d3d12: no picture in %s: the select screen keeps its own background", path.string().c_str());
++        } else {
++            user_image_ = CreatePixelTexture(px, w * 4, w, h);
++            user_w_ = w;
++            user_h_ = h;
++            LOGR("d3d12: the select screen's background: %ux%u from %s", w, h, path.string().c_str());
++        }
++    }
++    if (!user_image_) return;
++    Target* rt = EnsureTarget(s.rt, false);
++    if (!rt) return;
++    if (LatchCpuWrite(*rt)) UploadTarget(*rt, s.rt);
++    Transition(rt->res.Get(), rt->state, D3D12_RESOURCE_STATE_RENDER_TARGET);
++    rt->drawn = true;
++    SetBlitTarget(Cpu(rtv_heap_.Get(), rt->view, rtv_inc_), rt->w, rt->h);
++    float uv[4] = {0, 0, 1, 1};
++    const float aspect = float(user_w_) / float(user_h_), shown = app::Get().stretch_4x3 ? 16.0f / 9 : 4.0f / 3;
++    if (aspect > shown) {
++        uv[2] = shown / aspect;
++        uv[0] = (1 - uv[2]) / 2;
++    }
++    Blit(user_image_.Get(), kBgra, uv, {.mul = 1 / rt->range, .rtv = rt->fmt});
++}
++
+ // CPU pixels of a color surface into its host target, scaled
+ void D3D12Backend::UploadTarget(Target& t, const Surface& s) {
+     g_perf.rtups++;
+@@ -2683,6 +2749,10 @@ void D3D12Backend::Draw(const State& s, uint32_t prim, uint32_t start, uint32_t
+     PerfScope perf_draw{g_perf.draw};
+     g_perf.draws++;
+     if (cap_) CapStep(s.rt);
++    if (prim == kUserImagePrim) {
++        if (cap_) fprintf(cap_, "%04u user image rt %08X\n", cap_i_++, s.rt.data);
++        return DrawUserImage(s);
++    }
+     if (DepthCopy(s)) return;
+     // a draw that stops short is in a capture too, with where it stopped
+     auto dropped = [&](const char* why) {
+diff --git a/runtime/xdk/d3d8.cpp b/runtime/xdk/d3d8.cpp
+index f086077..6d130ae 100644
+--- a/runtime/xdk/d3d8.cpp
++++ b/runtime/xdk/d3d8.cpp
+@@ -131,6 +131,29 @@ std::atomic<bool> g_frame_top{false};  // the top of a frame came since the last
+ bool g_count_before_top = false;       // the last swap closed a match's frame: count until the next top
+ uint32_t g_before_top = 0;             // draws and clears between that swap and the next frame's top
+ 
++d3d::DrawFilter g_draw_filter = nullptr;
++
++// true when the game's filter took the draw: skipped, or its image drawn instead
++bool Filtered(uint32_t prim, uint32_t count, const void* vertices, uint32_t stride) {
++    if (!g_draw_filter) return false;
++    const int choice = g_draw_filter(g_state, prim, count, static_cast<const uint8_t*>(vertices), stride);
++    if (choice == d3d::kDrawImage && g_backend) g_backend->Draw(g_state, gpu::kUserImagePrim, 0, 0, nullptr);
++    return choice != d3d::kDrawAsIs;
++}
++
++// a draw from the bound vertex buffers: stream 0's vertices from the first one drawn, where the renderer reads them
++// (its D3DVertexBuffer's data at +4, a physical address); an indexed draw passes none
++bool FilteredStream(uint32_t prim, uint32_t count, bool indexed, uint32_t first) {
++    if (!g_draw_filter) return false;
++    const auto& st = g_state.streams[0];
++    const uint8_t* vertices = nullptr;
++    if (!indexed && st.vb && st.stride) {
++        vertices = static_cast<const uint8_t*>(HostPtr(mem::VirtualFromPhysical(R32(st.vb + 4))));
++        vertices += size_t(first) * st.stride;
++    }
++    return Filtered(prim, count, vertices, vertices ? st.stride : 0);
++}
++
+ // true when the draw or clear being called is dropped
+ bool DropDraw() {
+     static const bool draw_unseen = std::getenv("XBE_DRAW_UNSEEN") != nullptr;
+@@ -611,6 +634,8 @@ uint32_t g_unseen = 0;                  // frames swapped without a present sinc
+ constexpr uint32_t kFlushUnseen = 8;    // a flush every so many: a present gives the renderer's frame rings back
+ }  // namespace
+ 
++void d3d::SetDrawFilter(DrawFilter filter) { g_draw_filter = filter; }
++
+ void d3d::SetSkipPresent(bool skip) {
+     std::lock_guard<std::recursive_mutex> lock(g_lock);
+     if (g_before_top)  // where the title draws more than the swap's frame: those calls are drawn every time
+@@ -1280,7 +1305,8 @@ HLE_STDCALL(D3DDevice_DrawVertices, 3) {
+     std::lock_guard<std::recursive_mutex> lock(g_lock);
+     Walk(Dev(kDevPush));  // a visibility test begun since the last draw counts this one
+     SyncDeferred();
+-    if (g_backend && !DropDraw()) g_backend->Draw(g_state, a[0], a[1], a[2], nullptr);
++    if (g_backend && !DropDraw() && !FilteredStream(a[0], a[2], false, a[1]))
++        g_backend->Draw(g_state, a[0], a[1], a[2], nullptr);
+     return 0;
+ }
+ 
+@@ -1289,7 +1315,7 @@ HLE_STDCALL(D3DDevice_DrawIndexedVertices, 3) {
+     Walk(Dev(kDevPush));
+     SyncDeferred();
+     const uint8_t* indices = a[2] ? static_cast<const uint8_t*>(HostPtr(a[2])) : nullptr;
+-    if (g_backend && !DropDraw()) g_backend->Draw(g_state, a[0], 0, a[1], indices);
++    if (g_backend && !DropDraw() && !FilteredStream(a[0], a[1], true, 0)) g_backend->Draw(g_state, a[0], 0, a[1], indices);
+     return 0;
+ }
+ 
+@@ -1322,7 +1348,7 @@ uint32_t UpVertices(const void* src, uint32_t bytes) {
+ }
+ 
+ void DrawUp(uint32_t prim, uint32_t count, const void* vertices, uint32_t stride) {
+-    if (!g_backend || !count || !stride || DropDraw()) return;
++    if (!g_backend || !count || !stride || DropDraw() || Filtered(prim, count, vertices, stride)) return;
+     SyncDeferred();
+     auto stream = g_state.streams[0];
+     g_state.streams[0] = {UpVertices(vertices, count * stride), stride};
+diff --git a/runtime/xdk/d3d8.h b/runtime/xdk/d3d8.h
+index e255890..31ce2ee 100644
+--- a/runtime/xdk/d3d8.h
++++ b/runtime/xdk/d3d8.h
+@@ -18,4 +18,12 @@ void SetSkipPresent(bool skip);
+ // health bars missing, for one frame)
+ void WaitForRenderer();
+ 
++// A game's say over each draw (its tests, its mods): as asked, skipped, or the user's image over the whole target
++// instead (gpu::kUserImagePrim). The vertices come with a draw when the title passed them itself (DrawUP, pushed
++// ones) or drew from a vertex buffer without indices, else null.
++enum DrawChoice { kDrawAsIs = 0, kDrawSkip = 1, kDrawImage = 2 };
++using DrawFilter = int (*)(const gpu::State& s, uint32_t prim, uint32_t count, const uint8_t* vertices,
++                           uint32_t stride);
++void SetDrawFilter(DrawFilter filter);
++
+ }  // namespace d3d

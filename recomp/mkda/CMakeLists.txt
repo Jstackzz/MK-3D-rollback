@@ -51,5 +51,8 @@ add_custom_command(TARGET MKDA POST_BUILD
 add_custom_command(TARGET MKDA_code POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/pdb-dll
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_BINARY_DIR}/MKDA.pdb ${CMAKE_CURRENT_BINARY_DIR}/pdb-dll/MKDA.pdb)
+# what the game reads beside itself (data/: the select screen's picture); tools/package.ps1 ships the same files
+add_custom_command(TARGET MKDA POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/data ${CMAKE_CURRENT_BINARY_DIR})
 target_link_libraries(MKDA PRIVATE dbghelp)
 target_include_directories(MKDA PRIVATE ${MK3D_COMMON})

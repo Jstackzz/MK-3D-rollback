@@ -116,6 +116,9 @@ foreach ($g in $Games) {
     New-Item -ItemType Directory -Force -Path "$dst\assets", "$dst\compiler" | Out-Null
     Copy-Item "$rel\$upper.exe" $dst
     foreach ($dll in 'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll') { Copy-Item "$crt\$dll" $dst }
+    # what the game reads beside itself (recomp\<game>\data: Deadly Alliance's select screen picture)
+    $data = Join-Path $root "recomp\$g\data"
+    if (Test-Path $data) { Copy-Item "$data\*" $dst -Recurse }
     # the compiler folder without its work folder (game code), its DLLs (copied fresh) and clang and lld (toolchain\)
     Get-ChildItem "$rel\compiler" | Where-Object { $_.Name -notin @('work', 'clang.exe', 'lld-link.exe') -and $_.Extension -ne '.dll' } |
         ForEach-Object { Copy-Item -Recurse $_.FullName "$dst\compiler\" }

@@ -277,6 +277,15 @@ for p in recomp/patches/xboxxberecomp-*.patch; do git -C external/XboxXBERecomp 
   and palette. `LOGR_FIRST` (`core/log.h`) writes that note, and 0039's
   `SetPalette(.., NULL)` one, in release logs too: `LOG_FIRST` logs at
   `LOGI`, which a release build leaves out.
+- `0041-a-picture-behind-the-select-screen` (0.1.21): a game can see each
+  draw before the renderer does (`d3d::SetDrawFilter`, with the vertices of a
+  draw from its own array or an unindexed vertex buffer) and let it be drawn,
+  skip it, or draw a picture over the whole target in its place: the PNG
+  `select_background.png` beside the game (any picture Windows' imaging
+  decodes), the 4:3 middle of it, or all of it when the game is stretched to
+  16:9. Deadly Alliance's select screen draws it in place of its clouds
+  (`recomp/mkda/src/game/userbackground.cpp`). F3 captures write such a draw
+  as `user image`.
 
 `tools/py/lib_audit.py <game dir> <xbsdb symbols>` lists the XDK library
 functions the game calls that still run console code against host objects,
