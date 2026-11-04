@@ -279,6 +279,15 @@ those frames (nobody sees them), only the one it shows after them, so a rollback
 costs less and the picture stays smooth at a high ping, above all on a slower
 graphics card.
 
+Since 0.1.25 an analog stick at rest no longer counts as input. A controller's
+sticks are never quite still, and each tiny change made the other player's game
+roll back, for nothing (the games read a stick that close to the middle as
+centred): that could slow a whole match down at any ping. Now it goes out as
+centred until you really push the stick, and a match no longer waits for your
+monitor before a rollback. A match still runs at the speed of the slower of the
+two PCs (never above 60 frames a second); the faster game now eases off sooner
+instead of running far ahead and rolling back further.
+
 When a game crashes, the launcher tells the server which game, the crash's code
 and where in the program it happened (nothing else: no files, nothing about
 you), so crashes many players have can be found and fixed.

@@ -286,6 +286,18 @@ for p in recomp/patches/xboxxberecomp-*.patch; do git -C external/XboxXBERecomp 
   16:9. F3 captures write such a draw as `user image`. Deadly Alliance's
   select screen drew it in place of its clouds in 0.1.21; since 0.1.22 no
   game sets a filter, so nothing changes what is drawn.
+- `0042-a-rollback-does-not-wait-for-the-display` (0.1.25): `WaitForRenderer`
+  (0037) waited until the render thread was through the last frame's
+  `Present`, whose end waits for the display (`WaitForDisplay`, up to a refresh:
+  16.7 ms at 60 Hz) before the frames of a rollback could start, and so took that
+  time from them. A restore only needs the guest memory read, so `Present` now
+  says when it has read all it reads (`Backend::on_frame_read`) and such a wait
+  (`Backend::WaitRecorded`, and the title's fences and busy checks) ends there.
+  The title's frame throttle still waits for the whole `Present`: pacing and the
+  fps cap stay as they were. Minimised windows wait for no display, so tests
+  never saw this: `XBE_TEST_DISPLAY_HZ=<refresh>` makes the wait without one, and
+  `XBE_TEST_RENDER_WAIT_FULL=1` brings the old wait back to compare (at 232 ms
+  ping, 60 Hz, with the game's stick filter: 3.1% of frames late against 0.5%).
 
 `tools/py/lib_audit.py <game dir> <xbsdb symbols>` lists the XDK library
 functions the game calls that still run console code against host objects,

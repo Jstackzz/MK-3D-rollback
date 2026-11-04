@@ -1,0 +1,201 @@
+diff --git a/runtime/gpu/backend.h b/runtime/gpu/backend.h
+index e5f0799..8c71a41 100644
+--- a/runtime/gpu/backend.h
++++ b/runtime/gpu/backend.h
+@@ -1,6 +1,7 @@
+ #pragma once
+ #include <atomic>
+ #include <cstdint>
++#include <functional>
+ #include <memory>
+ 
+ #include "gpu/state.h"
+@@ -48,6 +49,12 @@ public:
+     virtual void WaitFence(uint32_t) {}
+     virtual bool Busy(uint32_t /*resource*/) { return false; }
+     virtual void WaitResource(uint32_t /*resource*/) {}
++    // Netplay rollback, before a restore: every call recorded so far has read the guest memory it reads. A frame's wait
++    // for the display, which comes after that, is no part of it.
++    virtual void WaitRecorded() { WaitFence(Fence()); }
++    // Present calls this once it has read all it reads of guest memory, before it may wait for the display (the render
++    // thread around a backend sets it)
++    std::function<void()> on_frame_read;
+ 
+ private:
+     uint32_t fence_ = 0;
+diff --git a/runtime/gpu/d3d12.cpp b/runtime/gpu/d3d12.cpp
+index 653785d..1539d0f 100644
+--- a/runtime/gpu/d3d12.cpp
++++ b/runtime/gpu/d3d12.cpp
+@@ -17,6 +17,7 @@
+ 
+ #include <algorithm>
+ #include <chrono>
++#include <thread>
+ #include <cmath>
+ #include <cstdio>
+ #include <cstdlib>
+@@ -909,6 +910,20 @@ bool D3D12Backend::CreateSwapChain(HWND hwnd) {
+ // so the next frame reads its input a refresh before it is shown. Never long: a window the display does not show
+ // (minimised, occluded) may not be signalled, and a match must not slow down for it.
+ void D3D12Backend::WaitForDisplay(HRESULT presented) {
++    // XBE_TEST_DISPLAY_HZ=<refresh> (tests, whose minimised windows wait for no display): the wait such a display makes
++    static const int test_hz = [] {
++        wchar_t v[16] = {};
++        return GetEnvironmentVariableW(L"XBE_TEST_DISPLAY_HZ", v, DWORD(std::size(v))) ? _wtoi(v) : 0;
++    }();
++    if (test_hz > 0) {
++        using clock = std::chrono::steady_clock;
++        const auto period = std::chrono::nanoseconds(1000000000ll / test_hz);
++        const auto since = std::chrono::duration_cast<std::chrono::nanoseconds>(clock::now().time_since_epoch());
++        const auto next = clock::time_point(((since + period) / period) * period);
++        while (clock::now() + std::chrono::milliseconds(2) < next) Sleep(1);
++        while (clock::now() < next) std::this_thread::yield();
++        return;
++    }
+     if (!latency_ || presented == DXGI_STATUS_OCCLUDED) return;
+     HWND hwnd = static_cast<HWND>(app::Window());
+     if (hwnd && (IsIconic(hwnd) || !IsWindowVisible(hwnd))) return;
+@@ -3312,6 +3327,7 @@ void D3D12Backend::Present(const Surface& front) {
+     DrawFrame(t, bi);
+     Submit(false);
+     DeliverReports();
++    if (on_frame_read) on_frame_read();
+     bool vsync = app::Get().vsync;
+     auto perf_swap = PerfClock::now();
+     const bool tears = swap_flags_ & DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
+diff --git a/runtime/gpu/render_thread.cpp b/runtime/gpu/render_thread.cpp
+index 15dbf43..c5c6c78 100644
+--- a/runtime/gpu/render_thread.cpp
++++ b/runtime/gpu/render_thread.cpp
+@@ -99,6 +99,9 @@ public:
+     explicit Threaded(std::unique_ptr<Backend> inner) : inner_(std::move(inner)), ranges_(StateRanges()) {
+         ring_ = mem::AllocSystem(kHeaderRing, 64);
+         cur_ = NewBatch();
++        // XBE_TEST_RENDER_WAIT_FULL=1 (tests): a rollback waits for a frame's wait for the display too, to compare
++        full_wait_ = GetEnvironmentVariableW(L"XBE_TEST_RENDER_WAIT_FULL", nullptr, 0) != 0;
++        if (!full_wait_) inner_->on_frame_read = [this] { FrameRead(); };
+         std::thread([this] { Run(); }).detach();
+     }
+     ~Threaded() override {
+@@ -183,8 +186,8 @@ public:
+         Use(front.header);
+         uint64_t id = Submit();
+         g_perf_capture_ns += Ns(t);
+-        // the title records one frame while the one before it draws
+-        Wait(last_present_, WaitFor::Frame, nullptr);
++        // the title records one frame while the one before it draws and waits for the display
++        WaitFinished(last_present_);
+         last_present_ = id;
+     }
+ 
+@@ -230,6 +233,15 @@ public:
+         auto it = last_use_.find(resource);
+         if (it != last_use_.end()) Wait(it->second, WaitFor::Resource, "resource");
+     }
++    // At a frame's top the last batch ends in that frame's Present, which counts as done once it has read guest memory
++    // (FrameRead), and the batch open now holds no more than state, if anything: no wait for the display, which on a
++    // 60 Hz monitor took up to a refresh from the frames a rollback has to run again.
++    void WaitRecorded() override {
++        const auto not_state = [](const Cmd& c) { return c.op != Op::State; };
++        const bool work = full_wait_ || cur_->id != last_present_ + 1 ||
++                          std::any_of(cur_->cmds.begin(), cur_->cmds.end(), not_state);
++        Wait(work ? cur_->id : last_present_, WaitFor::Fence, "recorded calls");
++    }
+ 
+ private:
+     Batch* NewBatch() {
+@@ -383,6 +395,28 @@ private:
+         }
+     }
+ 
++    void WaitFinished(uint64_t id) {
++        if (!id || finished_.load() >= id) return;
++        auto t = Clock::now();
++        {
++            std::unique_lock lock(m_);
++            done_cv_.wait(lock, [&] { return finished_.load() >= id; });
++        }
++        uint64_t ns = Ns(t);
++        g_perf_wait_ns += ns;
++        g_perf_wait_kind_ns[size_t(WaitFor::Frame)] += ns;
++    }
++
++    // the render thread, in a batch's Present: the batch has read all it reads of guest memory (Present is its last
++    // command), so what waits for it need not wait for the display as well
++    void FrameRead() {
++        {
++            std::lock_guard lock(m_);
++            done_.store(running_);
++        }
++        done_cv_.notify_all();
++    }
++
+     void Run() {
+         using SetDescription = HRESULT(WINAPI*)(HANDLE, PCWSTR);
+         if (auto set = reinterpret_cast<SetDescription>(
+@@ -397,6 +431,7 @@ private:
+                 b = queue_.front();
+                 queue_.pop_front();
+             }
++            running_ = b->id;
+             for (const Cmd& c : b->cmds) Execute(*b, c);
+             uint64_t id = b->id;
+             b->cmds.clear();
+@@ -407,6 +442,7 @@ private:
+                 std::lock_guard lock(m_);
+                 free_.push_back(b);
+                 done_.store(id);
++                finished_.store(id);
+             }
+             done_cv_.notify_all();
+         }
+@@ -472,12 +508,15 @@ private:
+ 
+     // the render thread
+     State state_;
++    uint64_t running_ = 0;  // the batch it is on
+ 
+     std::mutex m_;
+     std::condition_variable cv_, done_cv_;
+     std::deque<Batch*> queue_;
+     std::vector<Batch*> free_;
+-    std::atomic<uint64_t> done_{0};
++    std::atomic<uint64_t> done_{0};      // batches that have read guest memory
++    std::atomic<uint64_t> finished_{0};  // and are over, a frame's wait for the display included
++    bool full_wait_ = false;
+     bool stop_ = false, exited_ = false;
+ };
+ 
+diff --git a/runtime/xdk/d3d8.cpp b/runtime/xdk/d3d8.cpp
+index 6d130ae..251d5bb 100644
+--- a/runtime/xdk/d3d8.cpp
++++ b/runtime/xdk/d3d8.cpp
+@@ -647,7 +647,7 @@ void d3d::SetSkipPresent(bool skip) {
+ 
+ void d3d::WaitForRenderer() {
+     std::lock_guard<std::recursive_mutex> lock(g_lock);
+-    if (g_backend) g_backend->WaitFence(g_backend->Fence());
++    if (g_backend) g_backend->WaitRecorded();
+ }
+ 
+ HLE_STDCALL(D3DDevice_Swap, 1) {
+diff --git a/runtime/xdk/d3d8.h b/runtime/xdk/d3d8.h
+index 31ce2ee..4f507fb 100644
+--- a/runtime/xdk/d3d8.h
++++ b/runtime/xdk/d3d8.h
+@@ -12,10 +12,10 @@ std::recursive_mutex& Lock();
+ // buffers and counts the swap, as the title sees them); set by the game layer at the top of every frame of a match
+ void SetSkipPresent(bool skip);
+ 
+-// Netplay rollback, before a restore: the renderer has run every call recorded so far, so the guest memory its draws
+-// read when they run (vertices, textures, surfaces: the render thread's) may change; a restore that rewrote it under a
+-// frame still in flight showed that frame drawn from the restored state (Armageddon: a camera inside a fighter, the
+-// health bars missing, for one frame)
++// Netplay rollback, before a restore: the renderer has run every call recorded so far, up to the last frame's wait for
++// the display, so the guest memory its draws read when they run (vertices, textures, surfaces: the render thread's) may
++// change; a restore that rewrote it under a frame still in flight showed that frame drawn from the restored state
++// (Armageddon: a camera inside a fighter, the health bars missing, for one frame)
+ void WaitForRenderer();
+ 
+ // A game's say over each draw (its tests, its mods): as asked, skipped, or the user's image over the whole target

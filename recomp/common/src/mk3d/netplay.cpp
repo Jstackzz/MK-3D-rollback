@@ -876,11 +876,45 @@ void HandleFeed(const uint8_t* b, int n) {
 uint32_t g_local_sticks = 0;
 bool g_local_sticks_in = false;
 
+// An analog stick at rest is never quite still: its bytes wander by a point or two from frame to frame, and every
+// change was an input the other game had mispredicted, so it went back and ran frames again over nothing (70% of the
+// rollbacks in a player's matches, against players whose pads wander; players on a d-pad or a keyboard send none). All
+// three games read a stick byte closer than this to 0x7F as centred (their deadzones, never changed: Deadly Alliance
+// 0x266B34, Deception 0x3EBB24, Armageddon 0x54E5EC), so such a byte goes out centred: no game code can tell, and the
+// input stands still until the stick means something. Past the deadzone the bytes go out as they are.
+constexpr int kStickDeadzone = 48;
+
+uint32_t SteadySticks(uint32_t sticks) {
+    const uint32_t neutral = game::NeutralSticks();
+    uint32_t out = 0;
+    for (int shift = 0; shift < 32; shift += 8) {
+        const int v = int((sticks >> shift) & 0xFF);
+        out |= (std::abs(v - 0x7F) < kStickDeadzone ? (neutral >> shift) & 0xFF : uint32_t(v)) << shift;
+    }
+    return out;
+}
+
+// <prefix>_NET_TEST_STICK_NOISE=1 (tests): this PC's sticks wander as a worn pad's do, around a point off centre
+// <prefix>_NET_RAW_STICKS=1 (tests): they go out as read, to compare
+const bool g_test_stick_noise = Env("NET_TEST_STICK_NOISE") != nullptr;
+const bool g_raw_sticks = Env("NET_RAW_STICKS") != nullptr;
+
+uint32_t WanderingSticks() {
+    static std::minstd_rand rng(std::random_device{}());
+    static uint8_t now[4] = {0x80, 0x7E, 0x81, 0x8B};  // a player's resting pad, from a match's log
+    constexpr int kRest[4] = {0x80, 0x7E, 0x81, 0x8B};
+    const int axis = int(rng() % 4);  // one axis a frame moves or stays: that pad's input changed in 2 of 3 frames
+    now[axis] = uint8_t(kRest[axis] + int(rng() % 3) - 1);
+    return uint32_t(now[0]) | uint32_t(now[1]) << 8 | uint32_t(now[2]) << 16 | uint32_t(now[3]) << 24;
+}
+
 Input ReadLocal() {
     Input in;
     game::ReadLocal(in.buttons, in.sticks);
     g_local_sticks = in.sticks;
     g_local_sticks_in = true;
+    if (g_test_stick_noise) in.sticks = WanderingSticks();
+    if (!g_raw_sticks) in.sticks = SteadySticks(in.sticks);
     return in;
 }
 
@@ -1242,6 +1276,9 @@ void AdvanceConfirmed(uint32_t end) {
     }
 }
 
+// <prefix>_NET_OLD_SYNC=1 (tests): a frame given up every quarter second at most, however far ahead, to compare
+const bool g_old_sync = Env("NET_OLD_SYNC") != nullptr;
+
 // Time sync before running frame `next`: never more than kMaxPredict frames past what both agree on (a rollback
 // must stay within the frames kept), and a game running ahead of the other slows down a little. False when the other
 // game is gone.
@@ -1275,9 +1312,15 @@ bool Throttle(uint32_t next) {
         g_stats.stalls++;
     }
     // both games estimate how far ahead they run; the one further ahead gives up half the difference, a frame at a
-    // time and not more often than every quarter second
+    // time: every quarter second at first, sooner the further ahead it is. A game far ahead of a slower one otherwise
+    // sat at kMaxPredict, and each input the other changed ran the 12 frames again (Deadly Alliance against a Steam
+    // Deck: 21 frames of difference, 62% of the frames rolled back). This only ever slows a game down.
     int diff = LocalAdvantage() - g_their_adv;
-    if (diff >= 2 && Clock::now() - g_last_slowdown > std::chrono::milliseconds(250)) {
+    const auto every = g_old_sync || diff < 4 ? std::chrono::milliseconds(250)
+                       : diff < 8             ? std::chrono::milliseconds(125)
+                       : diff < 16            ? std::chrono::milliseconds(66)
+                                              : std::chrono::milliseconds(33);
+    if (diff >= 2 && Clock::now() - g_last_slowdown > every) {
         app::PaceShift(16666667);  // this frame is shown a frame later
         g_last_slowdown = Clock::now();
         std::lock_guard<std::mutex> lock(g_stats_lock);
@@ -1393,6 +1436,7 @@ void RollbackFrameStart(X86Context& ctx) {
         }
         uint32_t bad = FirstMispredicted(next);
         if (bad < next) {
+            const auto rollback_t0 = Clock::now();  // a rollback's time counts its restore, the renderer's wait in it
             if (bad < rb::OldestFrame() || !rb::Restore(bad, ctx)) {
                 LOGE("netplay: frame %u can no longer be run again (oldest kept %u)", bad, rb::OldestFrame());
                 g_desync_frame = bad;
@@ -1407,7 +1451,7 @@ void RollbackFrameStart(X86Context& ctx) {
             }
             g_target = next;
             g_replaying = true;
-            g_replay_t0 = Clock::now();
+            g_replay_t0 = rollback_t0;
             g_rolled = next;
             next = bad;
         }
@@ -1527,8 +1571,20 @@ void LogFrame(const Input& mine, const Input& theirs, bool predicted) {
     std::fprintf(g_cfg.log, "\n");
 }
 
+// <prefix>_NET_TEST_FRAME_COST=<microseconds> (tests): every frame a match runs, again or not, takes that much longer,
+// as on a slower processor
+const int g_test_frame_cost = [] {
+    const char* v = Env("NET_TEST_FRAME_COST");
+    return v ? std::atoi(v) : 0;
+}();
+
 // after the pad update in a match with rollback
 void RollbackPads() {
+    if (g_test_frame_cost) {
+        const auto until = Clock::now() + std::chrono::microseconds(g_test_frame_cost);
+        while (Clock::now() < until) {
+        }
+    }
     if (!g_replaying) {
         const uint32_t f = g_frame + uint32_t(g_cfg.delay);
         const Input in = ReadLocal();
