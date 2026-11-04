@@ -1,4 +1,4 @@
-// Deadly Alliance's rules against infinites (MK3D Online 0.1.21; crouching and crouch blocking end a combo in 0.1.22):
+// Deadly Alliance's rules against infinites (MK3D Online 0.1.21; crouch blocking ends a combo since 0.1.22):
 //   - Bo' Rai Cho's Puke Puddle (back, forward + 2) cannot come out while the opponent is in a combo: hit since they
 //     last stood, crouched, walked, attacked or blocked (down or getting up counts), or slipping in a puddle (the
 //     puddle as they get up from a knockdown, a hit while they slip, a knockdown, the puddle again);
@@ -6,8 +6,14 @@
 //   - Drahmin's Ground Smash (back, down + 4) cannot come out once the combo has 6 hits or more (it stands a fighter
 //     who is down or getting up back up, stunned, for another combo, another knockdown, the smash again);
 //   - Sonya's Kiss of Death (down, back + 1) cannot come out in a combo of 9 hits or more;
-//   a combo's hits count from when the opponent was last free, across knockdowns (the game starts its count again
-//   at each one).
+//   a combo's hits count from when the opponent was last free, across knockdowns that cannot be teched (the game
+//   starts its count again at each one); landing from one that can be teched ends the combo, rolled or not, as the
+//   fighter could have rolled away (0.1.23).
+//
+// The game's knockdowns that can be teched run the check sub_00051290 for the fighter as it lands (up or down rolls,
+// away rolls back, the computer rolls at random): ten reaction routines call it (sub_00119280 after an uppercut, for
+// one), and their twins for knockdowns that cannot be teched do not (sub_00119390 after Bo' Rai Cho's sweep; Frost's
+// slide lands through sub_00053160).
 //
 // Deadly Alliance offers each character's special moves per attack button through sub_00076700(table): the button
 // routines (sub_000E9440 button 1, sub_000E97A0 button 2, sub_000E9A40 button 3, sub_000E9D30 button 4) switch on
@@ -29,6 +35,7 @@
 #include "kernel/memory.h"
 
 X86_EXTERN_FUNC(__imp__sub_00076700);
+X86_EXTERN_FUNC(__imp__sub_00051290);
 
 namespace mkda::rules {
 namespace {
@@ -133,4 +140,19 @@ X86_FUNC(sub_00076700) {
         if (LogMore()) LOGR("rules: %s may come out: the opponent is at %u hits", l.move, hits);
     }
     __imp__sub_00076700(ctx, base);
+}
+
+// the fighter whose task runs lands from a knockdown it can tech roll out of: its combo ends here, rolled or not, and
+// the hits it takes from now start a new one
+X86_FUNC(sub_00051290) {
+    using namespace mkda::rules;
+    const uint32_t self = kernel::R32(kSelf), m = Mem();
+    const int side = Side(self);
+    if (m && side >= 0) {
+        if (kernel::R32(m + kComboOf + side * 4) && LogMore())
+            LOGR("rules: P%d lands from a knockdown it can tech roll out of: its combo ends", side + 1);
+        kernel::W32(m + kComboOf + side * 4, 0);
+        kernel::W32(m + kSeenOf + side * 4, kernel::R32(self + kComboHits));
+    }
+    __imp__sub_00051290(ctx, base);
 }

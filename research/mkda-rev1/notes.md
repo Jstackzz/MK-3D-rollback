@@ -530,7 +530,9 @@ Found with the debug monitor stepping versus fights (scratchpad r30: `versus_tra
   call: Scorpion's uppercut (down + 3) knocks down through sub_00119280 (the check about 45 frames after the hit, then
   sub_00057690 down on the floor, sub_00053160 up again), Bo' Rai Cho's sweep (back + 3) through sub_00119390 (the same
   calls but the check), Frost's slide through the scripted reaction sub_0011AE80 and sub_00053160. The game clears a
-  victim's combo count (+0x1A0) about 22 frames into the knockdown.
+  victim's combo count (+0x1A0) about 22 frames into the knockdown. Since 0.1.23 the rules against infinites end a
+  combo there (noinfinites.cpp hooks sub_00051290): landing from a knockdown that can be teched, rolled or not, the
+  fighter is free until hit again; untechable knockdowns still count on.
 
 ## Tools
 
