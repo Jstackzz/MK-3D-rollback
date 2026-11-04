@@ -15,6 +15,12 @@
 // Those strikes' spheres are larger while the opponent still reels from the string's last hit (a hit reaction,
 // 0x06xx, in a combo); blocked, or out of the reaction, they test as the game made them. It is all the game's own
 // state, so two games online decide the same.
+//
+// A fighter slipping in Bo' Rai Cho's Puke Puddle cannot block (MK3D Online 0.1.24). The slip (state 0x4207, the
+// scripted reaction 0x11AE80) sets the slipping fighter's +0x15C, which keeps a hit from being blocked, until it
+// stands again. The end of the other fighter's move (sub_000558E0, the recovery 0x55AC0) or of its reaction's
+// script (command sub_0011DBA0) clears it through sub_00057DA0. When Bo is hit as the puke leaves him (a trade),
+// his reaction ends after the slip began, and the slipping fighter blocked his follow-up. Now the slip keeps it.
 #include "game/combos.h"
 
 #include <cstdint>
@@ -24,6 +30,8 @@
 #include "kernel/kernel.h"
 #include "kernel/memory.h"
 
+X86_EXTERN_FUNC(__imp__sub_00057DA0);
+
 namespace mkda::combos {
 namespace {
 
@@ -31,6 +39,7 @@ constexpr uint32_t kSelf = 0x320A18, kOpponent = 0x320A0C;  // the fighter whose
 constexpr uint32_t kCharacterId = 0x144, kState = 0x194, kComboHits = 0x1A0;
 constexpr uint32_t kBlock = 0x9F0, kCommand = 0x9F8;  // its move's script block, the command it is at
 constexpr uint32_t kBoRaiCho = 0x14;
+constexpr uint32_t kPuddleSlip = 0x4207;  // slipping in Bo' Rai Cho's puddle
 
 struct Hit {
     const char* block;  // the block's first name
@@ -70,3 +79,16 @@ void BeforeHitTest(X86Context& ctx) {
 }
 
 }  // namespace mkda::combos
+
+// the fighter whose task runs lets the other one block again: not while the other one slips in the puddle
+X86_FUNC(sub_00057DA0) {
+    using namespace mkda::combos;
+    const uint32_t opp = kernel::R32(kOpponent);
+    if (opp && kernel::R32(opp + kState) == kPuddleSlip) {
+        LOGR_FIRST(8, "combos: the opponent slips in the puddle: it still cannot block");
+        ctx.eax = opp;  // as the game's own leaves it
+        ctx.esp += 4;   // ret
+        return;
+    }
+    __imp__sub_00057DA0(ctx, base);
+}

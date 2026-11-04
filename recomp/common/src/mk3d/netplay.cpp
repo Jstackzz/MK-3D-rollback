@@ -951,7 +951,42 @@ void KeepCheckCopy(uint32_t frame) {
     while (g_check_copies.size() > 16) g_check_copies.pop_front();
 }
 
+// The failed check's blocks as short hashes, into the game's log (so into a desync report, both players' side by side
+// in the server's log): each block's 64-byte pieces, 16 bits a piece, pointers left out as the state checks leave
+// them, so the pieces that differ between the two reports are where the games parted. A piece of nothing but
+// pointers shows 0000.
+void LogCheckPieces(uint32_t frame) {
+    constexpr size_t kPiece = 64, kPerLine = 30;
+    for (const CheckCopy& c : g_check_copies) {
+        if (c.frame != frame) continue;
+        for (size_t i = 0; i < c.blocks.size(); i++) {
+            const auto& [va, bytes] = c.blocks[i];
+            const size_t pieces = (bytes.size() + kPiece - 1) / kPiece;
+            for (size_t first = 0; first < pieces; first += kPerLine) {
+                char hex[kPerLine * 4 + 1] = {};
+                size_t n = 0;
+                for (size_t p = first; p < pieces && p < first + kPerLine; p++) {
+                    uint32_t h = 2166136261u;
+                    bool any = false;
+                    for (size_t o = p * kPiece; o + 4 <= bytes.size() && o < (p + 1) * kPiece; o += 4) {
+                        uint32_t v;
+                        std::memcpy(&v, bytes.data() + o, 4);
+                        if ((v >= 0x10000 && v < 0x4000000) || v >= 0x80000000u) continue;
+                        h = (h ^ v) * 16777619u;
+                        any = true;
+                    }
+                    std::snprintf(hex + n * 4, 5, "%04X", any ? (h ^ (h >> 16)) & 0xFFFF : 0);
+                    n++;
+                }
+                LOGR("netplay: frame %u block %zu at %08X, pieces %zu-%zu: %s", frame, i, va, first, first + n - 1,
+                     hex);
+            }
+        }
+    }
+}
+
 void DumpCheckCopy(uint32_t frame) {
+    LogCheckPieces(frame);
     if (!g_cfg.log) return;
     for (const CheckCopy& c : g_check_copies) {
         if (c.frame != frame) continue;

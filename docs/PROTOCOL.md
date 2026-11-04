@@ -687,6 +687,11 @@ The server logs each line with the player's name (`DESYNC_REPORT <name> |
 <line>`, after a line naming the game, launcher version, match and frame), so
 both players' reports of a match stand side by side, and keeps nothing: at most
 40 lines of 200 printable characters (else `bad_request`), 10 reports a session.
+From 0.1.24 the failed check's lines are followed by the blocks it covered as
+short hashes (`netplay: frame 3300 block 1 at 002E9704, pieces 0-29: ...`: each
+block's 64-byte pieces, 16 bits a piece, pointers left out as the check leaves
+them): the pieces that differ between the two players' reports are where the
+games parted.
 
 ### 1.13.2 F3 reports (0.1.18)
 
