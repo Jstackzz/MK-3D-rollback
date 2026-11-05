@@ -73,7 +73,7 @@ using Clock = std::chrono::steady_clock;
 constexpr uint32_t kMagic = 0x52444B4D;  // "MKDR"
 constexpr uint8_t kHello = 1, kReady = 2, kInput = 3, kCheck = 4;
 constexpr uint8_t kFeedPick = 5, kFeedMeet = 6, kFeedOwn = 7, kFeedCheck = 8, kFeedEnd = 9;
-constexpr int kWindow = 16;                      // inputs repeated in every INPUT packet
+constexpr uint32_t kMaxResend = 48;              // inputs an INPUT packet holds at most: 409 bytes, the relay takes 512
 constexpr uint32_t kCheckEvery = 30;
 constexpr uint32_t kMaxPredict = 12;             // frames past the last agreed one (rollback keeps 16)
 constexpr uint32_t kMixFrames = 48000 / 60;      // the sound of one frame
@@ -138,6 +138,8 @@ bool g_had_focus = true;           // the game's window was in front at the last
 uint32_t g_their_now = 0;          // the frame the other game said it runs
 int g_their_adv = 0;               // how far ahead of us it thinks it runs
 Clock::time_point g_replay_t0, g_last_slowdown;
+int g_lead_frames = 0;             // new frames in a row this game has led the other by 2 or more
+uint32_t g_lead_at = 0;            // the frame last counted for it
 std::map<uint32_t, std::pair<uint32_t, uint32_t>> g_rand_at;  // the rand counters at each frame's top
 // Loading: what a state switch's new task loads must never be run again by a rollback: the heaps, the graphics
 // device and the files it touches outside guest memory do not go back with it (a Deception chess battle's load
@@ -642,8 +644,11 @@ int LocalAdvantage() { return int(g_frame) - int(g_their_now); }
 void SendInputs() {
     if (g_mine.empty()) return;
     uint32_t last = g_mine.rbegin()->first;
-    uint32_t first = last + 1 >= uint32_t(kWindow) ? last + 1 - kWindow : 0;
-    first = std::max(first, g_their_ack > uint32_t(kWindow) ? g_their_ack - 1 : 0u);
+    // from the first input the other game lacks, however old. Only the newest 16 went out before: a third of a second of
+    // packets lost one way let this game run on past inputs the other never got, nothing sent them again, and both games
+    // waited for each other until the timeout, a frozen match that ended as a disconnect on both sides
+    uint32_t first = g_their_ack ? g_their_ack - 1 : 0;
+    if (first <= last && last - first >= kMaxResend) first = last - kMaxResend + 1;
     first = std::max(first, g_mine.begin()->first);
     if (first > last) first = last;
     Writer w = Header(kInput);
@@ -1092,6 +1097,8 @@ void StartSync(X86Context& ctx) {
     g_theirs_contiguous = 0;
     g_their_now = 0;
     g_their_adv = 0;
+    g_lead_frames = 0;
+    g_lead_at = 0;
     g_prev_buttons[0] = g_prev_buttons[1] = 0;
     g_local_sticks_in = false;  // the blocks hold this PC's own sticks until the first frame writes them
     g_fed = 0;
@@ -1279,6 +1286,12 @@ void AdvanceConfirmed(uint32_t end) {
 // <prefix>_NET_OLD_SYNC=1 (tests): a frame given up every quarter second at most, however far ahead, to compare
 const bool g_old_sync = Env("NET_OLD_SYNC") != nullptr;
 
+// a game gives up frames once it has led this many frames in a row; <prefix>_NET_TEST_LEAD_FRAMES (tests) sets it, 0 as before
+const int g_lead_needed = [] {
+    const char* v = Env("NET_TEST_LEAD_FRAMES");
+    return v ? std::atoi(v) : 45;
+}();
+
 // Time sync before running frame `next`: never more than kMaxPredict frames past what both agree on (a rollback
 // must stay within the frames kept), and a game running ahead of the other slows down a little. False when the other
 // game is gone.
@@ -1314,13 +1327,19 @@ bool Throttle(uint32_t next) {
     // both games estimate how far ahead they run; the one further ahead gives up half the difference, a frame at a
     // time: every quarter second at first, sooner the further ahead it is. A game far ahead of a slower one otherwise
     // sat at kMaxPredict, and each input the other changed ran the 12 frames again (Deadly Alliance against a Steam
-    // Deck: 21 frames of difference, 62% of the frames rolled back). This only ever slows a game down.
+    // Deck: 21 frames of difference, 62% of the frames rolled back). This only ever slows a game down. Only a lead that
+    // lasts counts: a moment of the other's inputs arriving late looks the same as a lead, and giving up a frame for each
+    // one showed as a hitch every second or so on a connection with spikes, the games in step all along
     int diff = LocalAdvantage() - g_their_adv;
+    if (next != g_lead_at) {
+        g_lead_at = next;
+        g_lead_frames = diff >= 2 ? g_lead_frames + 1 : 0;
+    }
     const auto every = g_old_sync || diff < 4 ? std::chrono::milliseconds(250)
                        : diff < 8             ? std::chrono::milliseconds(125)
                        : diff < 16            ? std::chrono::milliseconds(66)
                                               : std::chrono::milliseconds(33);
-    if (diff >= 2 && Clock::now() - g_last_slowdown > every) {
+    if (diff >= 2 && g_lead_frames >= g_lead_needed && Clock::now() - g_last_slowdown > every) {
         app::PaceShift(16666667);  // this frame is shown a frame later
         g_last_slowdown = Clock::now();
         std::lock_guard<std::mutex> lock(g_stats_lock);
