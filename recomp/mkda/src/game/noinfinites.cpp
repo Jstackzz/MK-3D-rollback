@@ -36,6 +36,7 @@
 
 X86_EXTERN_FUNC(__imp__sub_00076700);
 X86_EXTERN_FUNC(__imp__sub_00051290);
+X86_EXTERN_FUNC(__imp__sub_000537B0);
 
 namespace mkda::rules {
 namespace {
@@ -60,9 +61,16 @@ constexpr Limit kLimits[] = {
     {kSonya, 0x270D90, 9, "Sonya's Kiss of Death"},          // button 1: down, back
 };
 
+// the block lock, see the hook of sub_000537B0
+constexpr uint32_t kLockLater = 3;          // frames
+constexpr uint32_t kFrameCount = 0x42A888;  // the count sub_000E7A90 times the block reaction with
+constexpr uint32_t kAttackNoted = 0x1E4;    // the opponent's attack this fighter's block routine knows of
+constexpr uint32_t kHitAt = 0x1B4;          // when the opponent's attack is to land, on that count
+constexpr uint32_t kComputer = 0x20C;       // not 0: the computer plays this fighter
+
 // guest memory: per side, the hits of the combo it is in or still getting up from (added up across knockdowns), and
-// the game's own count when last looked at
-constexpr uint32_t kComboOf = 0, kSeenOf = 8, kBytes = 16;
+// the game's own count when last looked at; the attack its block routine is not told of yet, and since when
+constexpr uint32_t kComboOf = 0, kSeenOf = 8, kLockAttack = 16, kLockSince = 24, kBytes = 32;
 uint32_t g_mem = 0;
 uint32_t g_logged = 0;  // rule lines logged so far, the first 200 (LOG_FIRST is silent in release builds)
 
@@ -155,4 +163,34 @@ X86_FUNC(sub_00051290) {
         kernel::W32(m + kSeenOf + side * 4, kernel::R32(self + kComboHits));
     }
     __imp__sub_00051290(ctx, base);
+}
+
+// The block lock comes three frames later. Holding block (sub_000E7480), a fighter asks every frame which attack the
+// opponent is on (this function, the opponent's +0x1B0, against its own +0x1E4). A new one starts a block reaction timed
+// to end as the hit lands (sub_000E7A90), and the routine reads no buttons until it ends: a fighter who lets go after
+// that stays in block, and then takes the hit in full. Here the routine hears of a new attack kLockLater frames after it
+// starts, so for those frames its own check of the block button still lets the fighter go; the frame it hears, it locks
+// as before. A fighter who keeps holding blocks as ever. The computer's fighters stay as they are. All of it is game
+// state and guest memory, so a rollback puts it back and two games online decide the same.
+X86_FUNC(sub_000537B0) {
+    using namespace mkda::rules;
+    const uint32_t from = kernel::R32(ctx.esp);  // the three places in sub_000E7480 that ask
+    __imp__sub_000537B0(ctx, base);
+    if (from != 0xE7661 && from != 0xE768F && from != 0xE7875) return;
+    const uint32_t self = kernel::R32(kSelf), opp = kernel::R32(kOpponent), m = Mem();
+    const int side = Side(self);
+    if (!m || side < 0 || !opp || kernel::R32(self + kComputer)) return;
+    const uint32_t attack = ctx.eax, noted = kernel::R32(self + kAttackNoted), now = kernel::R32(kFrameCount);
+    if (attack == noted) {
+        kernel::W32(m + kLockAttack + side * 4, attack);
+        return;
+    }
+    if (kernel::R32(m + kLockAttack + side * 4) != attack) {
+        kernel::W32(m + kLockAttack + side * 4, attack);
+        kernel::W32(m + kLockSince + side * 4, now);
+    }
+    // a hit about to land gets its reaction now: sub_000E7A90 divides by the frames left
+    const int32_t left = int32_t(kernel::R32(opp + kHitAt) - now);
+    if (now - kernel::R32(m + kLockSince + side * 4) >= kLockLater || left <= 2) return;
+    ctx.eax = noted;
 }
