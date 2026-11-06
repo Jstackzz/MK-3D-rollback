@@ -57,20 +57,26 @@ uint32_t Fnv(uint32_t h, uint32_t v) {
 
 bool Pointer(uint32_t v) { return (v >= 0x10000 && v < 0x4000000) || v >= 0x80000000u; }
 
-// a block of guest memory, pointers left out (the two games' heaps may lie differently); nothing when it is not there
-uint32_t HashBlock(uint32_t h, uint32_t va, uint32_t size) {
-    if (!va || !mem::IsCommitted(va) || !mem::IsCommitted(va + size - 1)) return h;
-    for (uint32_t o = 0; o + 4 <= size; o += 4) {
-        uint32_t v = kernel::R32(va + o);
-        if (Pointer(v)) continue;
+// A fighter keeps the handle of a sound in two words, which the game only hands back to the sound library to stop that
+// sound: +0xE1C the groan of a slip in Bo's puddle (sub_00052B90), +0xE0 sound 0xBC (sub_000EA780). A handle is the sound
+// slot's generation << 16 | its index (sub_00172A0D), the generation goes up each time the slot is freed, and sounds end
+// at each PC's own time, so the two games' handles differ. Under generation 0x400 one looks like a pointer; in a game open
+// for half an hour or so it no longer does, and every slip would then read as a desync.
+constexpr uint32_t kSoundHandle[2] = {0xE0, 0xE1C};
+
+// a fighter, pointers and set sound handles left out (the two games' heaps may lie differently); 0 with no fighter, the
+// hash of nothing when its memory is not there
+uint32_t FighterHash(int player) {
+    const uint32_t obj = kernel::R32(kFighter[player]);
+    if (!obj) return 0;
+    uint32_t h = 2166136261u;
+    if (!mem::IsCommitted(obj) || !mem::IsCommitted(obj + kFighterBytes - 1)) return h;
+    for (uint32_t o = 0; o + 4 <= kFighterBytes; o += 4) {
+        const uint32_t v = kernel::R32(obj + o);
+        if (Pointer(v) || (v && (o == kSoundHandle[0] || o == kSoundHandle[1]))) continue;
         h = (h ^ v) * 16777619u;
     }
     return h;
-}
-
-uint32_t FighterHash(int player) {
-    uint32_t obj = kernel::R32(kFighter[player]);
-    return obj ? HashBlock(2166136261u, obj, kFighterBytes) : 0;
 }
 
 // the player the physical controller of this PC (port 0) plays as: its block, else the block of pads on no player
