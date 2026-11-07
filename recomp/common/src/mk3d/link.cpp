@@ -220,6 +220,7 @@ void Start(const Command& c) {
     start.stage = Key(c, "stage");
     start.wins_needed = g_wins_needed;
     start.death_traps = Key(c, "traps", "1") != "0";
+    start.ranked = Key(c, "ranked") == "1";
     start.online = g_online;
     start.side = side;
     start.watch = watch;

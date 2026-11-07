@@ -25,13 +25,18 @@ namespace {
 // number of fights since they started their games, or with different profiles, would load different arenas. Both
 // take the arena from the match's seed instead, among all of the list (a launcher match has every arena open, the
 // autopilot's Unlock; or the stage the launcher names, an arena id), through the engine's own chosen arena (0x42C754,
-// events.h SetNextArena).
+// events.h SetNextArena). A ranked match is never on Acid Bath (arena 0): both games know it from the launcher, so they
+// leave it off the list alike.
+constexpr int kAcidBath = 0;
+bool g_ranked = false;  // this match is ranked (the launcher's start line)
+
 void PickArena(uint32_t seed, const std::string& stage) {
     uint32_t ids[64], n = 0;
     for (uint32_t i = 0; i < 64; i++) {
         int32_t id = int32_t(kernel::R32(kArenaList + 4 * i));
         if (id < 0) break;
         if (id >= 0x19) continue;  // what the chosen arena takes: 0 to 24
+        if (g_ranked && id == kAcidBath) continue;
         ids[n++] = uint32_t(id);
     }
     if (!n) return;
@@ -82,8 +87,8 @@ bool Choosable(int id) {
 }
 
 int AgreedArena(int p1, int p2, uint32_t seed) {
-    if (!Choosable(p1)) p1 = -1;
-    if (!Choosable(p2)) p2 = -1;
+    if (!Choosable(p1) || (g_ranked && p1 == kAcidBath)) p1 = -1;
+    if (!Choosable(p2) || (g_ranked && p2 == kAcidBath)) p2 = -1;
     if (p1 >= 0 && p2 >= 0) return (seed & 0x80) ? p2 : p1;
     return p1 >= 0 ? p1 : p2;
 }
@@ -153,6 +158,7 @@ bool Begin(const Start& start) {
         g_fight_costumes[i] = -1;
     }
     g_seed = start.seed;
+    g_ranked = start.ranked;
     PickArena(start.seed, start.stage);
     SetOptions(start.wins_needed);
     return autopilot::Begin(req);
@@ -162,6 +168,7 @@ bool Begin(const Start& start) {
 // on the select screen pick again)
 void Rematch(const Start& start) {
     g_seed = start.seed;
+    g_ranked = start.ranked;
     g_fight_costumes[0] = g_fight_costumes[1] = -1;
     PickArena(start.seed, start.stage);
     SetOptions(start.wins_needed);

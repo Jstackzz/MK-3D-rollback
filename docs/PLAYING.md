@@ -101,9 +101,11 @@ whether to trust it: compare it with your host's.
   starts by itself once both games are ready, at character select. The winner
   of the last match keeps their fighter (and costume): the game picks it for
   them. The loser picks again (nobody picks for them, and they may choose the
-  arena where the game's select screen offers it). Leaving a set after one of
-  its matches has counted (LEAVE SET, searching again, quitting, or not being
-  back within 90 seconds) loses it: one match won and gone gains nothing.
+  arena where the game's select screen offers it). Deadly Alliance's ranked
+  matches are never on Acid Bath, even if a player chooses it there. Leaving a
+  set after one of its matches has counted (LEAVE SET, searching again,
+  quitting, or not being back within 90 seconds) loses it: one match won and
+  gone gains nothing.
 - Your Elo gives your rank, shown on the Ranked page (with the next one and
   the Elo it starts at), on the Leaderboard and when a set ends. Everyone starts
   at 1500, a Kombatant:

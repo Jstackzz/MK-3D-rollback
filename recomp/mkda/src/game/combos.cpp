@@ -16,6 +16,15 @@
 // 0x06xx, in a combo); blocked, or out of the reaction, they test as the game made them. It is all the game's own
 // state, so two games online decide the same.
 //
+// Jax's string ... 4, 4, style change (Judo into tonfa), its two swings: a juggle. Once the Judo 4
+// starts, the kicks and the two swings come on fixed frames, and each only reaches the falling opponent at the right
+// height: the whole string landed on one exact frame of the 4, and that frame moves with the launch before it (7 of 70
+// timings of the launch and the 4 landed all 10 hits, on Frost). So those strikes' spheres are larger too while the
+// opponent still reels in a combo, the first kick 2.5 times and the rest 4.5 times: 59 of the 70 land all 10, the others 9.
+//
+// Frost's string 1, 1, 2, 2, style change, 4, 1 (Tong Bei into Yuan Yang): the same. Its second hit fell short of Mavado, Hsu
+// Hao and Kung Lao from further off, so the strikes from its second on are larger too while the opponent reels.
+//
 // A fighter slipping in Bo' Rai Cho's Puke Puddle cannot block (MK3D Online 0.1.24). The slip (state 0x4207, the
 // scripted reaction 0x11AE80) sets the slipping fighter's +0x15C, which keeps a hit from being blocked, until it
 // stands again. The end of the other fighter's move (sub_000558E0, the recovery 0x55AC0) or of its reaction's
@@ -25,6 +34,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <iterator>
 
 #include "core/log.h"
 #include "kernel/kernel.h"
@@ -38,19 +48,30 @@ namespace {
 constexpr uint32_t kSelf = 0x320A18, kOpponent = 0x320A0C;  // the fighter whose task runs, the other one
 constexpr uint32_t kCharacterId = 0x144, kState = 0x194, kComboHits = 0x1A0;
 constexpr uint32_t kBlock = 0x9F0, kCommand = 0x9F8;  // its move's script block, the command it is at
-constexpr uint32_t kBoRaiCho = 0x14;
+constexpr uint32_t kBoRaiCho = 0x14, kJax = 0x01, kFrost = 0x0B;
 constexpr uint32_t kPuddleSlip = 0x4207;  // slipping in Bo' Rai Cho's puddle
 
 struct Hit {
     const char* block;  // the block's first name
     uint32_t command;   // the strike's command in it
     int number;         // its hit in the string
+    float grow;         // its spheres' radii, times (the hand's 0.125 at 2.5 becomes about 0.31)
 };
-constexpr Hit kHits[] = {{"drunken_2", 0x688, 2},
-                         {"drunken_2", 0x76C, 3},
-                         {"drunken_2", 0x810, 4},
-                         {"mizong_entry_2center", 0x1D4, 5}};
-constexpr float kGrow = 2.5f;  // the strike's spheres' radii, times (the hand's 0.125 becomes about 0.31)
+constexpr Hit kHits[] = {{"drunken_2", 0x688, 2, 2.5f},
+                         {"drunken_2", 0x76C, 3, 2.5f},
+                         {"drunken_2", 0x810, 4, 2.5f},
+                         {"mizong_entry_2center", 0x1D4, 5, 2.5f}};
+constexpr Hit kJaxHits[] = {{"judo_4", 0x78C, 1, 2.5f},
+                            {"judo_4", 0x840, 1, 2.5f},
+                            {"judo_4", 0x860, 2, 4.5f},
+                            {"tonfa_entry_4neutral", 0x170, 3, 4.5f},
+                            {"tonfa_entry_4neutral", 0x240, 4, 4.5f},
+                            {"tonfa_entry_4neutral", 0x264, 4, 4.5f}};
+constexpr Hit kFrostHits[] = {{"tongbei_1", 0x2C8, 2, 2.5f},
+                              {"tongbei_1", 0x498, 3, 2.5f},
+                              {"tongbei_1", 0x550, 4, 2.5f},
+                              {"yuanyang_entry_4", 0x20C, 5, 2.5f},
+                              {"yuanyang_entry_4", 0xAB4, 6, 2.5f}};
 
 bool BlockIs(uint32_t block, const char* name) {
     const uint32_t n = uint32_t(std::strlen(name)) + 1;  // with its zero
@@ -62,17 +83,22 @@ bool BlockIs(uint32_t block, const char* name) {
 
 void BeforeHitTest(X86Context& ctx) {
     const uint32_t self = kernel::R32(kSelf), opp = kernel::R32(kOpponent);
-    if (!self || !opp || kernel::R32(self + kCharacterId) != kBoRaiCho) return;
+    if (!self || !opp) return;
+    const uint32_t character = kernel::R32(self + kCharacterId);
+    if (character != kBoRaiCho && character != kJax && character != kFrost) return;
     // still reeling from the string's last hit
     if ((kernel::R32(opp + kState) & 0xFF00) != 0x0600 || !kernel::R32(opp + kComboHits)) return;
     const uint32_t block = kernel::R32(self + kBlock), command = kernel::R32(self + kCommand) - block;
-    for (const Hit& h : kHits) {
+    const Hit* const first = character == kJax ? kJaxHits : character == kFrost ? kFrostHits : kHits;
+    const size_t count = character == kJax ? std::size(kJaxHits) : character == kFrost ? std::size(kFrostHits) : std::size(kHits);
+    for (size_t i = 0; i < count; i++) {
+        const Hit& h = first[i];
         if (command != h.command || !BlockIs(block, h.block)) continue;
         float scale;
         std::memcpy(&scale, kernel::HostPtr(ctx.esp + 8), sizeof scale);
-        LOGR_FIRST(16, "combos: Bo' Rai Cho's string, hit %d: its spheres %.2f times larger (scale %.2f)", h.number,
-                   kGrow, scale);
-        scale *= kGrow;
+        LOGR_FIRST(16, "combos: %s string, hit %d: its spheres %.2f times larger (scale %.2f)",
+                   character == kJax ? "Jax's" : character == kFrost ? "Frost's" : "Bo' Rai Cho's", h.number, h.grow, scale);
+        scale *= h.grow;
         std::memcpy(kernel::HostPtr(ctx.esp + 8), &scale, sizeof scale);
         return;
     }
