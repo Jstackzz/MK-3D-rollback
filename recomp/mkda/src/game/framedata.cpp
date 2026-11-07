@@ -26,10 +26,13 @@ constexpr uint32_t kTask[2] = {0x2EA530, 0x2EA534};      // each fighter's task;
 // waits a frame, then starts it at once), so a crouching blocker who let go there acts in the frame it is first seen
 // (as in Deception).
 constexpr uint32_t kBlockHold = 0xE7480, kCrouchBlockHold = 0xE7B70;
-// Standing (sub_000BFCC0) and crouching (sub_000C0290) start blocking before anything else when block is held, by
-// sub_00057E20's rule, which leaves out the move gate's wait (+0x168): back on its feet after a move, a fighter blocks
-// frames before it can attack (Jax's Piston Punch: -27 on block to attack, -9 to block).
-constexpr uint32_t kStance = 0xBFCC0, kCrouch = 0xC0290;
+// A hit landing is blocked by sub_00057F30's rule and the victim's reaction by sub_00057E20's, the same but for two
+// states: block held, no +0x158 or +0x15C, and +0x160 no later than now, whatever the fighter is doing. So the block and
+// the move gate (+0x168) open apart: the end of Jax's Piston Punch clears +0x158 at move frame 76 and shuts the gate for
+// 18 more frames (-9 on block, -27 to attack: a 9 frame jab pressed at the blocker's first chance lands, a frame later
+// it is blocked), Scorpion's B opens the gate first and blocks 5 frames later (-25 on block, -20 to attack). Measured
+// with a jab put in reach on Jax's X and Piston Punch, Scorpion's X and B and Hsu Hao's X: all land up to the last frame
+// this rule says no, and are blocked from the first it says yes.
 constexpr uint32_t kBlockingOn = 0x42C744;  // the fight lets fighters block
 // a fighter object's fields
 constexpr uint32_t kContact = 0x154;    // its strike's result: 0 none (every strike starts there), 1 hit, 2 blocked
@@ -37,11 +40,14 @@ constexpr uint32_t kNoBlock = 0x158, kNoBlockToo = 0x15C;  // sub_00057E20: no b
 constexpr uint32_t kBlockFrom = 0x160;  // no blocking before this game frame
 constexpr uint32_t kBusyUntil = 0x168;  // no new move before this game frame
 constexpr uint32_t kState = 0x194;      // 0 stance, 0x1200 attack, 0x60x hit reaction, 0xA0x block ...
+constexpr uint32_t kComboHits = 0x1A0;  // the hits of the combo it is taking, 0 when it takes none
 constexpr uint32_t kCommand = 0x9F8;    // its move script's current command: a strike holds one for its whole window
 constexpr uint32_t kControls = 0x19C;   // the player number its actions are read for (sub_00075B50)
 constexpr int kActionBlock = 1, kActionDown = 0xE;  // sub_00075B50's actions: block, crouch
 
 uint32_t g_strike_command[2] = {};  // the command each side's attack was last tested from
+uint32_t g_raw_contact[2] = {};     // each side's contact field when last read
+int g_contact[2] = {};              // what that contact was taken for when it came
 
 uint32_t FighterObject(int side) { return kernel::R32(kFighter[side]); }
 
@@ -66,12 +72,20 @@ bool Read(int side, mk3d::framedata::Fighter& f) {
                 ((!((state & 0x200) && state != 0x420D) && !(state & 0x800) && state != 0x6000) ||
                  routine == kCrouchBlockHold);
     f.can_act_next = alive && routine == kBlockHold && now + 1 >= busy;
-    f.can_block = alive && (routine == kStance || routine == kCrouch) && state != 0x605 && state != 0x3202 &&
-                  !kernel::R32(obj + kNoBlock) && !kernel::R32(obj + kNoBlockToo) &&
-                  now >= kernel::R32(obj + kBlockFrom) && kernel::R32(kBlockingOn);
+    f.can_block = alive && state != 0x605 && state != 0x3202 && !kernel::R32(obj + kNoBlock) &&
+                  !kernel::R32(obj + kNoBlockToo) && now >= kernel::R32(obj + kBlockFrom) && kernel::R32(kBlockingOn);
     f.striking = g_strike_command[side] && kernel::R32(obj + kCommand) == g_strike_command[side];
+    // A strike's contact says hit or blocked, but a projectile's (Jax's Machine Gun) says hit when it is blocked too:
+    // a hit is one the other fighter counts in a combo, decided once, at the top of the frame after it came
     const uint32_t contact = kernel::R32(obj + kContact);
-    f.contact = contact == 1 || contact == 2 ? int(contact) : 0;
+    if (contact == 1 && g_raw_contact[side] != 1) {
+        const uint32_t other = FighterObject(1 - side);
+        g_contact[side] = other && mem::IsCommitted(other) && !kernel::R32(other + kComboHits) ? 2 : 1;
+    } else if (contact != 1) {
+        g_contact[side] = contact == 2 ? 2 : 0;
+    }
+    g_raw_contact[side] = contact;
+    f.contact = g_contact[side];
     return true;
 }
 
@@ -83,7 +97,7 @@ const char* Name(int side) {
 }
 
 const bool g_installed = [] {
-    mk3d::framedata::Install({Practice, Time, Read, Name});
+    mk3d::framedata::Install({Practice, Time, Read, Name, true});
     return true;
 }();
 

@@ -476,6 +476,12 @@ pressing every frame, the rest from the practice panel):
 Open: Scorpion's X at point-blank range (contact on its first active frame) once put both fighters into the
 script-run routine 0x2B8F0 for 200+ frames (P1 frozen in phase 2); the panel drops a move not over in 300 frames.
 
+Blocking opens before the move gate, as in Deception (2026-11-07): sub_00089B50 at this game's offsets (the body
+[+0x30, id +0x34] with +0xD4 or +0x34 at [0x4D7C38], or state 0x60C; +0x30C and +0x310 clear, +0x314 and +0x318 no
+later than the frame, 0x831A40 bit 2). Scorpion's X blocks from move frame 29 and attacks from 36 (-10 on block, -17
+to attack), his B from 44 and 54 (-23, -33: a jab put in reach lands on 43 and is blocked on 44), back + X 26 and 40
+(-3, -17). The table above has the gate's numbers; the frame data shows both since then.
+
 ## The online select screen (2026-11-02, for 0.1.18)
 
 36 Armageddon desync reports since 0.1.17: 24 "match setups differ" (each player's own game fought another

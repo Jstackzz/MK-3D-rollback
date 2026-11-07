@@ -516,13 +516,23 @@ Found with the debug monitor stepping versus fights (scratchpad r30: `versus_tra
 - A body point of each fighter: +0xA28 / +0xA2C / +0xA30 (x, y about 1.0, z), recomputed every frame (a write does
   not move the fighter); the distance between the two fighters' x and z is about 1.0 when a jab lands, 2.6 at a
   round's start.
-- Blocking before acting: standing (sub_000BFCC0) and crouching (sub_000C0290) check block first each frame, through
-  sub_00057E20 (not in 0x605 or 0x3202, +0x158 and +0x15C clear, +0x160 no later than now, 0x42C744 set, the block
-  action held), which leaves out the move gate's +0x168; the reset between a move and stance (sub_000BFB00) does not
-  block. After some moves a fighter stands in stance for frames before +0x168 lets it attack: Jax's Piston Punch
-  (down, forward + 1, six hits) on block is -27 to attack and -9 to block (stance from move frame 81, the gate at 99),
-  and its last hits push the blocker from about 1.6 to 2.3 apart, so nothing punishes it. The frame data shows both
-  ("On block -27 (-9 to block)").
+- Blocking and the move gate: standing (sub_000BFCC0) and crouching (sub_000C0290) check block first each frame,
+  through sub_00057E20 (not in 0x605 or 0x3202, +0x158 and +0x15C clear, +0x160 no later than now, 0x42C744 set, the
+  block action held), which leaves out the move gate's +0x168. A strike that lands is blocked or not by sub_00057F30
+  (sub_00054710 writes the contact): the same flags, whatever the victim is doing, so a fighter holding block in the
+  reset between a move and stance (sub_000BFB00, which does not block itself) still blocks a hit. A move's end sets the
+  waits apart: sub_000558E0 only +0x168 (from the move's +0x1EC), the recovery sub_00055AC0 also +0x164 and +0x160.
+  So the block and the next attack open at different frames: Jax's Piston Punch (down, forward + 1, six hits) clears
+  +0x158 at move frame 76 and keeps the gate shut until 94: on block -9, -27 to attack; its last hits push the blocker
+  from about 1.6 to 2.3 apart, so nothing that fast reaches. Scorpion's B opens the gate at 37 and the block (+0x160) at
+  42: -25 on block, -20 to attack. Measured (2026-11-07, scratchpad r51 punish.py, verify.py): a 9 frame jab put in
+  reach lands on the last frame the rule says no and is blocked on the first it says yes, on Jax's X and Piston Punch,
+  Scorpion's X and B, Hsu Hao's X. Of the 1,000 or so moves on the move lists that a standing blocker blocks, about 100
+  open the two apart (attack first by 5, 10 or up to 25 frames in most; block first in 17). The frame data follows
+  both since then (Adapter::block_rule): the number is the next attack's advantage when that is ahead, else the
+  block's, the other beside it ("On block -9, -27 to attack").
+- A projectile's strike (Jax's Machine Gun) writes contact 1 when it is blocked too; the victim's combo count
+  (+0x1A0) stays 0 on a block, so the frame data takes a contact as a hit only when that count is set.
 - Tech rolls: a knockdown that can be teched runs the check sub_00051290 for the fighter as it lands (up or down
   rolls, away rolls back, the computer rolls at random; a roll switches the fighter's task to 0xE4A90, 0xE4AF0 or
   0xE4BA0). Ten reaction routines call it: sub_001183C0, sub_00119280, sub_001198A0, sub_00119AD0, sub_0011A160,

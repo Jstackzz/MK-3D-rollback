@@ -34,6 +34,17 @@ constexpr uint32_t kPhase = 0x20C;                // sub_0014AE00's attack: 1 st
 constexpr uint32_t kState = 0x214;                // 0 stance, 0x1200 attack, 0x60x hit reaction, 0xA0x block ...
 constexpr uint32_t kControls = 0x21C;             // the port its actions are read from (sub_0008A210)
 constexpr int kActionBlock = 1, kActionDown = 0xE;  // sub_0008A210's actions: block, crouch
+// sub_00075610 blocks both a fighter holding block and a hit's victim: not in 0x605 or 0x3202, its body on the ground
+// (its control object's +0xB4 or +0x30 at the value 0x381024 holds, or state 0x60C), +0x1C4 and +0x1C8 clear, +0x1CC
+// and +0x1D0 no later than now, the fight's blocking bit, block held. A move's end (sub_00072A40, sub_00072D50) sets
+// +0x1CC or +0x1D0 and the move gate +0x1D8 from different numbers, so a fighter blocks frames before it can attack:
+// Scorpion's X blocks from move frame 29 and attacks from 36, his B from 44 and 54. Its own task clears +0x1C4 as the
+// move ends, before the other fighter's strike tests in that frame: a jab landing there is blocked (measured), so the
+// flags count from the frame before they are first seen clear (Adapter::block_flags_early).
+constexpr uint32_t kNoBlock = 0x1C4, kNoBlockToo = 0x1C8, kBlockFrom = 0x1CC, kBlockFromToo = 0x1D0;
+constexpr uint32_t kBody = 0x30, kBodyId = 0x34;  // its control object (pointer, id)
+constexpr uint32_t kOnGround = 0x381024;          // what the body's +0xB4 or +0x30 holds on the ground
+constexpr uint32_t kFightFlags = 0x620F20;        // bit 2: the fight lets fighters block
 
 uint32_t FighterObject(int side) { return kernel::R32((side ? kP2Record : kP1Record) + 0x58); }
 
@@ -61,6 +72,13 @@ bool Read(int side, mk3d::framedata::Fighter& f) {
                 ((!((state & 0x200) && state != 0x420D) && !(state & 0x800) && state != 0x6000) ||
                  routine == kCrouchBlockHold);
     f.can_act_next = alive && routine == kBlockHold && now + 1 >= busy;
+    const uint32_t body = kernel::R32(obj + kBody), ground = kernel::R32(kOnGround);
+    const bool grounded = body && mem::IsCommitted(body) && kernel::R32(body + 4) == kernel::R32(obj + kBodyId) &&
+                          (kernel::R32(body + 0xB4) == ground || kernel::R32(body + 0x30) == ground || state == 0x60C);
+    f.block_waits_over = alive && state != 0x605 && state != 0x3202 && grounded &&
+                         now >= kernel::R32(obj + kBlockFrom) && now >= kernel::R32(obj + kBlockFromToo) &&
+                         (kernel::R32(kFightFlags) & 4);
+    f.can_block = f.block_waits_over && !kernel::R32(obj + kNoBlock) && !kernel::R32(obj + kNoBlockToo);
     f.striking = kernel::R32(obj + kPhase) == 2;
     const int32_t contact = int32_t(kernel::R32(obj + kContact));
     f.contact = contact == 1 || contact == 2 ? contact : 0;
@@ -75,7 +93,7 @@ const char* Name(int side) {
 }
 
 const bool g_installed = [] {
-    mk3d::framedata::Install({Practice, Time, Read, Name});
+    mk3d::framedata::Install({Practice, Time, Read, Name, true, true});
     return true;
 }();
 

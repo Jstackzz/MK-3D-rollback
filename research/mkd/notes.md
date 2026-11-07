@@ -565,6 +565,17 @@ The game's rules:
   F5, 100 F6, else F1); F2 (sub_0019D020) sets +0x1D8 = frame + 6, F4 none; the tail sub_0019D080 goes back to block
   hold, or to sub_0006FE00 when the button is up. The block-hold routine lets go (state 0) in a frame it sees the
   button up, so a blocking fighter can attack one frame after the first frame its task is back in block hold.
+- Blocking opens before the move gate (2026-11-07): sub_00075610 decides both a fighter's own block and a hit's
+  victim's (not in 0x605 or 0x3202, the body on the ground: its control object [+0x30, id +0x34] with +0xB4 or +0x30 at
+  [0x381024], or state 0x60C; +0x1C4 and +0x1C8 clear, +0x1CC and +0x1D0 no later than the frame, 0x620F20 bit 2,
+  block held), and a move's end sets +0x1CC or +0x1D0 and +0x1D8 from different numbers. Scorpion's X blocks from move
+  frame 29 and attacks from 36 (-15 on block, -22 to attack), his B from 44 and 54 (-28, -38), back + X 26 and 40
+  (-12, -26): a jab put in reach lands up to the frame before and is blocked from it (scratchpad r51
+  other_punish.py). The fighter's own task clears +0x1C4 as its move ends, before the other fighter's strike tests in
+  that frame, so a hit there is blocked though the flag is first seen clear at the next frame's top; the frame
+  counts (+0x1CC, +0x1D0) count from the top of the frame they reach. The frame data follows this since then
+  (Adapter::block_rule, block_flags_early); before, it showed only the gate's number, 6 to 14 frames worse on
+  every move tried.
 - Practice: player 2 is no one's (port 1's block +8 is 0, its fighter's controls +0x21C are -1, +0x294 CPU flag 0):
   the dummy stands. The game's menus have no dummy settings. Every block check ends in sub_0008A210(port, action)
   (action 1 block, 0xE down; sub_00075610 for standing block, sub_00075860 for crouching), so the overlay's F8 answers

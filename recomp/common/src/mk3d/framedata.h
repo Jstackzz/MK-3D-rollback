@@ -1,8 +1,9 @@
 #pragma once
 // Frame data in practice, shared by the games: for player 1's last attack, its startup (the move frame its attack is
 // first tested against the other fighter, the press being frame 1), active and recovery frames, and its frame
-// advantage on hit or on block (the frame player 2 can act again against the frame player 1 can). Drawn with the
-// runtime's ImGui (app::GameInfo::ui), shown or hidden with F7 and the launcher's setting (MK3D_FRAMEDATA=0|1).
+// advantage on hit or on block (the frame player 2 can act again against the frame player 1 can: its next attack when
+// it comes first, else its next block, the other shown beside it where the two differ). Drawn with the runtime's ImGui
+// (app::GameInfo::ui), shown or hidden with F7 and the launcher's setting (MK3D_FRAMEDATA=0|1).
 //
 // It works only in a practice fight on this PC alone, never in a game the launcher drives (MK3D_NET) or with netplay
 // configured, so both games of an online match run exactly as they would without it. There it only reads game memory,
@@ -19,8 +20,9 @@ namespace mk3d::framedata {
 struct Fighter {
     bool can_act = false;       // the game would start a new move for it in this frame (its own gate)
     bool can_act_next = false;  // holding block where letting go is possible now: it could attack from the next frame
-    bool can_block = false;     // it would block in this frame, holding block (a game that lets a fighter block
-                                // before its gate lets it start a move says so; else false)
+    bool can_block = false;     // holding block, a hit landing in this frame would be blocked (Adapter::block_rule;
+                                // else false)
+    bool block_waits_over = false;  // ... but for its no-block flags (Adapter::block_flags_early)
     bool striking = false;      // its attack's hit window is open (counts active frames after a contact)
     int contact = 0;            // its current attack's result: 0 none yet, 1 hit, 2 blocked
 };
@@ -34,6 +36,13 @@ struct Adapter {
     bool (*read)(int side, Fighter& out);
     // the fighter's name, or null
     const char* (*name)(int side);
+    // Fighter::can_block is filled in: a game whose block and move gate open at different frames, so player 1's next
+    // block and next attack are followed apart
+    bool block_rule = false;
+    // player 1's own task clears its no-block flags before player 2's strike tests in the same frame (Deception and
+    // Armageddon): flags first seen clear at the top of a frame were clear for a hit in the frame before, if its waits
+    // were over then
+    bool block_flags_early = false;
 };
 
 // the game's adapter, once at start (before the first frame)

@@ -223,12 +223,17 @@ whether to trust it: compare it with your host's.
   or **On block**: how many frames before (+, green) or after (-, red) the
   dummy you can act again. A hit that lands on a later active frame than the
   first (from further away) gives more advantage, so the panel names that
-  frame. In Deadly Alliance a fighter back on their feet after some moves
-  (specials above all) can block several frames before they can attack again,
-  and the panel then adds how far behind that is: Jax's Piston Punch is **On
-  block -27 (-9 to block)**, so only an attack that hits within 9 frames, and
-  still reaches you after the push back, could punish it. The dummy stands
-  still in every game's practice; **F8** makes it hold block, then
+  frame. Your block and your next attack often come back at different frames
+  (in Deception and Armageddon after almost every move), so the number is the
+  one that matters next: how far ahead your next attack is when you are ahead,
+  else how far behind your block is (**-9** means an attack of 9 frames or
+  faster still hits you while you hold block), with the other in brackets. In
+  Deadly Alliance, Jax's Piston Punch is **On block -9 (-27 to attack)**: he
+  can block 18 frames before he can attack again, and the push back keeps the
+  blocker out of reach of anything that fast. Scorpion's B is **On block -25
+  (-20 to attack)**: he can attack before he can block. A blocked projectile
+  counts as blocked. The dummy stands still in every game's practice; **F8**
+  makes it hold block, then
   crouch-block (lows are blocked only crouching), then stand again, for the
   on-block numbers. **F7** shows or hides the panel; **Settings → Frame data
   in practice** sets whether it is shown when practice starts. None of it is

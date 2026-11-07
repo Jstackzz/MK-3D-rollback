@@ -7,9 +7,13 @@
 // move frame 1: a move starts in the frame at whose top player 1 could act and after which it no longer can, without
 // having been hit; its startup is the first frame its attack was tested against player 2, its active frames run from
 // there to the last frame it was tested or its hit window stood open, its recovery from there to the first frame
-// player 1 can act again. On hit or block, the advantage is the first frame player 2 can act again after the last
-// contact (holding block: had it let go at its first chance) less player 1's. A move that never tested an attack (a
-// walk, a jump, blocking) is not shown.
+// player 1 can act again. A move that never tested an attack (a walk, a jump, blocking) is not shown.
+//
+// On hit or block, the advantage starts from the first frame player 2 can attack after the last contact (holding block:
+// had it let go at its first chance). Where the game opens player 1's block and attack at different frames (all
+// three, Adapter::block_rule), the number shown is what matters next: how far ahead its next attack is when that
+// comes first, else how far behind its next block is, so that -N means an attack of startup N or less lands while
+// player 1 holds block. The other number stands beside it. Recovery and total end at whichever opens first.
 //
 // The practice dummy's block (F8) is the one thing that changes the game: each game's "is this action held" hook asks
 // DummyHolds, which answers only in a practice fight on this PC alone.
@@ -39,6 +43,7 @@ namespace {
 constexpr UINT kToggleKey = VK_F7, kDummyKey = VK_F8;
 constexpr float kFontPixels = 48.0f;
 constexpr uint32_t kGiveUp = 300;  // frames: a move not over by then (a throw, a scripted sequence) shows nothing
+constexpr uint32_t kBlockWait = 30;  // frames past its next attack that player 1's next block is waited for
 
 Adapter g_game{};
 bool g_installed = false;
@@ -59,8 +64,8 @@ struct Move {
     int contact = 0;          // 1 hit (any of its contacts), 2 blocked (all of them)
     uint32_t contact_at = 0;  // the frame of its last contact
     int hits = 0;
-    uint32_t p1_free = 0;   // the first frame player 1 can act again
-    uint32_t p1_block = 0;  // the first frame player 1 can block again, where that comes sooner
+    uint32_t p1_free = 0;   // the first frame player 1 can attack again
+    uint32_t p1_block = 0;  // the first frame after its attack that a hit on player 1 would be blocked (block_rule)
     uint32_t p2_free = 0;   // the first frame player 2 can act again after the last contact
 
     void Active(uint32_t frame) {
@@ -85,8 +90,10 @@ struct Shown {
     bool advantage_known = false;
     bool advantage_at_least = false;  // player 2 had not recovered yet when player 1 attacked again
     int advantage = 0;
-    bool block_known = false;  // player 1 can block before it can act again (Deadly Alliance): that advantage too
-    int block_advantage = 0;
+    // player 1's block and attack open at different frames: the one the number above is not
+    bool other_known = false;
+    const char* other_is = "";  // "attack" or "block"
+    int other = 0;              // its advantage; on a whiff, how many frames after the first it comes
     char name[32] = {};
 };
 
@@ -126,36 +133,48 @@ void Publish(const Move& m, bool interrupted, uint32_t now) {
             at += std::snprintf(s.active + at, sizeof s.active - at, "%u", m.window_end[i] - m.window_start[i] + 1);
         }
     }
-    if (m.p1_free) {
-        s.total = int(m.p1_free - m.start);
-        s.recovery = std::max(0, int(m.p1_free - (last + 1)));
+    // recovery ends with whichever of its next block and next attack opens first
+    const uint32_t free = m.p1_block && (!m.p1_free || m.p1_block < m.p1_free) ? m.p1_block : m.p1_free;
+    if (free) {
+        s.total = int(free - m.start);
+        s.recovery = std::max(0, int(free - (last + 1)));
     }
     s.contact = m.contact;
     s.hits = m.hits;
     s.contact_frame = m.contact ? int(m.contact_at - m.start) + 1 : 0;
-    if (m.contact && m.p1_free && m.p2_free) {
+    if (m.contact && m.p2_free && free) {
+        const int to_attack = int(m.p2_free) - int(m.p1_free), to_block = int(m.p2_free) - int(m.p1_block);
+        const bool attack_shown = m.p1_free && (!m.p1_block || to_attack >= 0);
         s.advantage_known = true;
-        s.advantage = int(m.p2_free) - int(m.p1_free);
-        if (m.p1_block && m.p1_block < m.p1_free) {
-            s.block_known = true;
-            s.block_advantage = int(m.p2_free) - int(m.p1_block);
+        s.advantage = attack_shown ? to_attack : to_block;
+        if (m.p1_free && m.p1_block && to_attack != to_block) {
+            s.other_known = true;
+            s.other_is = attack_shown ? "block" : "attack";
+            s.other = attack_shown ? to_block : to_attack;
         }
     } else if (m.contact && m.p1_free && interrupted) {
         // player 1 attacked again in frame now, before player 2 could act
         s.advantage_known = s.advantage_at_least = true;
         s.advantage = int(now + 1) - int(m.p1_free);
+    } else if (!m.contact && m.p1_free && m.p1_block && m.p1_free != m.p1_block) {
+        s.other_known = true;
+        s.other_is = m.p1_block < m.p1_free ? "attack" : "block";
+        s.other = std::abs(int(m.p1_free) - int(m.p1_block));
     }
     if (g_game.name)
         if (const char* n = g_game.name(0)) std::snprintf(s.name, sizeof s.name, "%s", n);
-    if (s.block_known)
-        LOGR("framedata: %s startup %d active %s recovery %d total %d, %s %+d, %+d to block "
+    if (s.advantage_known && s.other_known)
+        LOGR("framedata: %s startup %d active %s recovery %d total %d, %s %+d, %+d to %s "
              "(%d hits, the last in frame %d)",
-             s.name, s.startup, s.active, s.recovery, s.total, ContactText(s.contact), s.advantage, s.block_advantage,
+             s.name, s.startup, s.active, s.recovery, s.total, ContactText(s.contact), s.advantage, s.other, s.other_is,
              s.hits, s.contact_frame);
     else if (s.advantage_known)
         LOGR("framedata: %s startup %d active %s recovery %d total %d, %s %s%+d (%d hits, the last in frame %d)", s.name,
              s.startup, s.active, s.recovery, s.total, ContactText(s.contact), s.advantage_at_least ? ">= " : "",
              s.advantage, s.hits, s.contact_frame);
+    else if (s.other_known)
+        LOGR("framedata: %s startup %d active %s recovery %d total %d, %s, %d more to %s", s.name, s.startup, s.active,
+             s.recovery, s.total, ContactText(s.contact), s.other, s.other_is);
     else
         LOGR("framedata: %s startup %d active %s recovery %d total %d, %s", s.name, s.startup, s.active, s.recovery,
              s.total, ContactText(s.contact));
@@ -198,7 +217,9 @@ void OnFrame(uint64_t) {
 
     // player 1 started something in the frame that ran: it could act at its top and cannot now
     if (g_prev[0].can_act && !p[0].can_act && !p2_hit_p1) {
-        if (g_move.on && g_move.contact && !g_move.p2_free) Publish(g_move, true, ran);
+        // the last one is over, whatever had not come yet
+        if (g_move.on && (g_move.p1_free || (g_move.contact && !g_move.p2_free)))
+            Publish(g_move, g_move.contact && !g_move.p2_free, ran);
         g_move = {};
         g_move.on = true;
         g_move.start = ran;
@@ -218,14 +239,26 @@ void OnFrame(uint64_t) {
                 m.hits++;
                 m.p2_free = 0;
             }
-            if (!m.p1_free && t > m.start && p[0].can_act) m.p1_free = t;
-            if (!m.p1_block && !m.p1_free && t > m.start && p[0].can_block) m.p1_block = t;
+            if (!m.p1_free && t > m.start) {
+                if (p[0].can_act) m.p1_free = t;
+                else if (p[0].can_act_next) m.p1_free = t + 1;  // it went straight on to holding block
+            }
+            if (g_tested[0] == ran || p[0].striking) {
+                m.p1_block = 0;  // its attack still goes on: blocking comes after it
+            } else if (!m.p1_block && t > m.start && p[0].can_block) {
+                // its own task cleared the flags in the frame that ran, before player 2's strike tested
+                const bool sooner = g_game.block_flags_early && t - 1 > m.start && !g_prev[0].can_block &&
+                                    g_prev[0].block_waits_over && !g_prev[0].striking;
+                m.p1_block = sooner ? t - 1 : t;
+            }
             if (m.contact && !m.p2_free && t > m.contact_at) {
                 if (p[1].can_act) m.p2_free = t;
                 else if (p[1].can_act_next) m.p2_free = t + 1;
             }
-            // done once player 1 can act again and, after a contact, player 2 too; a move without an attack is dropped
-            if (m.p1_free && (!m.contact || m.p2_free)) {
+            // done once player 1 can attack and block again and, after a contact, player 2 can act; a move without an
+            // attack is dropped
+            const bool block_settled = !g_game.block_rule || m.p1_block || (m.p1_free && t >= m.p1_free + kBlockWait);
+            if (m.p1_free && (!m.contact || m.p2_free) && block_settled) {
                 Publish(m, false, ran);
                 m = {};
             } else if ((m.p1_free && !m.windows && !m.contact) || t - m.start > kGiveUp) {
@@ -323,6 +356,10 @@ void Ui(double) {
                 ImGui::Text("Startup %d   Active %s", s.startup, s.active);
             if (!s.contact) {
                 ImGui::TextColored(dim, "Whiff");
+                if (s.other_known) {
+                    ImGui::SameLine();
+                    ImGui::TextColored(dim, "(%d more to %s)", s.other, s.other_is);
+                }
             } else {
                 const auto tint = [](int advantage) {
                     return advantage > 0   ? ImVec4(0.45f, 0.9f, 0.45f, 1.0f)
@@ -334,10 +371,10 @@ void Ui(double) {
                 else
                     ImGui::TextColored(tint(s.advantage), "%s %s%+d", ContactText(s.contact),
                                        s.advantage_at_least ? ">= " : "", s.advantage);
-                // back on its feet it blocks sooner than it can attack: how far behind that is (what a punish beats)
-                if (s.block_known) {
+                // its next block and next attack open at different frames: the one the number is not
+                if (s.other_known) {
                     ImGui::SameLine();
-                    ImGui::TextColored(tint(s.block_advantage), "(%+d to block)", s.block_advantage);
+                    ImGui::TextColored(tint(s.other), "(%+d to %s)", s.other, s.other_is);
                 }
                 // a hit that did not land on the first active frame changes the advantage: name its frame
                 if (s.hits > 1 || s.contact_frame != s.startup) {
