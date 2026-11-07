@@ -22,8 +22,10 @@
 // timings of the launch and the 4 landed all 10 hits, on Frost). So those strikes' spheres are larger too while the
 // opponent still reels in a combo, the first kick 2.5 times and the rest 4.5 times: 59 of the 70 land all 10, the others 9.
 //
-// Frost's string 1, 1, 2, 2, style change, 4, 1 (Tong Bei into Yuan Yang): the same. Its second hit fell short of Mavado, Hsu
-// Hao and Kung Lao from further off, so the strikes from its second on are larger too while the opponent reels.
+// Frost's string 1, 1, 2, 2, style change, 4, 1 and the 1s after it (Tong Bei into Yuan Yang, 8 hits): the same. Its second
+// hit fell short of Mavado, Hsu Hao and Kung Lao from further off, its seventh of Li Mei and its eighth of Kenshi, Moloch,
+// Quan Chi, Mavado and Drahmin from one side of the arena or the other, so the strikes from its second on are larger too
+// while the opponent reels.
 //
 // A fighter slipping in Bo' Rai Cho's Puke Puddle cannot block (MK3D Online 0.1.24). The slip (state 0x4207, the
 // scripted reaction 0x11AE80) sets the slipping fighter's +0x15C, which keeps a hit from being blocked, until it
@@ -71,7 +73,9 @@ constexpr Hit kFrostHits[] = {{"tongbei_1", 0x2C8, 2, 2.5f},
                               {"tongbei_1", 0x498, 3, 2.5f},
                               {"tongbei_1", 0x550, 4, 2.5f},
                               {"yuanyang_entry_4", 0x20C, 5, 2.5f},
-                              {"yuanyang_entry_4", 0xAB4, 6, 2.5f}};
+                              {"yuanyang_entry_4", 0xAB4, 6, 2.5f},
+                              {"yuanyang_entry_4", 0x3B4, 7, 2.5f},
+                              {"yuanyang_entry_4", 0x47C, 8, 2.5f}};
 
 bool BlockIs(uint32_t block, const char* name) {
     const uint32_t n = uint32_t(std::strlen(name)) + 1;  // with its zero
