@@ -75,6 +75,7 @@ private:
     QLabel* wins_;
     QLabel* losses_;
     QLabel* rank_;  // ranked: the title the Elo gives and the next one
+    QLabel* rankBadge_;  // ranked: that title's badge
     QWidget* mmCard_;
     QWidget* seriesCard_;
     QLabel* seriesTitle_;
@@ -128,6 +129,7 @@ private:
     ServerClient* server_;
     QComboBox* mode_;
     QTableWidget* table_;
+    QLabel* meBadge_;  // your rank's badge
     QLabel* me_;
     QLabel* info_;
 };

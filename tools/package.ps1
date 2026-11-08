@@ -121,6 +121,9 @@ foreach ($g in $Games) {
         ForEach-Object { Copy-Item -Recurse $_.FullName "$dst\compiler\" }
     foreach ($dll in 'msvcp140.dll', 'vcruntime140.dll') { Copy-Item "$crt\$dll" "$dst\compiler\" }
 }
+# the rank badges the games draw beside the timer, once for all three (recomp/common/src/mk3d/ranks.cpp
+# looks two folders up from a game); the launcher has its own smaller ones built in
+Copy-Item -Recurse (Join-Path $root 'recomp\common\data\ranks') "$stage\ranks"
 
 # what the package sets up, what it is, and the licenses
 if ($Server) {

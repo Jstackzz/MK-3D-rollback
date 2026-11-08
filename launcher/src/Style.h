@@ -15,4 +15,10 @@ QPixmap logo(int height);  // the MK3D logo (launcher/data/logo), height pixels 
 QPixmap linkIcon(const QString& link, int size);
 QString linkName(const QString& link);  // its tooltip: "Wi-Fi", "Wired (Ethernet)", ...
 QIcon appIcon();
+// a ranked title's badge (launcher/data/ranks, as the server names the title: "Chosen One"), height pixels tall before
+// display scaling, as wide as the badges' box (2.4 times its height; each badge centred in it, so they line up); a null
+// pixmap for a title without one
+QPixmap rankBadge(const QString& title, int height);
+// the title as the badges' files and the games name it: lower case, dashes for spaces ("chosen-one"); "" for none
+QString rankKey(const QString& title);
 }  // namespace style

@@ -22,6 +22,7 @@
 #include "kernel/kernel.h"
 #include "kernel/memory.h"
 #include "mk3d/game.h"
+#include "mk3d/ranks.h"
 
 namespace mk3d::names {
 namespace {
@@ -201,6 +202,7 @@ void Ui(double) {
         names[1] = source[1];
         p = g_place;
     }
+    ranks::KeepClear(p.p1_end, p.p2_start);  // the rank badges beside the timer (ranks.h)
     const ImGuiIO& io = ImGui::GetIO();
     // the frame's place in the window, as the runtime's blit puts it (gpu/d3d12.cpp BlitFrame)
     const float aspect = app::Widescreen() ? 16.0f / 9.0f : 4.0f / 3.0f;

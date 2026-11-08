@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(mk3d_launcher VERSION 0.1.32 LANGUAGES CXX)
+project(mk3d_launcher VERSION 0.1.33 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -65,6 +65,17 @@ qt_add_resources(MK3DLauncher "logo"
     BASE data/logo
     FILES data/logo/mk3d-logo.png data/logo/icon-16.png data/logo/icon-24.png data/logo/icon-32.png
           data/logo/icon-48.png data/logo/icon-64.png data/logo/icon-128.png data/logo/icon-256.png
+)
+
+# the ranks' badges by ranked title (Fighter: fighter.png), lowest first as the server's ladder; tools/py/make_ranks.py
+# makes them from the rank art in art/ranks
+qt_add_resources(MK3DLauncher "ranks"
+    PREFIX "/ranks"
+    BASE data/ranks
+    FILES data/ranks/beginner.png data/ranks/learner.png data/ranks/fighter.png data/ranks/expert.png
+          data/ranks/warrior.png data/ranks/gladiator.png data/ranks/master.png data/ranks/commander.png
+          data/ranks/grandmaster.png data/ranks/warlord.png data/ranks/chosen-one.png data/ranks/demi-god.png
+          data/ranks/god.png data/ranks/elder-god.png data/ranks/titan.png data/ranks/eldest-god.png
 )
 
 qt_add_resources(MK3DLauncher "sounds"

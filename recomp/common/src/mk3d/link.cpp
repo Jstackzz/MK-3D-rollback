@@ -42,6 +42,7 @@
 #include "mk3d/game.h"
 #include "mk3d/linkgame.h"
 #include "mk3d/names.h"
+#include "mk3d/ranks.h"
 #include "mk3d/netplay.h"
 
 namespace mk3d::link {
@@ -208,8 +209,10 @@ void Start(const Command& c) {
     } else {
         net::Disable();
     }
-    // the players' names over the fight, an online or a watched match's only (names.h)
+    // the players' names over the fight and their rank badges behind the portraits, an online or a watched match's
+    // only (names.h, ranks.h)
     names::SetPlayers(g_online ? Key(c, "p1_name") : std::string(), g_online ? Key(c, "p2_name") : std::string());
+    ranks::SetPlayers(g_online ? Key(c, "p1_rank") : std::string(), g_online ? Key(c, "p2_rank") : std::string());
     game::Start start;
     start.mode = mode;
     start.picks[0] = picks[0];
@@ -266,6 +269,7 @@ void Park() {
     g_fighting = false;
     net::Disable();
     names::SetPlayers(std::string(), std::string());
+    ranks::SetPlayers(std::string(), std::string());
     game::ExpectMenu();
     g_park = true;  // the frame hook switches the game to the main menu
 }

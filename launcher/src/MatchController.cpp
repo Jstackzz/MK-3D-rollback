@@ -22,12 +22,20 @@
 #include "GameData.h"
 #include "GameProcess.h"
 #include "ServerClient.h"
+#include "Style.h"
 #include "TunnelBridge.h"
 #include "UdpRendezvous.h"
 #include "WinUtil.h"
 
 namespace {
 QString str(const QJsonObject& o, const char* key) { return o.value(QLatin1String(key)).toString(); }
+
+// a side's rank for the game's start line (its badge beside the timer): the title as the badges' files
+// name it ("chosen-one"), "-" for none (a server without titles)
+QString rankToken(const QString& title) {
+    const QString key = style::rankKey(title);
+    return key.isEmpty() ? QStringLiteral("-") : key;
+}
 
 // The input delay a match's ping wants (cfg::autoDelay): the frames of its one-way trip but one, which rollback covers,
 // 6 at most: 0 under 50 ms, 1 under 84, 2 under 117, 3 under 150, 4 under 184, 5 under 217, then 6
@@ -977,6 +985,8 @@ QString MatchController::watchStartLine(const QJsonObject& info) const {
         QStringLiteral("match=") + str(info, "match"),
         QStringLiteral("p1_name=") + str(info, "p1_name"),
         QStringLiteral("p2_name=") + str(info, "p2_name"),
+        QStringLiteral("p1_rank=") + rankToken(str(info, "p1_title")),
+        QStringLiteral("p2_rank=") + rankToken(str(info, "p2_title")),
     };
     return tokens.join(QLatin1Char(' '));
 }
@@ -1127,6 +1137,8 @@ QString MatchController::startLine(const QJsonObject& go) const {
         QStringLiteral("match=") + str(go, "match"),
         QStringLiteral("p1_name=") + str(go, "p1_name"),
         QStringLiteral("p2_name=") + str(go, "p2_name"),
+        QStringLiteral("p1_rank=") + rankToken(str(go, "p1_title")),
+        QStringLiteral("p2_rank=") + rankToken(str(go, "p2_title")),
     };
     QString line = tokens.join(QLatin1Char(' '));
     if (feed_) line += QStringLiteral(" feed=") + feed_->endpoint();

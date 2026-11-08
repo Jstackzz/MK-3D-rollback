@@ -8,7 +8,8 @@
 //   - Sonya's Kiss of Death (down, back + 1) cannot come out in a combo of 9 hits or more;
 //   a combo's hits count from when the opponent was last free, across knockdowns that cannot be teched (the game
 //   starts its count again at each one); landing from one that can be teched ends the combo, rolled or not, as the
-//   fighter could have rolled away (0.1.23).
+//   fighter could have rolled away (0.1.23), and since 0.1.33 the fighter may block from there: lying, getting up or
+//   rolling (see the hook of sub_00051290).
 // Blocking out of a knockdown is the game's own, as on the original Xbox: from 0.1.29 to 0.1.31 a fighter knocked off its
 // feet could not block until it stood (hooks of sub_00057E20 and sub_00057F30), and with a fighter on its knees counted
 // down too, Sonya's 2-Hit Axe Kick (Tae Kwon Do 4) became an infinite on a fighter holding block, so it went again.
@@ -69,6 +70,11 @@ constexpr Limit kLimits[] = {
     {kDrahmin, 0x271200, 6, "Drahmin's Ground Smash"},       // button 4: back, down (the table's only move)
     {kSonya, 0x270D90, 9, "Sonya's Kiss of Death"},          // button 1: down, back
 };
+
+// blocking: sub_00057F30 (a hit landing) and sub_00057E20 (a block starting) refuse while +0x158 or +0x15C is set or
+// before the frame +0x160 (on the count 0x42A8A0)
+constexpr uint32_t kNoBlock = 0x158, kNoBlockToo = 0x15C, kBlockFrom = 0x160;
+constexpr uint32_t kGameFrames = 0x42A8A0;
 
 // the block lock, see the hook of sub_000537B0
 constexpr uint32_t kLockLater = 5;          // frames
@@ -248,7 +254,15 @@ X86_FUNC(sub_00076700) {
 }
 
 // the fighter whose task runs lands from a knockdown it can tech roll out of: its combo ends here, rolled or not, and
-// the hits it takes from now start a new one
+// the hits it takes from now start a new one.
+//
+// And it may block from here (0.1.33), lying, getting up or rolling. A hit's reaction (the table at 0x2455D8, read by
+// sub_0011B050) can leave its victim unable to block (+0x15C), and the end of the attacker's move lets it go
+// (sub_000558E0 and the recovery 0x55AC0 call sub_00057DA0); a fighter knocked down after that blocks as it lies, gets up
+// and rolls. A move that never lets go left its victim unable to block until it stood again: Frost's slide (sub_000EBFD0
+// ends into stance without it), so a slide under a juggled opponent and a strike as it landed caught it getting up or
+// rolling, again and again. Now landing clears the three, as the game's own sub_00057D60 does. The computer's fighters
+// stay as they are (it blocks by its own state, sub_00057F30). Game state only, so two games online decide the same.
 X86_FUNC(sub_00051290) {
     using namespace mkda::rules;
     const uint32_t self = kernel::R32(kSelf), m = Mem();
@@ -258,6 +272,15 @@ X86_FUNC(sub_00051290) {
             LOGR("rules: P%d lands from a knockdown it can tech roll out of: its combo ends", side + 1);
         kernel::W32(m + kComboOf + side * 4, 0);
         kernel::W32(m + kSeenOf + side * 4, kernel::R32(self + kComboHits));
+    }
+    if (side >= 0 && !kernel::R32(self + kComputer)) {
+        if (kernel::R32(self + kNoBlock) || kernel::R32(self + kNoBlockToo) ||
+            kernel::R32(self + kBlockFrom) > kernel::R32(kGameFrames)) {
+            if (LogMore()) LOGR("rules: P%d lands from a knockdown it can tech roll out of: it may block again", side + 1);
+        }
+        kernel::W32(self + kNoBlock, 0);
+        kernel::W32(self + kNoBlockToo, 0);
+        kernel::W32(self + kBlockFrom, 0);
     }
     __imp__sub_00051290(ctx, base);
 }

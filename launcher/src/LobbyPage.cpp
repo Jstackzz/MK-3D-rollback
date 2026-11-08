@@ -26,6 +26,8 @@
 namespace {
 QString s(const QJsonObject& o, const char* k) { return o.value(QLatin1String(k)).toString(); }
 
+constexpr int kBadgeHeight = 24;  // a member's rank badge by their name
+
 QTableWidget* makeTable(const QStringList& headers) {
     auto* t = new QTableWidget(0, static_cast<int>(headers.size()));
     t->setHorizontalHeaderLabels(headers);
@@ -104,7 +106,11 @@ LobbyPage::LobbyPage(ServerClient* server, MatchController* controller, QWidget*
     deathTraps_ = new QCheckBox(tr("Death traps"));
     pv->addWidget(deathTraps_);
     members_ = makeTable({tr("Player"), tr("Fighter"), tr("Ready"), tr("Connection")});
-    members_->setMaximumHeight(150);
+    members_->verticalHeader()->setDefaultSectionSize(kBadgeHeight + 8);  // room for the rank badges
+    // the player's badge and name take what the other columns leave
+    for (int c = 1; c < members_->columnCount(); ++c)
+        members_->horizontalHeader()->setSectionResizeMode(c, QHeaderView::ResizeToContents);
+    members_->setMaximumHeight(170);
     pv->addWidget(members_);
     auto* controls = new QHBoxLayout;
     character_ = new QComboBox;
@@ -412,6 +418,13 @@ void LobbyPage::showLobby(const QJsonObject& lobby) {
                                    spectator ? tr("WATCHING") : ready ? tr("READY") : tr("-"),
                                    ping >= 0 ? tr("%1 ms").arg(ping) : QString()};
         for (int c = 0; c < cells.size(); ++c) members_->setItem(i, c, new QTableWidgetItem(cells[c]));
+        // their rank in the lobby's game and mode (the server's title; someone new to ranked holds the starting one):
+        // its badge before the name
+        const QString title = s(mem, "title");
+        if (const QPixmap badge = style::rankBadge(title, kBadgeHeight); !badge.isNull()) {
+            members_->item(i, 0)->setData(Qt::DecorationRole, badge);
+            members_->item(i, 0)->setToolTip(tr("Rank: %1").arg(title));
+        }
         if (const QPixmap icon = style::linkIcon(link, 16); !icon.isNull()) {
             members_->item(i, 3)->setIcon(QIcon(icon));
             members_->item(i, 3)->setToolTip(style::linkName(link));

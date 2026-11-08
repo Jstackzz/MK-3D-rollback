@@ -298,6 +298,23 @@ for p in recomp/patches/xboxxberecomp-*.patch; do git -C external/XboxXBERecomp 
   never saw this: `XBE_TEST_DISPLAY_HZ=<refresh>` makes the wait without one, and
   `XBE_TEST_RENDER_WAIT_FULL=1` brings the old wait back to compare (at 232 ms
   ping, 60 Hz, with the game's stick filter: 3.1% of frames late against 0.5%).
+- `0043-pictures-in-the-frame`: a game can draw its own pictures into its frame
+  between the title's draws, so what the title draws after goes over them
+  (each player's rank badge beside the timer, `mk3d/ranks.cpp`).
+  `gpu::SetPicture(id, file)` names a picture (PNG, or anything Windows'
+  imaging reads; loaded at its first draw, premultiplied) and
+  `d3d::DrawPicture(id, x0, y0, x1, y1)`, from a draw filter (0041), draws it
+  into the bound target over that rect in the title's own pixels, blended by
+  its alpha with the target's alpha kept, before the draw being filtered, with
+  a box filter as it shrinks. It travels as 0041's user-image draw: `start` the
+  picture, the indices the rect; picture 0 is still `select_background.png`
+  over the whole target. Not on frames that are not drawn (rollback). F3
+  captures write it as `user image <id> ... at <rect>`.
+- `0044-captures-save-the-window`: an F3 capture (or `<prefix>_NET_CAPTURE_AT`)
+  also saves `window.bmp`, the window as the player saw it with the game's
+  ImGui overlays (players' names, the frame data panel), copied out of the
+  swap chain's back buffer (its buffers can be copied, never sampled; a minimized
+  windowed game has none to save). The launcher's report sender leaves it out.
 
 `tools/py/lib_audit.py <game dir> <xbsdb symbols>` lists the XDK library
 functions the game calls that still run console code against host objects,

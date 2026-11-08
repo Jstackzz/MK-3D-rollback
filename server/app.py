@@ -375,7 +375,8 @@ class Lobby:
             "locked": bool(self.password), "state": self.state, "rounds": self.rounds, "death_traps": self.death_traps,
         }
 
-    def full_state(self) -> dict[str, Any]:
+    def full_state(self, title_of: Callable[[Session], str | None] | None = None) -> dict[str, Any]:
+        """title_of: a member's ranked title in the lobby's game and mode (none without it)."""
         return {
             "id": self.id, "name": self.name, "host": self.host.name, "game": self.game, "mode": self.mode,
             "region": self.region, "rounds": self.rounds, "locked": bool(self.password), "state": self.state,
@@ -384,7 +385,8 @@ class Lobby:
             "starts_in": round(max(0.0, self.starts_at - time.time()), 2) if self.starts_at is not None else None,
             "members": [
                 {"name": m.session.name, "character": m.character, "ready": m.ready, "host": m.session is self.host,
-                 "spectator": m.spectator, "link": m.link or None, "ping": m.server_rtt}
+                 "spectator": m.spectator, "link": m.link or None, "ping": m.server_rtt,
+                 "title": title_of(m.session) if title_of else None}
                 for m in self.members
             ],
             "chat": list(self.chat),
@@ -1260,6 +1262,13 @@ class Server:
         return {"name": o.name, "elo": rating, "title": elo.title(rating) if rating is not None else None,
                 "region": o.region, "character": o.character}
 
+    def _title_of(self, account_id: int | None, game: str, mode: str) -> str | None:
+        """The ranked title a player's rating in a game and mode holds, ranked or not: the launchers show its badge by
+        their name and the games beside the timer. Someone new to it holds the starting one."""
+        if self.db is None or account_id is None:
+            return None
+        return elo.title(self.db.rating(account_id, game, mode)["elo"])
+
     # --- match flow -------------------------------------------------------------------------------
 
     def _my_match(self, s: Session, msg: dict[str, Any]) -> tuple[Match, MatchPlayer]:
@@ -1533,14 +1542,15 @@ class Server:
         if m.ranked:
             delay = max(1, delay)
         p1, p2 = m.players
+        titles = [self._title_of(p.account_id, m.game, m.mode) for p in (p1, p2)]
         for p in m.players:
             assert p.session is not None and p.ping is not None
             p.session.send({
                 "type": "match_go", "match": m.id, "game": m.game, "mode": m.mode, "ranked": m.ranked,
                 "side": p.side, "remote": p.ping["remote"], "rtt_ms": rtt, "delay": delay, "seed": m.seed,
                 "rounds": m.rounds, "p1": p1.character or "-", "p2": p2.character or "-",
-                "p1_name": p1.name, "p2_name": p2.name, "lobby": m.lobby.id if m.lobby else None,
-                "death_traps": m.death_traps, "feed": m.lobby is not None,
+                "p1_name": p1.name, "p2_name": p2.name, "p1_title": titles[0], "p2_title": titles[1],
+                "lobby": m.lobby.id if m.lobby else None, "death_traps": m.death_traps, "feed": m.lobby is not None,
             })
         if m.lobby is not None:
             self._start_feed(m)
@@ -2019,7 +2029,7 @@ class Server:
     def _broadcast_lobby(self, lobby: Lobby, reply_to: tuple[Session, dict[str, Any]] | None = None) -> None:
         self._mark_online()  # the players per game count its members
         self._lobby_countdown(lobby)
-        state = lobby.full_state()
+        state = lobby.full_state(lambda s: self._title_of(s.account_id, lobby.game, lobby.mode))
         for member in lobby.members:
             out = {"type": "lobby", "lobby": state}
             if reply_to is not None and member.session is reply_to[0] and "id" in reply_to[1]:
@@ -2078,7 +2088,8 @@ class Server:
         info = {
             "type": "spectate", "match": m.id, "lobby": lobby.id, "game": m.game, "mode": m.mode, "seed": m.seed,
             "rounds": m.rounds, "death_traps": m.death_traps, "p1": p1.character or "-", "p2": p2.character or "-",
-            "p1_name": p1.name, "p2_name": p2.name,
+            "p1_name": p1.name, "p2_name": p2.name, "p1_title": self._title_of(p1.account_id, m.game, m.mode),
+            "p2_title": self._title_of(p2.account_id, m.game, m.mode),
         }
         feed = Feed(match=m.id, lobby=lobby, info=info, sides={p1.account_id: 0, p2.account_id: 1})
         self.feeds[m.id] = feed

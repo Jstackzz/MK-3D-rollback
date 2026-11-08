@@ -1,6 +1,8 @@
 #include "Style.h"
 
 #include <QGuiApplication>
+#include <QHash>
+#include <QImage>
 #include <QPainter>
 
 namespace style {
@@ -217,6 +219,36 @@ QIcon appIcon() {
     for (int size : {16, 24, 32, 48, 64, 128, 256})
         icon.addFile(QStringLiteral(":/logo/icon-%1.png").arg(size), QSize(size, size));
     return icon;
+}
+
+QString rankKey(const QString& title) {
+    QString key;
+    for (const QChar c : title.trimmed().toLower()) {
+        if ((c >= QLatin1Char('a') && c <= QLatin1Char('z')) || (c >= QLatin1Char('0') && c <= QLatin1Char('9')))
+            key += c;
+        else if ((c == QLatin1Char(' ') || c == QLatin1Char('-')) && !key.isEmpty() && !key.endsWith(QLatin1Char('-')))
+            key += QLatin1Char('-');
+    }
+    while (key.endsWith(QLatin1Char('-'))) key.chop(1);
+    return key;
+}
+
+QPixmap rankBadge(const QString& title, int height) {
+    const QString key = rankKey(title);
+    if (key.isEmpty() || height <= 0) return {};
+    // drawn at the screen's scale, scaled once per title and size (lists ask for every row)
+    const qreal dpr = qGuiApp ? qGuiApp->devicePixelRatio() : 1.0;
+    static QHash<QString, QPixmap> made;
+    const QString id = QStringLiteral("%1/%2/%3").arg(key).arg(height).arg(dpr);
+    if (auto it = made.constFind(id); it != made.constEnd()) return *it;
+    const QImage img(QStringLiteral(":/ranks/%1.png").arg(key));
+    QPixmap pm;
+    if (!img.isNull()) {
+        pm = QPixmap::fromImage(img.scaledToHeight(qRound(height * dpr), Qt::SmoothTransformation));
+        pm.setDevicePixelRatio(dpr);
+    }
+    made.insert(id, pm);
+    return pm;
 }
 
 }  // namespace style

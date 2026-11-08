@@ -21,9 +21,13 @@
 #include "AppPaths.h"
 #include "GameData.h"
 #include "ServerClient.h"
+#include "Style.h"
 
 namespace {
 const Game* gameOf(const QString& id) { return GameData::instance().game(id); }
+
+constexpr int kRankBadge = 64;   // the Ranked page's badge, pixels tall
+constexpr int kBoardBadge = 26;  // the leaderboard's
 
 void fillCharacters(QComboBox* box, const QList<Character>& roster, const QString& select, int fallback = 0) {
     const QSignalBlocker block(box);
@@ -199,9 +203,18 @@ QueuePage::QueuePage(bool ranked, ServerClient* server, MatchController* control
     tiles->addWidget(ui::statTile(tr("Wins"), &wins_));
     tiles->addWidget(ui::statTile(tr("Losses"), &losses_));
     rec->addLayout(tiles);
-    // ranked: the title the Elo gives (the server's), and the next one up; the whole ladder in the tooltip
+    // ranked: the title the Elo gives (the server's) with its badge, and the next one up; the whole ladder in the tooltip
     rank_ = ranked ? ui::label(QString(), "Rank") : nullptr;
-    if (rank_) rec->addWidget(rank_);
+    rankBadge_ = ranked ? new QLabel : nullptr;
+    if (rank_) {
+        auto* rankRow = new QHBoxLayout;
+        rankRow->setSpacing(14);
+        rankBadge_->setFixedHeight(kRankBadge);
+        rankRow->addWidget(rankBadge_);
+        rank_->setWordWrap(true);
+        rankRow->addWidget(rank_, 1);
+        rec->addLayout(rankRow);
+    }
 
     find_ = new QPushButton(tr("FIND MATCH"));
     find_->setObjectName(QStringLiteral("Primary"));
@@ -410,8 +423,12 @@ void QueuePage::updateStats() {
         const QString next = nextRank(ranks, elo);
         rank_->setText(!online || title.isEmpty() ? QString()
                        : next.isEmpty()           ? tr("RANK: %1").arg(title.toUpper())
-                                                  : tr("RANK: %1   (next: %2)").arg(title.toUpper(), next));
+                                                  : tr("RANK: %1\nnext: %2").arg(title.toUpper(), next));
         rank_->setToolTip(ranks.isEmpty() ? QString() : tr("Ranks by Elo:\n%1").arg(rankLadder(ranks)));
+        const QPixmap badge = online ? style::rankBadge(title, kRankBadge) : QPixmap();
+        rankBadge_->setPixmap(badge);
+        rankBadge_->setVisible(!badge.isNull());
+        rankBadge_->setToolTip(rank_->toolTip());
     }
 }
 
@@ -867,9 +884,12 @@ LeaderboardPage::LeaderboardPage(ServerClient* server, QWidget* parent) : Page(p
     mode_->setMinimumWidth(200);
     auto* refreshBtn = new QPushButton(tr("Refresh"));
     me_ = ui::label(QString(), "Big");
+    meBadge_ = new QLabel;
+    meBadge_->hide();
     row->addWidget(mode_);
     row->addWidget(refreshBtn);
     row->addStretch();
+    row->addWidget(meBadge_);
     row->addWidget(me_);
     root->addLayout(row);
     table_ = new QTableWidget(0, 7);
@@ -877,7 +897,8 @@ LeaderboardPage::LeaderboardPage(ServerClient* server, QWidget* parent) : Page(p
                                        tr("Win %")});
     table_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     table_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
-    table_->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);  // "Elder God of Destruction"
+    table_->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);  // the badge and "Grandmaster"
+    table_->verticalHeader()->setDefaultSectionSize(kBoardBadge + 8);  // room for the rank badges
     table_->verticalHeader()->hide();
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -934,8 +955,12 @@ void LeaderboardPage::onMessage(const QJsonObject& msg) {
                                    w + l ? QStringLiteral("%1%").arg(100 * w / (w + l)) : QStringLiteral("-")};
         for (int c = 0; c < cells.size(); ++c) {
             auto* item = new QTableWidgetItem(cells[c]);
-            item->setTextAlignment(c == 1 ? (Qt::AlignLeft | Qt::AlignVCenter) : Qt::AlignCenter);
+            item->setTextAlignment(c == 1 || c == 2 ? (Qt::AlignLeft | Qt::AlignVCenter) : Qt::AlignCenter);
             if (r.value(QStringLiteral("name")).toString() == server_->accountName()) item->setForeground(QColor(0xff, 0x5a, 0x66));
+            // the rank: its badge, then its name
+            if (c == 2)
+                if (const QPixmap badge = style::rankBadge(cells[c], kBoardBadge); !badge.isNull())
+                    item->setData(Qt::DecorationRole, badge);
             table_->setItem(i, c, item);
         }
     }
@@ -948,5 +973,8 @@ void LeaderboardPage::onMessage(const QJsonObject& msg) {
                               : tr("You: #%1  |  %2  |  %3").arg(me.value(QStringLiteral("rank")).toInt())
                                     .arg(me.value(QStringLiteral("elo")).toInt())
                                     .arg(me.value(QStringLiteral("title")).toString()));
+    const QPixmap myBadge = me.isEmpty() ? QPixmap() : style::rankBadge(me.value(QStringLiteral("title")).toString(), 36);
+    meBadge_->setPixmap(myBadge);
+    meBadge_->setVisible(!myBadge.isNull());
     info_->setText(tr("%1 ranked players").arg(msg.value(QStringLiteral("total")).toInt()));
 }

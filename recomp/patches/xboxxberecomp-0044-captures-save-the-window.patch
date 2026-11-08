@@ -1,0 +1,83 @@
+diff --git a/runtime/gpu/d3d12.cpp b/runtime/gpu/d3d12.cpp
+index 3f5a02c..be3de38 100644
+--- a/runtime/gpu/d3d12.cpp
++++ b/runtime/gpu/d3d12.cpp
+@@ -591,6 +591,8 @@ private:
+     };
+     void CapSave(const CapImage& img, const char* name);
+     void CapSave(Target& t, const char* name);
++    void CapWrite(const char* name, uint32_t w, uint32_t h, const std::vector<uint8_t>& px);
++    void CapSaveWindow(ID3D12Resource* bb, D3D12_RESOURCE_STATES& st);
+     // a surface's place in targets_: its key, console size and entry, end when it has none
+     struct TargetSlot {
+         uint32_t data;
+@@ -697,6 +699,7 @@ private:
+     FILE* cap_ = nullptr;
+     std::filesystem::path cap_dir_;
+     uint32_t cap_next_ = 0;  // frames after a capture whose pictures are still to be saved (a flicker shows in them)
++    bool cap_window_ = false;  // the captured frame's window, overlays and all, is still to be saved
+     // kUserImagePrim's pictures by id, each loaded at its first draw
+     struct Picture {
+         ComPtr<ID3D12Resource> tex;
+@@ -3174,6 +3177,7 @@ void D3D12Backend::FinishCapture(const Surface& front) {
+     cap_tex_.clear();
+     LOGR("d3d12: frame captured to %s, the next %u frames' pictures follow", cap_dir_.string().c_str(), kCapNext);
+     cap_next_ = kCapNext;
++    cap_window_ = true;
+ }
+ 
+ void D3D12Backend::StartCapture() {
+@@ -3268,6 +3272,10 @@ void D3D12Backend::DrawFrame(Target* t, uint32_t bi) {
+     bound_rt_ = bound_ds_ = nullptr;
+     if (t) BlitFrame(*t);
+     RenderUi();
++    if (cap_window_) {
++        cap_window_ = false;
++        CapSaveWindow(bb_[bi].Get(), bs);
++    }
+     Transition(bb_[bi].Get(), bs, D3D12_RESOURCE_STATE_PRESENT);
+ }
+ 
+@@ -3653,6 +3661,11 @@ void D3D12Backend::CapSave(const CapImage& img, const char* name) {
+     ComPtr<ID3D12Resource> down = Shrink(img.res, *img.state, img.fmt, img.w, img.h, {.mul = img.mul});
+     std::vector<uint8_t> px;
+     if (!down || !ReadBack(down.Get(), img.w, img.h, px)) return;
++    CapWrite(name, img.w, img.h, px);
++}
++
++// BGRA rows into <name>.bmp in the capture's folder
++void D3D12Backend::CapWrite(const char* name, uint32_t w, uint32_t h, const std::vector<uint8_t>& px) {
+     FILE* f = _wfopen((cap_dir_ / (std::string(name) + ".bmp")).c_str(), L"wb");
+     if (!f) return;
+     uint8_t hd[kBmpHeaderBytes] = {'B', 'M'};  // BITMAPFILEHEADER and BITMAPINFOHEADER, top down 32 bit
+@@ -3660,8 +3673,8 @@ void D3D12Backend::CapSave(const CapImage& img, const char* name) {
+     put(kBmpFileSize, kBmpHeaderBytes + uint32_t(px.size()));
+     put(kBmpPixelOffset, kBmpHeaderBytes);
+     put(kBmpInfoSize, kBmpInfoBytes);
+-    put(kBmpWidth, img.w);
+-    put(kBmpHeight, uint32_t(-int32_t(img.h)));
++    put(kBmpWidth, w);
++    put(kBmpHeight, uint32_t(-int32_t(h)));
+     hd[kBmpPlanes] = 1;
+     hd[kBmpBitCount] = 32;
+     put(kBmpImageSize, uint32_t(px.size()));
+@@ -3670,6 +3683,19 @@ void D3D12Backend::CapSave(const CapImage& img, const char* name) {
+     fclose(f);
+ }
+ 
++// F3: the window as the player saw it, the game's overlays (names, panels) too: the back buffer copied out as it is,
++// its alpha made opaque (a swap chain's buffers can only be copied, never sampled)
++void D3D12Backend::CapSaveWindow(ID3D12Resource* bb, D3D12_RESOURCE_STATES& st) {
++    const D3D12_RESOURCE_DESC rd = bb->GetDesc();
++    const uint32_t w = uint32_t(rd.Width), h = rd.Height;
++    if (rd.Format != kBgra || w < 2 || h < 2) return;
++    Transition(bb, st, D3D12_RESOURCE_STATE_COPY_SOURCE);
++    std::vector<uint8_t> px;
++    if (!ReadBack(bb, w, h, px)) return;
++    for (size_t i = 3; i < px.size(); i += 4) px[i] = 0xFF;
++    CapWrite("window", w, h, px);
++}
++
+ void D3D12Backend::CapSave(Target& t, const char* name) {
+     DXGI_FORMAT fmt = t.depth ? DXGI_FORMAT_R24_UNORM_X8_TYPELESS : t.fmt;
+     float mul = t.depth ? 1 : t.range;

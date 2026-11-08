@@ -106,28 +106,36 @@ whether to trust it: compare it with your host's.
   set after one of its matches has counted (LEAVE SET, searching again,
   quitting, or not being back within 90 seconds) loses it: one match won and
   gone gains nothing.
-- Your Elo gives your rank, shown on the Ranked page (with the next one and
-  the Elo it starts at), on the Leaderboard and when a set ends. Everyone starts
-  at 1500, a Kombatant:
+- Your Elo gives your rank, each with its badge. The Ranked page shows yours
+  (with the next one and the Elo it starts at), the Leaderboard everyone's, a
+  lobby each member's by their name, and every online fight each player's
+  beside the timer, above their health bar (player 1's on the left, player 2's
+  on the right). Each game has its own: your rank in Deadly Alliance comes from
+  your Deadly Alliance Elo. Everyone starts at 1500, a Fighter, and shows as
+  one until they play ranked:
 
   | Rank | Elo |
   |---|---|
-  | Ed Boon | below 1300 |
-  | Apprentice | 1300 to 1449 |
-  | Kombatant | 1450 to 1549 |
-  | Warrior | 1550 to 1599 |
-  | Gladiator | 1600 to 1649 |
-  | Master | 1650 to 1699 |
-  | Grand Master | 1700 to 1749 |
-  | Demigod | 1750 to 1799 |
-  | God | 1800 to 1849 |
-  | Elder God | 1850 to 1899 |
-  | Elder God Supreme | 1900 to 1999 |
-  | Elder God of Destruction | 2000 and up |
+  | Beginner | below 1425 |
+  | Learner | 1425 to 1474 |
+  | Fighter | 1475 to 1524 |
+  | Expert | 1525 to 1574 |
+  | Warrior | 1575 to 1624 |
+  | Gladiator | 1625 to 1674 |
+  | Master | 1675 to 1724 |
+  | Commander | 1725 to 1774 |
+  | Grandmaster | 1775 to 1824 |
+  | Warlord | 1825 to 1874 |
+  | Chosen One | 1875 to 1924 |
+  | Demi God | 1925 to 1974 |
+  | God | 1975 to 2024 |
+  | Elder God | 2025 to 2099 |
+  | Titan | 2100 to 2199 |
+  | Eldest God | 2200 and up |
 
   A set against a player with your Elo moves it 16, more against a better one
-  and less against a weaker one: about four sets won take a new player to
-  Warrior.
+  and less against a weaker one: two sets won take a new player to Expert, two
+  lost to Learner.
 - When a ranked set or a Kasual series is over, the launcher searches again by
   itself, the same search as before (with practice while you wait, if that is
   on), unless you left it yourself. Untick "Search again when a set or series

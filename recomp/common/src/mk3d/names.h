@@ -12,7 +12,7 @@ namespace mk3d::names {
 
 // where the names go this frame, in the frame's 640x480 pixels (y down): P1's name starts at p1_start and P2's ends at
 // p2_end, both standing on the line y; a name too long for its room (P1's up to p1_end, P2's from p2_start: clear of the
-// timer between them) is drawn smaller to fit. shade: how bright the game draws its HUD this frame, 1 at full and down
+// timer between them, and of the players' rank badges beside it, ranks.h) is drawn smaller to fit. shade: how bright the game draws its HUD this frame, 1 at full and down
 // to 0 as the screen fades to black, which the names follow.
 struct Place {
     float p1_start = 0, p1_end = 0, p2_start = 0, p2_end = 0, y = 0;

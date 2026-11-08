@@ -37,9 +37,9 @@ async def test_ranked_agreement_counts_the_match(server, connect, udp_peers):
     winner, loser = go1["p1_name"], go1["p2_name"]
 
     prof = await c1.request({"type": "profile", "name": winner})
-    assert prof["stats"]["mkd"]["kombat"]["ranked"] == {"elo": 1500, "title": "Kombatant", "wins": 1, "losses": 0}
+    assert prof["stats"]["mkd"]["kombat"]["ranked"] == {"elo": 1500, "title": "Fighter", "wins": 1, "losses": 0}
     prof = await c1.request({"type": "profile", "name": loser})
-    assert prof["stats"]["mkd"]["kombat"]["ranked"] == {"elo": 1500, "title": "Kombatant", "wins": 0, "losses": 1}
+    assert prof["stats"]["mkd"]["kombat"]["ranked"] == {"elo": 1500, "title": "Fighter", "wins": 0, "losses": 1}
 
     board = await c2.request({"type": "leaderboard", "game": "mkd", "mode": "kombat"})
     assert board["total"] == 2

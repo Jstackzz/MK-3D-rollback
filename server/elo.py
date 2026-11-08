@@ -7,23 +7,29 @@ from typing import Any
 INITIAL = 1500
 K_FACTOR = 32
 
-# The ranked titles by Elo, lowest to highest: each holds from its Elo up to the next one's, the lowest below 1300.
-# A new player starts at INITIAL, a Kombatant; a set against an equal player moves 16, so Warrior is four set wins
-# away and Apprentice four losses. The bands narrow above it, where a set against lower rated players gains less. Set
-# from the live ladders on 2026-11-03: 111 ranked records after nine days, 1416 to 1717, nine in ten 1450 to 1599.
+# The ranked titles by Elo, lowest to highest: each holds from its Elo up to the next one's, the lowest below 1425.
+# Each has its badge (art/ranks, the launcher and the games draw them by title). A new player starts at INITIAL, a
+# Fighter; a set against an equal player moves 16, so two set wins make an Expert and two losses a Learner. Bands of
+# 50 above, wider at the top, where a set against lower rated players gains less. Set 2026-11-07, when 16 badges
+# replaced the 12 titles of 0.1.21: on 2026-11-03 the live ladders held 111 ranked records, 1416 to 1717, 95 of them
+# 1450 to 1549.
 RANKS: tuple[tuple[int | None, str], ...] = (
-    (None, "Ed Boon"),
-    (1300, "Apprentice"),
-    (1450, "Kombatant"),
-    (1550, "Warrior"),
-    (1600, "Gladiator"),
-    (1650, "Master"),
-    (1700, "Grand Master"),
-    (1750, "Demigod"),
-    (1800, "God"),
-    (1850, "Elder God"),
-    (1900, "Elder God Supreme"),
-    (2000, "Elder God of Destruction"),
+    (None, "Beginner"),
+    (1425, "Learner"),
+    (1475, "Fighter"),
+    (1525, "Expert"),
+    (1575, "Warrior"),
+    (1625, "Gladiator"),
+    (1675, "Master"),
+    (1725, "Commander"),
+    (1775, "Grandmaster"),
+    (1825, "Warlord"),
+    (1875, "Chosen One"),
+    (1925, "Demi God"),
+    (1975, "God"),
+    (2025, "Elder God"),
+    (2100, "Titan"),
+    (2200, "Eldest God"),
 )
 
 

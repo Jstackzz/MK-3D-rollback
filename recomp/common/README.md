@@ -15,6 +15,7 @@ executable (`src/mk3d/*.cpp`, added by the game's `CMakeLists.txt`) and lives in
 | `mk3d/monitor.cpp` | `<prefix>_MONITOR=<port>`: the debug monitor (`tools/py/mkdbg.py`): read and write memory, dump, pause and step, hold pad buttons, call game functions |
 | `mk3d/framedata.h/.cpp` | frame data in practice: player 1's last attack (startup, active, recovery, on hit / on block) as an ImGui panel, F7 / `MK3D_FRAMEDATA`; F8 makes the dummy block; never online |
 | `mk3d/names.h/.cpp` | the players' account names in an online or a watched fight (the start line's `p1_name` / `p2_name`), just above the health bars while the fight's HUD is up, fading with the game's screen fades |
+| `mk3d/ranks.h/.cpp` | each player's rank badge in an online or a watched fight (the start line's `p1_rank` / `p2_rank`, pictures in `data/ranks`, made by `tools/py/make_ranks.py`), beside the timer, standing on each player's health bar, drawn into the game's frame just before the HUD's bars (runtime patch 0043), so the HUD goes over it where they meet and the names keep clear of it; each game's `ranks.cpp` says where its bars and timer are |
 | `mk3d/game.cpp` | `Env()`: environment variables under the game's prefix |
 
 `version/` (outside `src/`): `mk3d_version_info()` gives each game executable and the launcher a Windows version

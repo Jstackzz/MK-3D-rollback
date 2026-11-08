@@ -52,6 +52,10 @@ add_custom_command(TARGET MKA_code POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/pdb-dll
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_BINARY_DIR}/MKA.pdb ${CMAKE_CURRENT_BINARY_DIR}/pdb-dll/MKA.pdb)
 target_link_libraries(MKA PRIVATE dbghelp)
+# the rank badges beside the game (recomp/common/data/ranks, from tools/py/make_ranks.py): mk3d/ranks.cpp draws
+# them beside the timer, above the health bars; the package ships them once, in the launcher's ranks folder
+add_custom_command(TARGET MKA POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${MK3D_COMMON}/../data/ranks ${CMAKE_CURRENT_BINARY_DIR}/ranks)
 target_include_directories(MKA PRIVATE ${MK3D_COMMON})
 # the executable's version and publisher, as Windows and antivirus programs read them (recomp/common/version)
 include(${MK3D_COMMON}/../version/version.cmake)

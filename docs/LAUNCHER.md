@@ -216,9 +216,14 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    select screen too, where only the last match's loser picks (the winner's
    fighter and costume are picked by the game), and *Leave set* asks first when
    leaving would lose the set. The Ranked page's record shows the rank the Elo
-   gives and the next one (the server's `welcome.ranks`; the whole ladder in
-   its tooltip), the Leaderboard a Rank column, the ranked *Match found* window
-   your rank, and a set's end the rank change. `[dev] background`
+   gives, with its badge, and the next one (the server's `welcome.ranks`; the
+   whole ladder in its tooltip), the Leaderboard a Rank column with each rank's
+   badge and yours by your place, the ranked *Match found* window your rank,
+   and a set's end the rank change. The badges (`style::rankBadge`, built in
+   from `launcher/data/ranks`, by the title in lower case with dashes for
+   spaces) show in a lobby by each member's name too, and the start line names
+   both players' (`p1_rank`, `p2_rank`) for the games' own, beside the timer
+   above each player's health bar (`ranks/` beside the launcher). `[dev] background`
    (`cfg::devBackground`, tests on a PC someone uses, `tools/online-e2e.ps1
    -Background`): games start minimized and no window is brought to the front.
    *Search again when a set or series ends* (0.1.18, cfg

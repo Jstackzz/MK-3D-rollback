@@ -1,0 +1,233 @@
+diff --git a/runtime/gpu/backend.h b/runtime/gpu/backend.h
+index 8c71a41..316d3b4 100644
+--- a/runtime/gpu/backend.h
++++ b/runtime/gpu/backend.h
+@@ -1,6 +1,7 @@
+ #pragma once
+ #include <atomic>
+ #include <cstdint>
++#include <filesystem>
+ #include <functional>
+ #include <memory>
+ 
+@@ -72,8 +73,15 @@ inline std::atomic<uint64_t> g_perf_sync_late{0}, g_perf_sync_block{0};  // read
+ // F3: save the next frame, every draw and target, under diag::CaptureDir
+ inline std::atomic<bool> g_capture{false};
+ 
+-// a draw's primitive that is no primitive: the image in <exe dir>/select_background.png over the whole target instead
+-// (d3d::SetDrawFilter's kDrawImage; a PNG, or another picture Windows' imaging decodes)
++// a draw's primitive that is no primitive: a picture into the bound target instead, start the picture. Picture 0 is
++// the image in <exe dir>/select_background.png over the whole target (d3d::SetDrawFilter's kDrawImage); any other a
++// file SetPicture named, over the rect the draw's indices hold as four floats, x0 y0 x1 y1 in the target's guest
++// pixels (count: kPictureRectWords), blended by its alpha (d3d::DrawPicture). PNG, or another picture Windows' imaging
++// decodes.
+ constexpr uint32_t kUserImagePrim = 0x55494D47;
++constexpr uint32_t kPictureRectWords = 8;  // 16 bit words
++
++// a game's picture for d3d::DrawPicture (id 1 and up), read at its first draw; any thread
++void SetPicture(uint32_t id, const std::filesystem::path& file);
+ 
+ }  // namespace gpu
+diff --git a/runtime/gpu/d3d12.cpp b/runtime/gpu/d3d12.cpp
+index 1539d0f..3f5a02c 100644
+--- a/runtime/gpu/d3d12.cpp
++++ b/runtime/gpu/d3d12.cpp
+@@ -697,10 +697,14 @@ private:
+     FILE* cap_ = nullptr;
+     std::filesystem::path cap_dir_;
+     uint32_t cap_next_ = 0;  // frames after a capture whose pictures are still to be saved (a flicker shows in them)
+-    ComPtr<ID3D12Resource> user_image_;  // kUserImagePrim's picture, loaded at its first draw
+-    uint32_t user_w_ = 0, user_h_ = 0;
+-    bool user_image_tried_ = false;
+-    void DrawUserImage(const State& s);
++    // kUserImagePrim's pictures by id, each loaded at its first draw
++    struct Picture {
++        ComPtr<ID3D12Resource> tex;
++        uint32_t w = 0, h = 0;
++        bool tried = false;
++    };
++    std::unordered_map<uint32_t, Picture> pictures_;
++    void DrawUserImage(const State& s, uint32_t id, const uint8_t* where);
+     uint32_t cap_i_ = 0;
+     uint32_t cap_rt_ = 0;
+     std::unordered_set<uint32_t> cap_seen_;
+@@ -1395,8 +1399,10 @@ ComPtr<ID3D12Resource> D3D12Backend::CreatePixelTexture(const std::vector<uint8_
+     return tex;
+ }
+ 
+-// a picture file (PNG, or whatever else Windows' imaging decodes) as BGRA rows, none when it cannot be read
+-static std::vector<uint8_t> LoadPicture(const std::filesystem::path& path, uint32_t& w, uint32_t& h) {
++// a picture file (PNG, or whatever else Windows' imaging decodes) as BGRA rows, its colour times its alpha when
++// premultiplied, none when it cannot be read
++static std::vector<uint8_t> LoadPicture(const std::filesystem::path& path, uint32_t& w, uint32_t& h,
++                                        bool premultiplied = false) {
+     std::vector<uint8_t> px;
+     const HRESULT co = CoInitializeEx(nullptr, COINIT_MULTITHREADED);  // fails harmlessly where COM already runs
+     {
+@@ -1405,11 +1411,12 @@ static std::vector<uint8_t> LoadPicture(const std::filesystem::path& path, uint3
+         ComPtr<IWICBitmapFrameDecode> frame;
+         ComPtr<IWICBitmapSource> bgra;
+         UINT pw = 0, ph = 0;
++        const GUID format = premultiplied ? GUID_WICPixelFormat32bppPBGRA : GUID_WICPixelFormat32bppBGRA;
+         if (SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic))) &&
+             SUCCEEDED(wic->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ,
+                                                      WICDecodeMetadataCacheOnDemand, &decoder)) &&
+             SUCCEEDED(decoder->GetFrame(0, &frame)) &&
+-            SUCCEEDED(WICConvertBitmapSource(GUID_WICPixelFormat32bppBGRA, frame.Get(), &bgra)) &&
++            SUCCEEDED(WICConvertBitmapSource(format, frame.Get(), &bgra)) &&
+             SUCCEEDED(bgra->GetSize(&pw, &ph)) && pw && ph && pw <= 8192 && ph <= 8192) {
+             px.resize(size_t(pw) * ph * 4);
+             if (FAILED(bgra->CopyPixels(nullptr, pw * 4, UINT(px.size()), px.data()))) px.clear();
+@@ -1421,24 +1428,47 @@ static std::vector<uint8_t> LoadPicture(const std::filesystem::path& path, uint3
+     return px;
+ }
+ 
+-// the user's image over the whole target (kUserImagePrim): the 4:3 picture is stretched to 16:9 when Settings say so,
+-// so the image goes in whole then, else its middle 4:3
+-void D3D12Backend::DrawUserImage(const State& s) {
+-    if (!user_image_tried_) {
+-        user_image_tried_ = true;
+-        const auto path = app::ExeDir() / "select_background.png";
++// gpu::SetPicture's files by id, read by the render thread at each picture's first draw
++std::mutex g_picture_lock;
++std::unordered_map<uint32_t, std::filesystem::path> g_picture_files;
++
++// a picture into the bound target (kUserImagePrim). Picture 0, select_background.png beside the exe, goes over the
++// whole target: the 4:3 picture is stretched to 16:9 when Settings say so, so the image goes in whole then, else its
++// middle 4:3. Any other is a file the game named (gpu::SetPicture), drawn over the rect (x0 y0 x1 y1 in the target's
++// guest pixels) by its alpha, the target's own alpha kept.
++void D3D12Backend::DrawUserImage(const State& s, uint32_t id, const uint8_t* where) {
++    Picture& pic = pictures_[id];
++    if (!pic.tried) {
++        pic.tried = true;
++        std::filesystem::path path;
++        if (id == 0) {
++            path = app::ExeDir() / "select_background.png";
++        } else {
++            std::lock_guard lock(g_picture_lock);
++            auto it = g_picture_files.find(id);
++            if (it != g_picture_files.end()) path = it->second;
++        }
+         uint32_t w = 0, h = 0;
+-        std::vector<uint8_t> px = LoadPicture(path, w, h);
++        std::vector<uint8_t> px = path.empty() ? std::vector<uint8_t>() : LoadPicture(path, w, h, id != 0);
+         if (px.empty()) {
+-            LOGR("d3d12: no picture in %s: the select screen keeps its own background", path.string().c_str());
++            if (id == 0)
++                LOGR("d3d12: no picture in %s: the select screen keeps its own background", path.string().c_str());
++            else
++                LOGR("d3d12: picture %u: nothing to draw (%s)", id, path.empty() ? "no file named" : path.string().c_str());
+         } else {
+-            user_image_ = CreatePixelTexture(px, w * 4, w, h);
+-            user_w_ = w;
+-            user_h_ = h;
+-            LOGR("d3d12: the select screen's background: %ux%u from %s", w, h, path.string().c_str());
++            pic.tex = CreatePixelTexture(px, w * 4, w, h);
++            pic.w = w;
++            pic.h = h;
++            LOGR("d3d12: picture %u: %ux%u from %s", id, w, h, path.string().c_str());
+         }
+     }
+-    if (!user_image_) return;
++    if (!pic.tex) return;
++    float rect[4] = {};
++    if (id != 0) {
++        if (!where) return;
++        std::memcpy(rect, where, sizeof(rect));
++        if (!(rect[2] > rect[0]) || !(rect[3] > rect[1])) return;
++    }
+     Target* rt = EnsureTarget(s.rt, false);
+     if (!rt) return;
+     if (LatchCpuWrite(*rt)) UploadTarget(*rt, s.rt);
+@@ -1446,12 +1476,24 @@ void D3D12Backend::DrawUserImage(const State& s) {
+     rt->drawn = true;
+     SetBlitTarget(Cpu(rtv_heap_.Get(), rt->view, rtv_inc_), rt->w, rt->h);
+     float uv[4] = {0, 0, 1, 1};
+-    const float aspect = float(user_w_) / float(user_h_), shown = app::Get().stretch_4x3 ? 16.0f / 9 : 4.0f / 3;
+-    if (aspect > shown) {
+-        uv[2] = shown / aspect;
+-        uv[0] = (1 - uv[2]) / 2;
++    if (id == 0) {
++        const float aspect = float(pic.w) / float(pic.h), shown = app::Get().stretch_4x3 ? 16.0f / 9 : 4.0f / 3;
++        if (aspect > shown) {
++            uv[2] = shown / aspect;
++            uv[0] = (1 - uv[2]) / 2;
++        }
++        Blit(pic.tex.Get(), kBgra, uv, {.mul = 1 / rt->range, .rtv = rt->fmt});
++        return;
+     }
+-    Blit(user_image_.Get(), kBgra, uv, {.mul = 1 / rt->range, .rtv = rt->fmt});
++    // the rect in the host target's pixels; the scissor stays the whole target
++    const float sx = rt->gw ? float(rt->w) / float(rt->gw) : 1.0f, sy = rt->gh ? float(rt->h) / float(rt->gh) : 1.0f;
++    D3D12_VIEWPORT vp{rect[0] * sx, rect[1] * sy, (rect[2] - rect[0]) * sx, (rect[3] - rect[1]) * sy, 0, 1};
++    if (vp.Width < 1 || vp.Height < 1) return;
++    cl_->RSSetViewports(1, &vp);
++    // a picture drawn smaller than it is: a box of samples per pixel, as many across as texels fall in it
++    const float shrink = std::max(float(pic.w) / vp.Width, float(pic.h) / vp.Height);
++    const uint32_t taps = uint32_t(std::clamp(int(std::ceil(shrink)), 1, 8));
++    Blit(pic.tex.Get(), kBgra, uv, {.alpha = true, .taps = taps, .mul = 1 / rt->range, .rtv = rt->fmt, .over = true});
+ }
+ 
+ // CPU pixels of a color surface into its host target, scaled
+@@ -2765,8 +2807,15 @@ void D3D12Backend::Draw(const State& s, uint32_t prim, uint32_t start, uint32_t
+     g_perf.draws++;
+     if (cap_) CapStep(s.rt);
+     if (prim == kUserImagePrim) {
+-        if (cap_) fprintf(cap_, "%04u user image rt %08X\n", cap_i_++, s.rt.data);
+-        return DrawUserImage(s);
++        // start: the picture; indices: its rect, count 16 bit words of it
++        const uint8_t* where = indices && count * 2 >= sizeof(float) * 4 ? indices : nullptr;
++        if (cap_) {
++            float r[4] = {};
++            if (where) std::memcpy(r, where, sizeof(r));
++            fprintf(cap_, "%04u user image %u rt %08X at %.1f,%.1f to %.1f,%.1f\n", cap_i_++, start, s.rt.data, r[0],
++                    r[1], r[2], r[3]);
++        }
++        return DrawUserImage(s, start, where);
+     }
+     if (DepthCopy(s)) return;
+     // a draw that stops short is in a capture too, with where it stopped
+@@ -3663,4 +3712,9 @@ void D3D12Backend::SetGamma(const uint8_t* ramp) {
+ 
+ std::unique_ptr<Backend> CreateBackend() { return std::make_unique<D3D12Backend>(); }
+ 
++void SetPicture(uint32_t id, const std::filesystem::path& file) {
++    std::lock_guard lock(g_picture_lock);
++    g_picture_files[id] = file;
++}
++
+ }  // namespace gpu
+diff --git a/runtime/xdk/d3d8.cpp b/runtime/xdk/d3d8.cpp
+index 251d5bb..03e7c26 100644
+--- a/runtime/xdk/d3d8.cpp
++++ b/runtime/xdk/d3d8.cpp
+@@ -636,6 +636,15 @@ constexpr uint32_t kFlushUnseen = 8;    // a flush every so many: a present give
+ 
+ void d3d::SetDrawFilter(DrawFilter filter) { g_draw_filter = filter; }
+ 
++void d3d::DrawPicture(uint32_t id, float x0, float y0, float x1, float y1) {
++    static const bool draw_unseen = std::getenv("XBE_DRAW_UNSEEN") != nullptr;
++    std::lock_guard<std::recursive_mutex> lock(g_lock);
++    if (!g_backend || (g_frame_top && g_skip_present && !draw_unseen)) return;  // a frame not drawn (DropDraw)
++    SyncDeferred();
++    const float rect[4] = {x0, y0, x1, y1};
++    g_backend->Draw(g_state, gpu::kUserImagePrim, id, gpu::kPictureRectWords, reinterpret_cast<const uint8_t*>(rect));
++}
++
+ void d3d::SetSkipPresent(bool skip) {
+     std::lock_guard<std::recursive_mutex> lock(g_lock);
+     if (g_before_top)  // where the title draws more than the swap's frame: those calls are drawn every time
+diff --git a/runtime/xdk/d3d8.h b/runtime/xdk/d3d8.h
+index 4f507fb..e569226 100644
+--- a/runtime/xdk/d3d8.h
++++ b/runtime/xdk/d3d8.h
+@@ -26,4 +26,9 @@ using DrawFilter = int (*)(const gpu::State& s, uint32_t prim, uint32_t count, c
+                            uint32_t stride);
+ void SetDrawFilter(DrawFilter filter);
+ 
++// From a draw filter: a game's picture (gpu::SetPicture's id) into the bound target, over x0,y0 to x1,y1 in the
++// target's own pixels as the title addresses them, blended by the picture's alpha, before the draw being filtered,
++// which then goes over it. Nothing on frames that are not drawn.
++void DrawPicture(uint32_t id, float x0, float y0, float x1, float y1);
++
+ }  // namespace d3d

@@ -543,6 +543,18 @@ Found with the debug monitor stepping versus fights (scratchpad r30: `versus_tra
   victim's combo count (+0x1A0) about 22 frames into the knockdown. Since 0.1.23 the rules against infinites end a
   combo there (noinfinites.cpp hooks sub_00051290): landing from a knockdown that can be teched, rolled or not, the
   fighter is free until hit again; untechable knockdowns still count on.
+- Who may block after a hit: a hit's reaction kind (the table at 0x2455D8, 0x14 bytes a kind, its +4 read by
+  sub_0011B050) leaves the victim unable to block (1: +0x15C set), or clears +0x158 and +0x15C (0), or those and +0x160
+  (2). The end of the attacker's move lets it go: sub_000558E0 (at 0x559B1) and the recovery 0x55AC0 call sub_00057DA0,
+  which clears the other fighter's +0x15C; the fighter's own reset sub_00050E40 (from 0xBFB00, 0x53070) and
+  sub_00057D60 (+0x158, +0x15C, +0x160) clear its own. Frost's slide (back, down, forward + 4; sub_000EBFD0: blocked,
+  state 0x4206 and 0x53070, else 0x53130 then 0x53070) ends without it, so a fighter it knocked down stayed unable to
+  block through its whole get-up or roll, while one knocked down by his kicks blocked lying, getting up and rolling
+  (the user's match 2026-11-07, Frost vs Bo' Rai Cho, replayed exactly: a slide under the juggled Bo, then Frost's
+  Yuan Yang 4 as he landed hit him 12 frames into getting up, or 26 frames into his 31-frame roll, and juggled him
+  again). The tech check (sub_00051290: away rolls back 0xE4A90, up 0xE4AF0, down 0xE4BA0) runs as the fighter lands
+  from the ten techable reactions; since 0.1.33 noinfinites.cpp clears +0x158, +0x15C and +0x160 there for a human
+  fighter, as sub_00057D60 does, so it may block from landing on, whatever knocked it down.
 - Bo' Rai Cho's Puke Puddle (0.1.24, scratchpad r32: `slip_trace.py`, `trade_trace.py`, `block_diff.py`): the puke
   lands about 42 frames after the 2 under the opponent, wherever it stands; stepping in counts as a hit (+0x1A0 1, a
   frame of 0x600) and starts the scripted reaction 0x11AE80 with state 0x4207, about 180 frames of slipping, then the

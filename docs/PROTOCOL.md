@@ -90,19 +90,24 @@ S: {"type":"welcome","proto":1,"server":"mk3d-server","version":"0.1.0","udp_por
     "motd":"Welcome!","online":12,"min_client":"0.1.0",
     "games":{"mkda":["kombat"],"mkd":["kombat","chess","puzzle"],"mka":["kombat","motor"]},
     "regions":["na","sa","eu","me","af","as","oc"],"direct_above_ms":100,
-    "ranks":[{"title":"Ed Boon","from":null},{"title":"Apprentice","from":1300},
-             {"title":"Kombatant","from":1450}, ...,{"title":"Elder God of Destruction","from":2000}]}
+    "ranks":[{"title":"Beginner","from":null},{"title":"Learner","from":1425},
+             {"title":"Fighter","from":1475}, ...,{"title":"Eldest God","from":2200}]}
 ```
 
 - `proto` must equal the server's `PROTO`, else `error{code:"proto_mismatch"}`.
 - `ranks` (0.1.21): the ranked titles by Elo, lowest first, each held from its
-  `from` up to the next one's (the first, `null`, below the second's): Ed Boon
-  below 1300, Apprentice 1300, Kombatant 1450 (everyone starts at 1500),
-  Warrior 1550, Gladiator 1600, Master 1650, Grand Master 1700, Demigod 1750,
-  God 1800, Elder God 1850, Elder God Supreme 1900, Elder God of Destruction
-  2000 (server/elo.py `RANKS`). Every ranked rating the server sends comes with
-  its `title` (1.5, 1.7, 1.8, 1.9.1, 1.11); the launcher shows the ladder in
-  tooltips and the next title on the Ranked page.
+  `from` up to the next one's (the first, `null`, below the second's): Beginner
+  below 1425, Learner 1425, Fighter 1475 (everyone starts at 1500), Expert
+  1525, Warrior 1575, Gladiator 1625, Master 1675, Commander 1725, Grandmaster
+  1775, Warlord 1825, Chosen One 1875, Demi God 1925, God 1975, Elder God 2025,
+  Titan 2100, Eldest God 2200 (server/elo.py `RANKS`; these 16, each with its
+  badge, replaced 0.1.21's 12 titles). Every ranked rating the server sends
+  comes with its `title` (1.5, 1.7, 1.8, 1.9.1, 1.11), and so does every
+  player in a lobby or a match, ranked or not (1.8 `match_go`, 1.10, 1.10.1);
+  the launcher shows the ladder in tooltips, the next title on the Ranked page
+  and each title's badge (launcher/data/ranks, by the title in lower case with
+  dashes for spaces: `chosen-one.png`); the games show it beside the timer,
+  above each player's health bar (2.1 `p1_rank`).
 - `direct_above_ms` (0.1.18): a match relayed only because a player hides their
   address tries a direct connection when its ping through the relay is over
   this (1.7 `relay`; 0: never), for the launcher's Settings to say.
@@ -165,13 +170,13 @@ S: {"type":"logged_out"}
 ```json
 C: {"type":"profile"}                    (own profile; or {"type":"profile","name":"Raijin"})
 S: {"type":"profile","name":"Raijin","created":1761300000,
-    "stats":{"mkd":{"kombat":{"ranked":{"elo":1532,"title":"Kombatant","wins":4,"losses":2},
+    "stats":{"mkd":{"kombat":{"ranked":{"elo":1532,"title":"Expert","wins":4,"losses":2},
                               "casual":{"wins":10,"losses":7}}}}}
 ```
 
 Stats exist per game per mode: ranked Elo (start 1500, moved per set) with
 its title (1.3 `ranks`, 0.1.21) and ranked match wins/losses, and casual
-wins/losses. A missing entry means "never played" (Elo 1500, a Kombatant,
+wins/losses. A missing entry means "never played" (Elo 1500, a Fighter,
 0-0).
 
 ### 1.6 Online count and notices
@@ -207,7 +212,7 @@ C: {"type":"queue_join","game":"mkd","mode":"kombat","ranked":false,"region":"eu
     "max_ping":150,"strict":false,"character":"Scorpion","delay":2,"server_rtt":24,"relay":false,
     "link":"ethernet"}
 S: {"type":"queued","game":"mkd","mode":"kombat","ranked":false,"region":"eu",
-    "max_ping":150,"strict":false,"since":1761300000.5,"in_queue":3,"elo":1500,"title":"Kombatant",
+    "max_ping":150,"strict":false,"since":1761300000.5,"in_queue":3,"elo":1500,"title":"Fighter",
     "ping_widen":{"after":30.0,"every":15.0,"step":25,"cap":250}}
 C: {"type":"queue_leave"}
 S: {"type":"queue_left","reason":"left"}
@@ -315,7 +320,7 @@ S: {"type":"queue_left","reason":"left"}
    S: {"type":"match_peer","match":"5f2c9a01d4e3","side":1,"key":"<32 hex>","punch_timeout":10,
        "same_nat":true,
        "peer":{"public":"203.0.113.7:7001","lan":"192.168.1.20:7001"},
-       "opponent":{"name":"Fujin","elo":1488,"title":"Kombatant","region":"eu","character":"Raiden"}}
+       "opponent":{"name":"Fujin","elo":1488,"title":"Fighter","region":"eu","character":"Raiden"}}
    ```
    In ranked the opponent's `elo` (as they searched) and its `title` come with
    it (0.1.21; `null` in casual).
@@ -358,10 +363,14 @@ S: {"type":"queue_left","reason":"left"}
    ```json
    S: {"type":"match_go","match":"5f2c9a01d4e3","game":"mkd","mode":"kombat","ranked":false,
        "side":1,"remote":"203.0.113.7:7001","rtt_ms":38,"delay":2,"seed":2718281828,"rounds":3,
-       "p1":"Scorpion","p2":"Raiden","p1_name":"Raijin","p2_name":"Fujin","lobby":null,
-       "death_traps":true,"feed":false}
+       "p1":"Scorpion","p2":"Raiden","p1_name":"Raijin","p2_name":"Fujin","p1_title":"Expert",
+       "p2_title":"Fighter","lobby":null,"death_traps":true,"feed":false}
    ```
-   `delay` = the larger of both preferences, at least 1 in ranked. `seed` is
+   `p1_title`, `p2_title`: each player's ranked title in the match's game and
+   mode, in a casual or lobby match too (someone who never played it ranked:
+   the starting one; 1.3 `ranks`), for the badges the games draw beside the
+   timer (2.1 `p1_rank`). `delay` = the larger of both
+   preferences, at least 1 in ranked. `seed` is
    a fresh 32-bit value. `death_traps`: the match's (1.7; a lobby's, 1.10).
    `feed`: a lobby match, whose spectators watch it from what both games write
    (1.10.1). Sides are random for queue matches; in a lobby the
@@ -441,16 +450,16 @@ S: {"type":"series","series":"8d01c3e2a9f4","game":"mkd","mode":"kombat","ranked
     "state":"between","need":3,"played":1,"opponent":"Fujin","you":1,"them":0,
     "you_ready":false,"them_ready":false,"you_choice":"","them_choice":"",
     "same_fighters":true,"seconds_left":90,"keeps":"Raijin","opponent_elo":1500,
-    "opponent_title":"Kombatant"}
+    "opponent_title":"Fighter"}
 C: {"type":"series_ready","series":"8d01c3e2a9f4","ready":true,"choice":"rematch"}
 S: {"type":"series_ack","series":"8d01c3e2a9f4"}
 C: {"type":"series_ready","series":"8d01c3e2a9f4","ready":false}
 S: {"type":"series_left","series":"8d01c3e2a9f4"}
 S: {"type":"series","series":"8d01c3e2a9f4", ...,"state":"over","outcome":"won","winner":"Raijin",
-    "left":null,"elo":{"Raijin":{"before":1500,"after":1516,"delta":16,"title_before":"Kombatant",
-                                 "title_after":"Kombatant"},
-                       "Fujin":{"before":1500,"after":1484,"delta":-16,"title_before":"Kombatant",
-                                "title_after":"Kombatant"}}}
+    "left":null,"elo":{"Raijin":{"before":1500,"after":1516,"delta":16,"title_before":"Fighter",
+                                 "title_after":"Fighter"},
+                       "Fujin":{"before":1500,"after":1484,"delta":-16,"title_before":"Fighter",
+                                "title_after":"Fighter"}}}
 ```
 
 - `state`: `between` (the server waits for both players' `series_ready`),
@@ -532,9 +541,12 @@ C: {"type":"lobby_settings","death_traps":false}               (host only, 0.1.8
 S: {"type":"lobby","lobby":{"id":"K7WQ2","name":"Friday sets","host":"Raijin","game":"mkd",
     "mode":"kombat","region":"eu","rounds":3,"locked":false,"state":"open","match":null,"starts_in":2.4,
     "death_traps":true,"max_spectators":8,
-    "members":[{"name":"Raijin","character":"Scorpion","ready":true,"host":true,"spectator":false},
-               {"name":"Fujin","character":"Kenshi","ready":true,"host":false,"spectator":false},
-               {"name":"Kitana","character":"","ready":false,"host":false,"spectator":true}],
+    "members":[{"name":"Raijin","character":"Scorpion","ready":true,"host":true,"spectator":false,
+                "title":"Grandmaster"},
+               {"name":"Fujin","character":"Kenshi","ready":true,"host":false,"spectator":false,
+                "title":"Fighter"},
+               {"name":"Kitana","character":"","ready":false,"host":false,"spectator":true,
+                "title":"Expert"}],
     "chat":[{"from":"Fujin","text":"gg","ts":1761300042.1}]}}
 S: {"type":"lobby_chat","lobby":"K7WQ2","from":"Fujin","text":"gg","ts":1761300042.1}
 S: {"type":"lobby_left","lobby":"K7WQ2"}
@@ -543,6 +555,9 @@ S: {"type":"lobby_left","lobby":"K7WQ2"}
 - `lobby_create`, `lobby_join` and `lobby_ready` may carry `link` and
   `server_rtt` (as in `queue_join`); the lobby state's members show them as
   `link` and `ping` (`null` unknown).
+- Each member's `title`: their ranked title in the lobby's game and mode
+  (someone who never played it ranked: the starting one; 1.3 `ranks`), whose
+  badge the launcher shows by their name.
 - A member whose connection drops (or is replaced by a new login of the same
   account) keeps their place for 60 s: when that account logs in again within
   it, the server puts it back in the lobby (a player's place if one is free,
@@ -590,7 +605,7 @@ players.
 C: {"type":"feed","match":"5f2c9a01d4e3","data":"<base64>"}       (a player's launcher, every 0.1 s)
 S: {"type":"spectate","match":"5f2c9a01d4e3","lobby":"K7WQ2","game":"mkd","mode":"kombat",
     "seed":2718281828,"rounds":3,"death_traps":true,"p1":"Scorpion","p2":"-",
-    "p1_name":"Raijin","p2_name":"Fujin"}
+    "p1_name":"Raijin","p2_name":"Fujin","p1_title":"Expert","p2_title":"Fighter"}
 S: {"type":"spectate_feed","match":"5f2c9a01d4e3","data":"<base64>"}
 S: {"type":"spectate_end","match":"5f2c9a01d4e3","status":"agreed","winner":1,
     "p1_rounds":2,"p2_rounds":0}
@@ -627,7 +642,7 @@ S: {"type":"spectate_end","match":"5f2c9a01d4e3","status":"agreed","winner":1,
 ```json
 C: {"type":"leaderboard","game":"mkd","mode":"kombat","limit":100,"offset":0}
 S: {"type":"leaderboard","game":"mkd","mode":"kombat","total":57,
-    "rows":[{"rank":1,"name":"Raijin","elo":1712,"title":"Grand Master","wins":40,"losses":12}],
+    "rows":[{"rank":1,"name":"Raijin","elo":1712,"title":"Master","wins":40,"losses":12}],
     "me":{"rank":9,"elo":1580,"title":"Warrior","wins":8,"losses":3}}
 ```
 
@@ -987,7 +1002,11 @@ winner keeping theirs, 0.1.21); `rounds` (best of N); `ranked` (0 or
 their options' DEATH TRAPS from it, and the round time and blood level to
 their defaults, whatever each PC's options and profile say); `match` (id,
 echoed in status lines). Optional: `p1_name`, `p2_name` (account names; the
-games show them just above the health bars),
+games show them just above the health bars), `p1_rank`, `p2_rank` (each
+player's ranked title in lower case, dashes for spaces, `chosen-one`, from
+`match_go`'s or `spectate`'s `p1_title` and `p2_title`; `-` none: the games draw
+that title's badge, `ranks/<rank>.png`, beside the timer above that player's
+health bar),
 `stage` (absent = the game derives it from the seed), `feed` (`127.0.0.1:port`,
 a TCP port of the launcher's: the game writes its spectator feed there, 1.10.1;
 a lobby match's), `watch=1` (a spectator: no `side`, `local_port` or `remote`;
