@@ -8,8 +8,10 @@
 //   - Sonya's Kiss of Death (down, back + 1) cannot come out in a combo of 9 hits or more;
 //   a combo's hits count from when the opponent was last free, across knockdowns that cannot be teched (the game
 //   starts its count again at each one); landing from one that can be teched ends the combo, rolled or not, as the
-//   fighter could have rolled away (0.1.23);
-//   - a fighter knocked off its feet cannot block until it stands again.
+//   fighter could have rolled away (0.1.23).
+// Blocking out of a knockdown is the game's own, as on the original Xbox: from 0.1.29 to 0.1.31 a fighter knocked off its
+// feet could not block until it stood (hooks of sub_00057E20 and sub_00057F30), and with a fighter on its knees counted
+// down too, Sonya's 2-Hit Axe Kick (Tae Kwon Do 4) became an infinite on a fighter holding block, so it went again.
 // Also here: Scorpion's Hellfire and a fighter getting up, and an attack over Bo' Rai Cho's puddle; see the hooks of
 // sub_00051B20 and sub_001381E0.
 //
@@ -41,8 +43,6 @@
 X86_EXTERN_FUNC(__imp__sub_00076700);
 X86_EXTERN_FUNC(__imp__sub_00051290);
 X86_EXTERN_FUNC(__imp__sub_000537B0);
-X86_EXTERN_FUNC(__imp__sub_00057E20);
-X86_EXTERN_FUNC(__imp__sub_00057F30);
 X86_EXTERN_FUNC(__imp__sub_00053650);
 X86_EXTERN_FUNC(__imp__sub_001381E0);
 X86_EXTERN_FUNC(__imp__sub_00051B20);
@@ -79,30 +79,14 @@ constexpr uint32_t kComputer = 0x20C;       // not 0: the computer plays this fi
 
 // guest memory: per side, the hits of the combo it is in or still getting up from (added up across knockdowns), and
 // the game's own count when last looked at; the attack its block routine is not told of yet, and since when
-constexpr uint32_t kComboOf = 0, kSeenOf = 8, kLockAttack = 16, kLockSince = 24, kDownOf = 32, kStyleAt = 40, kBytes = 48;
+constexpr uint32_t kComboOf = 0, kSeenOf = 8, kLockAttack = 16, kLockSince = 24, kStyleAt = 32, kBytes = 40;
 uint32_t g_mem = 0;
 uint32_t g_logged = 0;  // rule lines logged so far, the first 200 (LOG_FIRST is silent in release builds)
 
 bool LogMore() { return g_logged < 200 && ++g_logged; }
 
-// A fighter knocked off its feet cannot block until it stands. The game's block check (sub_00057E20) refuses in the air, in
-// a stagger (0x605) and while a flag says so, but the juggle limit's reaction sub_001198A0 clears the flags, and many
-// others never set them: so a fighter who has landed, even one lying flat, blocks the next hit while it holds block, and
-// the block reaction stands it up. A fighter is down from a reaction that ends on the floor (the routines below, which
-// lie there and then get up or roll) or, for the scripted reaction 0x11AE80 that many falls run under, once its body lies
-// flat (under 0.9 from its lowest body sphere to its highest: standing about 1.3 to 1.8, the lowest stagger about 1.0,
-// lying 0.1 to 0.3); it stays down until its reaction ends (state 0x06xx, the last routine 0x53070).
-constexpr uint32_t kTask[2] = {0x2EA530, 0x2EA534};
-constexpr uint32_t kRoutine = 0x30;
-constexpr uint32_t kUp = 0x53070;  // the end of a reaction: on its feet
 constexpr uint32_t kShape[2] = {0x25B210, 0x25B248};  // the fighters' shapes: +4 the body spheres, +0x18 how many
-constexpr uint32_t kSphereSize = 0x84, kSphereHeight = 0x48;
-constexpr float kFlat = 0.9f;
-constexpr uint32_t kOnTheFloor[] = {
-    0x1183C0, 0x1191C0, 0x119280, 0x119390, 0x119490, 0x119AD0, 0x11A160, 0x11A250, 0x11A350, 0x11A870, 0x11BC40,
-    0x117B70, 0x117F90, 0x1196F0, 0x1197D0, 0x1188C0, 0x1198A0, 0x11ADA0, 0x119990, 0x118EB0,  // the reactions
-    0x57690,  0x57720,  0x577A0,  0x57820,  0x578D0,  0x57950,  0x579D0,  0x57A50,  0x11A430,            // lying there
-};
+constexpr uint32_t kSphereSize = 0x84;
 
 // Bo' Rai Cho's Puke Puddle, see the hook of sub_001381E0
 constexpr uint32_t kProjectile = 0x31FA8C, kProjectileObject = 0x31FA88;  // the one whose routine runs, and its object
@@ -142,34 +126,6 @@ Presses PressesOf(int side) {
     return {kernel::R32(newest), kernel::R32(newest + 4), kernel::R32(before), kernel::R32(before + 4)};
 }
 
-bool OnTheFloor(uint32_t routine) {
-    for (uint32_t r : kOnTheFloor)
-        if (r == routine) return true;
-    return false;
-}
-
-uint32_t RoutineOf(int side) {
-    const uint32_t task = kernel::R32(kTask[side]);
-    return task && mem::IsCommitted(task) ? kernel::R32(task + kRoutine) : 0;
-}
-
-// from the fighter's lowest body sphere to its highest
-float BodyHeight(int side) {
-    const uint32_t spheres = kernel::R32(kShape[side] + 4), count = kernel::R32(kShape[side] + 0x18);
-    if (!spheres || !count || count > 64 || !mem::IsCommitted(spheres) ||
-        !mem::IsCommitted(spheres + count * kSphereSize - 1))
-        return 9.0f;
-    float low = 1e9f, high = -1e9f;
-    for (uint32_t i = 0; i < count; i++) {
-        const uint32_t word = kernel::R32(spheres + i * kSphereSize + kSphereHeight);
-        float y;
-        std::memcpy(&y, &word, sizeof y);
-        low = std::min(low, y);
-        high = std::max(high, y);
-    }
-    return high - low;
-}
-
 uint32_t Mem() {
     if (!g_mem) {
         g_mem = mem::AllocContiguous(kBytes, 0, 0xFFFFFFFF, 16);
@@ -200,11 +156,6 @@ void EachFrame(uint64_t) {
     for (int s = 0; s < 2; s++) {
         const uint32_t f = kernel::R32(kFighter[s]);
         const bool here = f && mem::IsCommitted(f);
-        const uint32_t routine = RoutineOf(s);
-        if (!here || (kernel::R32(f + kState) & 0xFF00) != 0x0600 || routine == kUp)
-            kernel::W32(m + kDownOf + s * 4, 0);
-        else if (OnTheFloor(routine) || BodyHeight(s) < kFlat)
-            kernel::W32(m + kDownOf + s * 4, 1);
         // a style change that went ahead of an attack button: as it started it marked the newest press used, and that
         // is the button. Mark the LT instead, so the new style's script sees the button.
         if (const uint32_t since = kernel::R32(m + kStyleAt + s * 4)) {
@@ -227,15 +178,6 @@ void EachFrame(uint64_t) {
         if (hits > seen) kernel::W32(m + kComboOf + s * 4, kernel::R32(m + kComboOf + s * 4) + hits - seen);
         kernel::W32(m + kSeenOf + s * 4, hits);
     }
-}
-
-// Knocked off its feet and not up yet. The computer's fighters stay as they are.
-bool Down(uint32_t fighter) {
-    const int side = Side(fighter);
-    if (side < 0 || kernel::R32(fighter + kComputer)) return false;
-    const uint32_t routine = RoutineOf(side), m = Mem();
-    if (OnTheFloor(routine)) return true;
-    return m && routine != kUp && (kernel::R32(fighter + kState) & 0xFF00) == 0x0600 && kernel::R32(m + kDownOf + side * 4);
 }
 
 // the hits of the combo a fighter is in, with those of this frame so far
@@ -378,28 +320,6 @@ X86_FUNC(sub_00053650) {
         }
     }
     __imp__sub_00053650(ctx, base);
-}
-
-// A fighter knocked off its feet cannot block until it stands: the block checks for the fighter whose task runs and for
-// the other one say no. All of it reads game state and guest memory, so a rollback puts it back with the rest.
-X86_FUNC(sub_00057E20) {
-    using namespace mkda::rules;
-    if (Down(kernel::R32(kSelf))) {
-        ctx.eax = 0;
-        ctx.esp += 4;  // ret
-        return;
-    }
-    __imp__sub_00057E20(ctx, base);
-}
-
-X86_FUNC(sub_00057F30) {
-    using namespace mkda::rules;
-    if (Down(kernel::R32(kOpponent))) {
-        ctx.eax = 0;
-        ctx.esp += 4;  // ret
-        return;
-    }
-    __imp__sub_00057F30(ctx, base);
 }
 
 // Scorpion's Hellfire (down, back + 2) remembers where the opponent stands (sub_00051AE0, 3 frames after the press) and about
