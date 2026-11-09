@@ -570,6 +570,23 @@ Found with the debug monitor stepping versus fights (scratchpad r30: `versus_tra
   +0xD38 the animation sub_001030A0 copies from the animation player [0x3209FC]+0x2C, +0xBC set by the slip); the
   hash leaves pointer-like words out (netgame.cpp Pointer: 0x10000 to 0x4000000 and from 0x80000000, which also
   takes in negative floats).
+- The back dash: the press handlers sub_00126E00 (+1) and sub_00126F40 (-1) run for a press left or right whatever the
+  fighter is doing (the tables 0x246640 and 0x246698 by [0x2D4C4C], 5 in a fight) and call sub_00126E20(dir): two presses
+  away within 13 frames of the count 0x42A888, each stamped in +0x1C0, no wait for 0x6208 (sub_00050D90) and no bit of
+  0x4200 in the state put the fighter's task on sub_000E5B60 (state 0x6208, about 20 frames, ending in a 40 frame wait
+  for the next one). A move's reset to state 0 opens it, before the move gate +0x168 ends, which the dash does not read.
+- Move scripts (the .ssf's type 7 sections): four words (entries, code size, names size, 0), then per entry its name's
+  offset and its code's in words, the names, the code. A command is a word (top byte 1, or 2 for the end; next byte the
+  argument words; low 16 bits the opcode, handlers put in 0x31FD40 by sub_0011D230) and its arguments; +0x9F8 already
+  points at the next command while one runs, so a strike is known by the command after it, counted from +0x9F0, the name
+  of the entry the script started at. Opcodes: 0x8A strike (sub_00054900 to an animation frame), 0xD wait to an animation
+  frame, 0xE wait to so many before the end, 0x8 end with the recovery sub_00055AC0 (cap, +0x1EC, +0x164, +0x160, +0x1F0,
+  +0x1F4 turn around), 0x75 start the attack.
+- Bo' Rai Cho's Jojutsu forward + 3 (jojutsu_3_towards, both costumes): strikes from commands +0x918 and +0x94C, then
+  the wait and the recovery (5, 5, 15, 1, 1), so 12 frames after the second strike's last the gate shuts for 5 more
+  and the block for 15: recovery 16, -19 to attack, -29 on block. From the seventh frame of that it may go into a back
+  dash when blocked or missed (noinfinites.cpp hooks sub_00126E20, 0.1.34; not run or tested when it shipped); the
+  block stays shut until the frame it would have opened.
 
 ## Tools
 
