@@ -1036,7 +1036,13 @@ class Server:
 
     def _profile(self, row: Any) -> dict[str, Any]:
         assert self.db is not None
-        return {"name": row["name"], "created": int(row["created"]), "stats": self.db.stats(int(row["id"]))}
+        stats = self.db.stats(int(row["id"]))
+        # a mode never played ranked comes with the rating it starts from: the launcher's own default is the old start's
+        start = {"elo": elo.INITIAL, "title": elo.title(elo.INITIAL), "wins": 0, "losses": 0}
+        for game, modes in P.GAMES.items():
+            for mode in modes:
+                stats.setdefault(game, {}).setdefault(mode, {}).setdefault("ranked", dict(start))
+        return {"name": row["name"], "created": int(row["created"]), "stats": stats}
 
     def on_profile(self, s: Session, msg: dict[str, Any]) -> None:
         assert self.db is not None

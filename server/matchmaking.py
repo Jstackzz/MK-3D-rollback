@@ -55,7 +55,7 @@ class MatchmakingConfig:
     elo_base: int = 100
     elo_step: int = 50
     elo_step_seconds: float = 10.0
-    elo_max: int = 600
+    elo_max: int = 1100  # a new player (475) and a record from the old start (1500) can meet, after about 3 minutes
     region_widen_after: float = 20.0
     allow_same_ip: bool = False
     # a search that finds nobody raises its max ping (unless strict): after ping_widen_after seconds by

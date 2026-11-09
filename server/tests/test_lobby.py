@@ -24,7 +24,7 @@ async def test_lobby_create_join_ready_start(server, connect, udp_peers):
     code = lobby["id"]
     assert len(code) == 5 and lobby["locked"] and lobby["state"] == "open"
     assert lobby["members"] == [{"name": "Goro", "character": "Scorpion", "ready": False, "host": True,
-                                 "spectator": False, "link": None, "ping": None, "title": "Fighter"}]
+                                 "spectator": False, "link": None, "ping": None, "title": "Beginner"}]
 
     listed = await guest.request({"type": "lobby_list", "game": "mkd"})
     assert [(lb["id"], lb["players"], lb["locked"]) for lb in listed["lobbies"]] == [(code, 1, True)]
@@ -92,7 +92,7 @@ async def test_lobby_create_join_ready_start(server, connect, udp_peers):
     guest.send({"type": "ping_report", "match": pg["match"], **rg})
     gh = await host.expect("match_go")
     assert (gh["p1"], gh["p2"], gh["p1_name"], gh["lobby"]) == ("Scorpion", "Mileena", "Goro", code)
-    assert (gh["p1_title"], gh["p2_title"]) == ("Fighter", "Fighter")  # neither has played ranked: the start
+    assert (gh["p1_title"], gh["p2_title"]) == ("Beginner", "Beginner")  # neither has played ranked: the start
     assert gh["ranked"] is False
 
     # results finish the match; the lobby opens again with ready flags cleared

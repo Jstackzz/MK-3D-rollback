@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 
 from server import elo
+from server import protocol as P
 from server.__main__ import RESET_RANKS_FLAG, reset_ranks_if_asked
 from server.db import Database
 
@@ -23,7 +24,7 @@ LADDER = [
 
 def test_titles_by_elo():
     assert [(r["title"], r["from"]) for r in elo.ladder()] == LADDER
-    assert elo.title(elo.INITIAL) == "Fighter"  # where everyone starts
+    assert elo.title(elo.INITIAL) == "Beginner"  # where a new player starts
     for (name, floor), (_, upper) in zip(LADDER, LADDER[1:] + [(None, None)]):
         if floor is not None:
             assert elo.title(floor) == name
@@ -94,11 +95,23 @@ async def test_lobby_members_come_with_their_titles_in_its_game_and_mode(server,
     assert [(m["name"], m["title"]) for m in created["lobby"]["members"]] == [("Kitana", "God")]
     # Jade never played ranked: the title everyone starts with
     joined = await guest.request({"type": "lobby_join", "lobby": code, "character": "Kenshi"})
-    assert [(m["name"], m["title"]) for m in joined["lobby"]["members"]] == [("Kitana", "God"), ("Jade", "Fighter")]
+    assert [(m["name"], m["title"]) for m in joined["lobby"]["members"]] == [("Kitana", "God"), ("Jade", "Beginner")]
     await guest.request({"type": "lobby_leave"})
     await host.request({"type": "lobby_leave"})
     chess = await host.request(create_msg(mode="chess"))
     assert [(m["name"], m["title"]) for m in chess["lobby"]["members"]] == [("Kitana", "Beginner")]
+
+
+async def test_a_new_player_starts_a_beginner_and_a_record_from_the_old_start_stays(server, connect):
+    c = await connect("Goro")
+    assert elo.INITIAL == 475
+    start = {"elo": 475, "title": "Beginner", "wins": 0, "losses": 0}
+    prof = await c.request({"type": "profile"})
+    assert all(prof["stats"][game][mode]["ranked"] == start for game, modes in P.GAMES.items() for mode in modes)
+    set_rating(server, "Goro", 1516)  # played ranked while everyone started at 1500
+    prof = await c.request({"type": "profile"})
+    assert prof["stats"]["mkd"]["kombat"]["ranked"] == {"elo": 1516, "title": "Fighter", "wins": 3, "losses": 2}
+    assert prof["stats"]["mkd"]["chess"]["ranked"] == start  # each mode has its own
 
 
 EVERY_RECORD = [("mkd", "chess", "ranked", 1300), ("mkda", "kombat", "casual", 1500), ("mkda", "kombat", "ranked", 1700)]

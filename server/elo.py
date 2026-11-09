@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
-INITIAL = 1500
+INITIAL = 475
 K_FACTOR = 32
 
 # The ranked titles by Elo, lowest to highest: each holds from its Elo up to the next one's, the lowest below 975.
 # Each has its badge (art/ranks, the launcher and the games draw them by title). A new player starts at INITIAL, a
-# Fighter; a set against an equal player moves 16, so two losses make a Learner. The steps up are set by rank
-# (2026-11-09): 500 up to Expert, 750 from Expert, 1000 each from Warrior, 1500 each from Commander, 2000 each from
-# Warlord, 3000 each from Demi God, 3500 each from Elder God.
+# Beginner, one step (500) below Learner; a record made when the start was 1500 (a Fighter) keeps its Elo and its title.
+# The steps up are set by rank (2026-11-09): 500 up to Expert, 750 from Expert, 1000 each from Warrior, 1500 each from
+# Commander, 2000 each from Warlord, 3000 each from Demi God, 3500 each from Elder God.
 RANKS: tuple[tuple[int | None, str], ...] = (
     (None, "Beginner"),
     (975, "Learner"),

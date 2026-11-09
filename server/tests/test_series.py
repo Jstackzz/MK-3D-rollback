@@ -9,7 +9,7 @@ import pytest
 
 from server.client import ServerError
 
-from .conftest import queue_msg, run_to_go
+from .conftest import played, queue_msg, run_to_go
 
 
 async def first_match(server, connect, udp_peers, names, *, ranked, character="Scorpion", game="mkd", mode="kombat"):
@@ -62,29 +62,29 @@ async def test_ranked_set_ends_at_three_wins_with_one_elo_change(server, connect
     s1, s2 = await play(c1, c2, gos[1]["match"], 1)
     assert s1["state"] == "between" and s1["ranked"] and s1["need"] == 3 and s1["opponent"] == p2
     assert (s1["you"], s1["them"], s2["you"], s2["them"]) == (1, 0, 0, 1)
-    assert s1["opponent_elo"] == 1500 and s1["opponent_title"] == "Fighter"
+    assert s1["opponent_elo"] == 475 and s1["opponent_title"] == "Beginner"
     # the match counts at once, the rating waits for the set
-    assert await ranked_stats(c1, p1) == {"elo": 1500, "title": "Fighter", "wins": 1, "losses": 0}
+    assert await ranked_stats(c1, p1) == {"elo": 475, "title": "Beginner", "wins": 1, "losses": 0}
 
     gos2 = await next_match(server, sides, s1["series"])
     assert gos2[1]["match"] != gos[1]["match"] and gos2[1]["p1_name"] == p1  # same sides
     s1, _ = await play(c1, c2, gos2[1]["match"], 1)
     # two wins took a set before 0.1.21: now it goes on to the third
     assert s1["state"] == "between" and (s1["you"], s1["them"]) == (2, 0)
-    assert await ranked_stats(c1, p1) == {"elo": 1500, "title": "Fighter", "wins": 2, "losses": 0}
+    assert await ranked_stats(c1, p1) == {"elo": 475, "title": "Beginner", "wins": 2, "losses": 0}
     gos3 = await next_match(server, sides, s1["series"])
     over1, over2 = await play(c1, c2, gos3[1]["match"], 1)
     assert over1["state"] == "over" and over1["outcome"] == "won" and over1["winner"] == p1
     assert (over1["you"], over1["them"]) == (3, 0)
-    assert over1["elo"][p1] == {"before": 1500, "after": 1516, "delta": 16,
-                                "title_before": "Fighter", "title_after": "Fighter"}
-    assert over2["elo"][p2] == {"before": 1500, "after": 1484, "delta": -16,
-                                "title_before": "Fighter", "title_after": "Fighter"}
-    assert await ranked_stats(c1, p1) == {"elo": 1516, "title": "Fighter", "wins": 3, "losses": 0}
-    assert await ranked_stats(c1, p2) == {"elo": 1484, "title": "Fighter", "wins": 0, "losses": 3}
+    assert over1["elo"][p1] == {"before": 475, "after": 491, "delta": 16,
+                                "title_before": "Beginner", "title_after": "Beginner"}
+    assert over2["elo"][p2] == {"before": 475, "after": 459, "delta": -16,
+                                "title_before": "Beginner", "title_after": "Beginner"}
+    assert await ranked_stats(c1, p1) == {"elo": 491, "title": "Beginner", "wins": 3, "losses": 0}
+    assert await ranked_stats(c1, p2) == {"elo": 459, "title": "Beginner", "wins": 0, "losses": 3}
     row = server.db.set_row(over1["series"])
     assert row["outcome"] == "won" and (row["p1_wins"], row["p2_wins"]) == (3, 0)
-    assert (row["p1_elo_after"], row["p2_elo_after"]) == (1516, 1484)
+    assert (row["p1_elo_after"], row["p2_elo_after"]) == (491, 459)
     assert not server.series and not server.series_of
 
 
@@ -103,7 +103,7 @@ async def test_ranked_set_goes_to_a_fifth_match_at_two_all(server, connect, udp_
     assert over2["state"] == "over" and over2["outcome"] == "won" and over2["winner"] == p2 and over2["played"] == 5
     assert (over2["you"], over2["them"]) == (3, 2)
     # the server's log says the set's score and both new ratings with their titles
-    assert any(f"over: won, {p1} 2-3 {p2}, {p2} wins it, {p1} 1500 -> 1484 Fighter, {p2} 1500 -> 1516 Fighter"
+    assert any(f"over: won, {p1} 2-3 {p2}, {p2} wins it, {p1} 475 -> 459 Beginner, {p2} 475 -> 491 Beginner"
                in r.getMessage() for r in caplog.records)
 
 
@@ -117,8 +117,8 @@ async def test_one_match_won_and_gone_loses_the_set(server, connect, udp_peers):
     over = await c2.expect("series", state="over")
     assert over["outcome"] == "forfeit" and over["left"] == p1 and over["winner"] == p2
     assert over["elo"][p1]["delta"] == -16 and over["elo"][p2]["delta"] == 16
-    assert await ranked_stats(c2, p1) == {"elo": 1484, "title": "Fighter", "wins": 1, "losses": 0}
-    assert await ranked_stats(c2, p2) == {"elo": 1516, "title": "Fighter", "wins": 0, "losses": 1}
+    assert await ranked_stats(c2, p1) == {"elo": 459, "title": "Beginner", "wins": 1, "losses": 0}
+    assert await ranked_stats(c2, p2) == {"elo": 491, "title": "Beginner", "wins": 0, "losses": 1}
 
 
 async def test_searching_again_in_a_set_loses_it(server, connect, udp_peers):
@@ -153,7 +153,7 @@ async def test_leaving_before_anything_counted_changes_no_rating(server, connect
     await c2.request({"type": "series_ready", "series": s1["series"], "ready": False})
     over = await c1.expect("series", state="over")
     assert over["outcome"] == "void" and over["winner"] is None and "elo" not in over
-    assert server.db.rating(server.db.account_by_name("Kabal")["id"], "mkd", "kombat")["elo"] == 1500
+    assert server.db.rating(server.db.account_by_name("Kabal")["id"], "mkd", "kombat")["elo"] == 475
 
 
 async def test_casual_rematch_while_both_want_one(server, connect, udp_peers):
@@ -181,7 +181,7 @@ async def test_casual_rematch_while_both_want_one(server, connect, udp_peers):
     over = await c1.expect("series", state="over")
     assert over["outcome"] == "left" and over["left"] == p2 and "elo" not in over
     prof = await c1.request({"type": "profile", "name": p1})
-    assert prof["stats"] == {"mkd": {"kombat": {"casual": {"wins": 1, "losses": 1}}}}
+    assert played(prof["stats"]) == {"mkd": {"kombat": {"casual": {"wins": 1, "losses": 1}}}}
 
 
 async def test_kombat_rematch_goes_back_to_character_select(server, connect, udp_peers):
@@ -398,7 +398,7 @@ async def test_a_game_that_never_started_a_sets_first_match_changes_no_rating(se
     assert over["outcome"] == "void" and over["winner"] is None and "elo" not in over
     assert (await c2.expect("series", state="over"))["outcome"] == "void"
     for name in ("Kitana", "Jade"):
-        assert server.db.rating(server.db.account_by_name(name)["id"], "mkd", "kombat")["elo"] == 1500
+        assert server.db.rating(server.db.account_by_name(name)["id"], "mkd", "kombat")["elo"] == 475
     assert any(f"{p2}'s game never started its first match: void" in r.getMessage() for r in caplog.records)
 
 

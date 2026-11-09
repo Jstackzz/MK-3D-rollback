@@ -111,7 +111,7 @@ whether to trust it: compare it with your host's.
   lobby each member's by their name, and every online fight each player's
   beside the timer, above their health bar (player 1's on the left, player 2's
   on the right). Each game has its own: your rank in Deadly Alliance comes from
-  your Deadly Alliance Elo. Everyone starts at 1500, a Fighter, and shows as
+  your Deadly Alliance Elo. New players start at 475, a Beginner, and show as
   one until they play ranked:
 
   | Rank | Elo |
@@ -134,7 +134,7 @@ whether to trust it: compare it with your host's.
   | Eldest God | 25725 and up |
 
   A set against a player with your Elo moves it 16, more against a better one
-  and less against a weaker one: two sets lost take a new player to Learner.
+  and less against a weaker one.
 - When a ranked set or a Kasual series is over, the launcher searches again by
   itself, the same search as before (with practice while you wait, if that is
   on), unless you left it yourself. Untick "Search again when a set or series

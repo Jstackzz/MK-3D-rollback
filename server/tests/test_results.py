@@ -7,7 +7,7 @@ import logging
 
 from server import elo
 
-from .conftest import queue_msg, run_to_go
+from .conftest import played, queue_msg, run_to_go
 
 
 async def setup_match(server, connect, udp_peers, names, *, ranked, game="mkd", mode="kombat"):
@@ -37,13 +37,13 @@ async def test_ranked_agreement_counts_the_match(server, connect, udp_peers):
     winner, loser = go1["p1_name"], go1["p2_name"]
 
     prof = await c1.request({"type": "profile", "name": winner})
-    assert prof["stats"]["mkd"]["kombat"]["ranked"] == {"elo": 1500, "title": "Fighter", "wins": 1, "losses": 0}
+    assert prof["stats"]["mkd"]["kombat"]["ranked"] == {"elo": 475, "title": "Beginner", "wins": 1, "losses": 0}
     prof = await c1.request({"type": "profile", "name": loser})
-    assert prof["stats"]["mkd"]["kombat"]["ranked"] == {"elo": 1500, "title": "Fighter", "wins": 0, "losses": 1}
+    assert prof["stats"]["mkd"]["kombat"]["ranked"] == {"elo": 475, "title": "Beginner", "wins": 0, "losses": 1}
 
     board = await c2.request({"type": "leaderboard", "game": "mkd", "mode": "kombat"})
     assert board["total"] == 2
-    assert [(r["rank"], r["name"], r["elo"]) for r in board["rows"]] == [(1, winner, 1500), (2, loser, 1500)]
+    assert [(r["rank"], r["name"], r["elo"]) for r in board["rows"]] == [(1, winner, 475), (2, loser, 475)]
     assert board["me"]["rank"] in (1, 2)
     empty = await c2.request({"type": "leaderboard", "game": "mkd", "mode": "chess"})
     assert empty["rows"] == [] and empty["total"] == 0
@@ -65,7 +65,7 @@ async def test_ranked_disagreement_changes_nothing(server, connect, udp_peers, c
     assert any("DISPUTE" in rec.getMessage() and match in rec.getMessage() for rec in caplog.records)
     for name in (go1["p1_name"], go1["p2_name"]):
         prof = await c1.request({"type": "profile", "name": name})
-        assert prof["stats"] == {}
+        assert played(prof["stats"]) == {}
     assert server.db.match_row(match)["status"] == "disputed"
     stored = server.db.reports(match)
     assert [(r["side"], r["winner"]) for r in stored] == [(1, 1), (2, 2)]
@@ -81,9 +81,9 @@ async def test_casual_agreement_counts_wins_only(server, connect, udp_peers):
     r1 = await c1.expect("match_result")
     assert r1["status"] == "agreed" and r1["winner"] == 2 and "elo" not in r1
     prof = await c1.request({"type": "profile", "name": go1["p2_name"]})
-    assert prof["stats"] == {"mkd": {"kombat": {"casual": {"wins": 1, "losses": 0}}}}
+    assert played(prof["stats"]) == {"mkd": {"kombat": {"casual": {"wins": 1, "losses": 0}}}}
     prof = await c1.request({"type": "profile", "name": go1["p1_name"]})
-    assert prof["stats"] == {"mkd": {"kombat": {"casual": {"wins": 0, "losses": 1}}}}
+    assert played(prof["stats"]) == {"mkd": {"kombat": {"casual": {"wins": 0, "losses": 1}}}}
 
 
 async def test_desync_report_is_no_contest(server, connect, udp_peers):
@@ -93,7 +93,7 @@ async def test_desync_report_is_no_contest(server, connect, udp_peers):
     await report(c2, match, 1, 2, 0)
     r1 = await c1.expect("match_result")
     assert r1["status"] == "no_contest"
-    assert server.db.rating(server.db.account_by_name("Sindel")["id"], "mkd", "kombat")["elo"] == 1500
+    assert server.db.rating(server.db.account_by_name("Sindel")["id"], "mkd", "kombat")["elo"] == 475
 
 
 async def test_single_report_times_out_unconfirmed(server, connect, udp_peers):

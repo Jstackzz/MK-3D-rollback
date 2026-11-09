@@ -58,7 +58,7 @@ async def test_spectator_gets_the_match_and_both_feeds(server, connect, udp_peer
     spec = await watcher.expect("spectate")
     assert (spec["match"], spec["lobby"], spec["seed"], spec["rounds"]) == (go["match"], code, go["seed"], 3)
     assert (spec["p1_name"], spec["p2_name"], spec["p1"], spec["p2"]) == ("Raiden", "Shinnok", "Scorpion", "Kenshi")
-    assert (spec["p1_title"], spec["p2_title"]) == ("Fighter", "Fighter")
+    assert (spec["p1_title"], spec["p2_title"]) == ("Beginner", "Beginner")
     assert spec["death_traps"] is False
 
     # each player's launcher passes on its own game's packets; the spectator gets them as they come

@@ -8,6 +8,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 import pytest
 import pytest_asyncio
 
+from server import elo
 from server.app import Server, ServerConfig
 from server.client import Connection, UdpPeer
 from server.makecert import generate
@@ -75,6 +76,18 @@ async def udp_peers() -> AsyncIterator[Callable[[], Awaitable[UdpPeer]]]:
     yield factory
     for peer in peers:
         peer.close()
+
+
+def played(stats: dict) -> dict:
+    """A profile's stats without the ranked start every mode never played ranked comes with."""
+    start = {"elo": elo.INITIAL, "title": elo.title(elo.INITIAL), "wins": 0, "losses": 0}
+    out: dict = {}
+    for game, modes in stats.items():
+        for mode, kinds in modes.items():
+            kept = {kind: entry for kind, entry in kinds.items() if kind != "ranked" or entry != start}
+            if kept:
+                out.setdefault(game, {})[mode] = kept
+    return out
 
 
 def queue_msg(game: str = "mkd", mode: str = "kombat", *, ranked: bool = False, region: str = "eu",

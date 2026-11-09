@@ -8,7 +8,7 @@ from server import auth
 from server import protocol as P
 from server.client import Connection, FingerprintMismatch, ServerError
 
-from .conftest import PASSWORD
+from .conftest import PASSWORD, played
 
 
 async def test_welcome_and_version_check(server, connect):
@@ -56,7 +56,7 @@ async def test_register_login_auth_logout(server, connect):
     acc = alice.account
     assert acc["type"] == "account" and acc["name"] == "Alice"
     assert len(acc["token"]) == 64 and len(acc["udp_token"]) == 32
-    assert acc["profile"]["stats"] == {}
+    assert played(acc["profile"]["stats"]) == {}
 
     # names are unique without regard to case
     other = await connect()
@@ -115,7 +115,7 @@ async def test_profile_and_requires_login(server, connect):
     assert exc.value.code == "not_logged_in"
     await connect("Erin")
     prof = await anon.request({"type": "profile", "name": "erin"})
-    assert prof["name"] == "Erin" and prof["stats"] == {}
+    assert prof["name"] == "Erin" and played(prof["stats"]) == {}
     with pytest.raises(ServerError) as exc:
         await anon.request({"type": "profile", "name": "ghost"})
     assert exc.value.code == "no_such_account"

@@ -97,7 +97,7 @@ S: {"type":"welcome","proto":1,"server":"mk3d-server","version":"0.1.0","udp_por
 - `proto` must equal the server's `PROTO`, else `error{code:"proto_mismatch"}`.
 - `ranks` (0.1.21): the ranked titles by Elo, lowest first, each held from its
   `from` up to the next one's (the first, `null`, below the second's): Beginner
-  below 975, Learner 975, Fighter 1475 (everyone starts at 1500), Expert
+  below 975 (a new player starts at 475), Learner 975, Fighter 1475, Expert
   1975, Warrior 2725, Gladiator 3725, Master 4725, Commander 5725, Grandmaster
   7225, Warlord 8725, Chosen One 10725, Demi God 12725, God 15725, Elder God
   18725, Titan 22225, Eldest God 25725 (server/elo.py `RANKS`; these 16, each with its
@@ -174,9 +174,9 @@ S: {"type":"profile","name":"Raijin","created":1761300000,
                               "casual":{"wins":10,"losses":7}}}}}
 ```
 
-Stats exist per game per mode: ranked Elo (start 1500, moved per set) with
+Stats exist per game per mode: ranked Elo (start 475, moved per set) with
 its title (1.3 `ranks`, 0.1.21) and ranked match wins/losses, and casual
-wins/losses. A missing entry means "never played" (Elo 1500, a Fighter,
+wins/losses. A mode never played ranked comes with its start (Elo 475, a Beginner,
 0-0).
 
 ### 1.6 Online count and notices
@@ -267,7 +267,7 @@ S: {"type":"queue_left","reason":"left"}
   sum of their `server_rtt`).
 - **Ranked pairing (Elo window).** The same rules plus an Elo window: a pair
   is allowed when `|elo_a - elo_b| <= min(window_a, window_b)`, with
-  `window = 100 + 50 * floor(waited / 10 s)`, capped at 600. `strict` pins the
+  `window = 100 + 50 * floor(waited / 10 s)`, capped at 1100. `strict` pins the
   window at 100 and the region to the player's own. Among the allowed
   partners of the longest-waiting player the server takes the smallest Elo
   difference, then the lowest estimated ping (sum of both players' UDP round
