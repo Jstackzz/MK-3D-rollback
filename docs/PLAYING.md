@@ -116,26 +116,25 @@ whether to trust it: compare it with your host's.
 
   | Rank | Elo |
   |---|---|
-  | Beginner | below 1425 |
-  | Learner | 1425 to 1474 |
-  | Fighter | 1475 to 1524 |
-  | Expert | 1525 to 1574 |
-  | Warrior | 1575 to 1624 |
-  | Gladiator | 1625 to 1674 |
-  | Master | 1675 to 1724 |
-  | Commander | 1725 to 1774 |
-  | Grandmaster | 1775 to 1824 |
-  | Warlord | 1825 to 1874 |
-  | Chosen One | 1875 to 1924 |
-  | Demi God | 1925 to 1974 |
-  | God | 1975 to 2024 |
-  | Elder God | 2025 to 2099 |
-  | Titan | 2100 to 2199 |
-  | Eldest God | 2200 and up |
+  | Beginner | below 975 |
+  | Learner | 975 to 1474 |
+  | Fighter | 1475 to 1974 |
+  | Expert | 1975 to 2724 |
+  | Warrior | 2725 to 3724 |
+  | Gladiator | 3725 to 4724 |
+  | Master | 4725 to 5724 |
+  | Commander | 5725 to 7224 |
+  | Grandmaster | 7225 to 8724 |
+  | Warlord | 8725 to 10724 |
+  | Chosen One | 10725 to 12724 |
+  | Demi God | 12725 to 15724 |
+  | God | 15725 to 18724 |
+  | Elder God | 18725 to 22224 |
+  | Titan | 22225 to 25724 |
+  | Eldest God | 25725 and up |
 
   A set against a player with your Elo moves it 16, more against a better one
-  and less against a weaker one: two sets won take a new player to Expert, two
-  lost to Learner.
+  and less against a weaker one: two sets lost take a new player to Learner.
 - When a ranked set or a Kasual series is over, the launcher searches again by
   itself, the same search as before (with practice while you wait, if that is
   on), unless you left it yourself. Untick "Search again when a set or series

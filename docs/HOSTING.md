@@ -64,6 +64,13 @@ launchers are told to update when they connect, and later runs keep it. On the
 machine itself, `sudo sh server/deploy/install.sh <name> [<oldest launcher>]`
 from a clone of this repository does the same.
 
+To start everyone's ranks over, leave an empty file named `reset-ranks` beside
+the database (`/var/lib/mk3d` on a service) before the server next starts. That
+start copies the database to `server.sqlite.before-rank-reset-<date>`, removes
+the file and clears every ranked record, in every game and mode: everyone is
+back at the starting Elo and off the leaderboards until their next ranked set.
+Kasual records, accounts and the match history stay.
+
 ### Oracle Cloud Always Free, step by step
 
 1. **Account.** <https://www.oracle.com/cloud/free/>, *Start for free*: email,

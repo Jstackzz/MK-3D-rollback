@@ -6,11 +6,16 @@ import argparse
 import asyncio
 import logging
 import os
+import sqlite3
 import sys
+import time
 
 from . import __version__
 from .app import Server, ServerConfig
+from .db import Database
 from .matchmaking import MatchmakingConfig
+
+RESET_RANKS_FLAG = "reset-ranks"  # a file of this name beside the database: the next start resets everyone's rank
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -73,6 +78,29 @@ def config_from_args(args: argparse.Namespace) -> ServerConfig:
     )
 
 
+def reset_ranks_if_asked(db_path: str) -> None:
+    """A release that starts the ranks over leaves RESET_RANKS_FLAG beside the database, and the next start does it: the
+    database is copied first, the file goes before anything is cleared so it can never clear twice, and the server
+    starts whatever happens."""
+    log = logging.getLogger("mk3d.server")
+    flag = os.path.join(os.path.dirname(os.path.abspath(db_path)), RESET_RANKS_FLAG)
+    if not os.path.exists(flag):
+        return
+    try:
+        db = Database(db_path)
+        try:
+            copy = f"{db_path}.before-rank-reset-{time.strftime('%Y%m%d-%H%M%S')}"
+            db.backup(copy)
+            os.remove(flag)
+            cleared = db.reset_ranked()
+        finally:
+            db.close()
+    except (OSError, sqlite3.Error):
+        log.exception("ranks NOT reset")
+        return
+    log.info("ranks reset: %d ranked records cleared, the database as it was is in %s", cleared, copy)
+
+
 async def serve(cfg: ServerConfig) -> None:
     server = Server(cfg)
     await server.start()
@@ -95,6 +123,7 @@ def main(argv: list[str] | None = None) -> int:
               f"{os.path.dirname(cfg.certfile or '.') or '.'}\n(or pass --cert/--key, or --plain for local tests)",
               file=sys.stderr)
         return 2
+    reset_ranks_if_asked(cfg.db_path)
     try:
         asyncio.run(serve(cfg))
     except KeyboardInterrupt:

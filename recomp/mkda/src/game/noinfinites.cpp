@@ -86,8 +86,9 @@ constexpr uint32_t kComputer = 0x20C;       // not 0: the computer plays this fi
 
 // guest memory: per side, the hits of the combo it is in or still getting up from (added up across knockdowns), and
 // the game's own count when last looked at; the attack its block routine is not told of yet, and since when; the last
-// frame Bo' Rai Cho's forward + 3 was at its second strike, 0 outside that move
-constexpr uint32_t kComboOf = 0, kSeenOf = 8, kLockAttack = 16, kLockSince = 24, kStyleAt = 32, kStrikeLive = 40, kBytes = 48;
+// frame Bo' Rai Cho's forward + 3 was at its second strike and what its first strike did, 0 outside that move
+constexpr uint32_t kComboOf = 0, kSeenOf = 8, kLockAttack = 16, kLockSince = 24, kStyleAt = 32, kStrikeLive = 40,
+                   kFirstStrike = 48, kBytes = 56;
 uint32_t g_mem = 0;
 uint32_t g_logged = 0;  // rule lines logged so far, the first 200 (LOG_FIRST is silent in release builds)
 
@@ -126,8 +127,9 @@ constexpr uint32_t kStyleWait = 20;  // frames an attack button may come after t
 // Bo' Rai Cho's Jojutsu forward + 3 going into a back dash, see the hook of sub_00126E20
 constexpr uint32_t kScriptName = 0x9F0, kCommand = 0x9F8;  // the name of the fighter's move script, the command it is at
 constexpr char kForwardThree[] = "jojutsu_3_towards";
-constexpr uint32_t kSecondStrike = 0x94C;  // the command its second strike holds, counted from the script's name
-constexpr uint32_t kContact = 0x154, kHit = 1;  // its strike's result: 0 none, 1 hit, 2 blocked
+constexpr uint32_t kFirstCommand = 0x918, kSecondStrike = 0x94C;  // the commands its strikes hold, from the script's name
+constexpr uint32_t kContact = 0x154, kBlocked = 2;     // a strike's result: 0 none, 1 hit, 2 blocked
+constexpr uint32_t kFirstSeen = 1, kFirstTouched = 2;  // kFirstStrike: the first strike came, and it made contact
 constexpr uint32_t kCancelFrom = 7, kBlockAfter = 27;  // frames after the second strike's last: the dash, the block
 constexpr uint32_t kPressTask = 0x42C70C;              // the press being handled: +8 not 0 for the second player
 constexpr uint32_t kTask[2] = {0x2EA530, 0x2EA534};    // each fighter's task
@@ -172,9 +174,12 @@ bool InForwardThree(uint32_t f) {
            std::memcmp(kernel::HostPtr(name), kForwardThree, sizeof kForwardThree) == 0;
 }
 
-// forward + 3 blocked or missed, in the seventh frame of its recovery or later
+// forward + 3 in the seventh frame of its recovery or later, its second strike blocked or both its strikes missed
 bool CancelOpen(uint32_t f, int side, uint32_t m) {
-    if (!InForwardThree(f) || kernel::R32(f + kContact) == kHit) return false;
+    if (!InForwardThree(f)) return false;
+    const uint32_t contact = kernel::R32(f + kContact);
+    const bool bothMissed = contact == 0 && kernel::R32(m + kFirstStrike + side * 4) != kFirstTouched;
+    if (contact != kBlocked && !bothMissed) return false;
     const uint32_t live = kernel::R32(m + kStrikeLive + side * 4);
     return live && kernel::R32(kGameFrames) >= live + kCancelFrom;
 }
@@ -193,13 +198,20 @@ void EachFrame(uint64_t) {
     for (int s = 0; s < 2; s++) {
         const uint32_t f = kernel::R32(kFighter[s]);
         const bool here = f && mem::IsCommitted(f);
-        // the last frame forward + 3 was at its second strike: a frame's top is where the frame data counts it live too
-        uint32_t strikeLive = 0;
-        if (here && InForwardThree(f))
-            strikeLive = kernel::R32(f + kCommand) - kernel::R32(f + kScriptName) == kSecondStrike
-                             ? kernel::R32(kGameFrames)
-                             : kernel::R32(m + kStrikeLive + s * 4);
+        // forward + 3's strikes, from a frame's top, where the frame data counts them live too: what the first did (a
+        // strike's contact stays until the next one starts), then the last frame at the second. The first must have come:
+        // the command left over from one cut short in its second strike is not this one's.
+        uint32_t strikeLive = 0, firstStrike = 0;
+        if (here && InForwardThree(f)) {
+            const uint32_t at = kernel::R32(f + kCommand) - kernel::R32(f + kScriptName);
+            strikeLive = kernel::R32(m + kStrikeLive + s * 4);
+            firstStrike = kernel::R32(m + kFirstStrike + s * 4);
+            if (at == kFirstCommand && !firstStrike) firstStrike = kFirstSeen;
+            if (firstStrike && at < kSecondStrike && kernel::R32(f + kContact)) firstStrike = kFirstTouched;
+            if (firstStrike && at == kSecondStrike) strikeLive = kernel::R32(kGameFrames);
+        }
         kernel::W32(m + kStrikeLive + s * 4, strikeLive);
+        kernel::W32(m + kFirstStrike + s * 4, firstStrike);
         // a style change that went ahead of an attack button: as it started it marked the newest press used, and that
         // is the button. Mark the LT instead, so the new style's script sees the button.
         if (const uint32_t since = kernel::R32(m + kStyleAt + s * 4)) {
@@ -423,8 +435,9 @@ X86_FUNC(sub_001381E0) {
     }
 }
 
-// Bo' Rai Cho's Jojutsu forward + 3 (two strikes, -29 on block) can go into a back dash from the seventh frame of its
-// recovery, blocked or missed; when it hits, it stays as it was (0.1.34). This function is the game's own check, for a
+// Bo' Rai Cho's Jojutsu forward + 3 (two strikes, -29 on block) can go into a back dash from the seventh frame of the
+// second strike's recovery, when that strike is blocked or both strikes miss; when it hits, or only the first strike made
+// contact, it stays as it was. This function is the game's own check, for a
 // press left or right in a fight (sub_00126E00, sub_00126F40): two presses away within 13 frames, each one away stamped in
 // +0x1C0, no back dash wait (sub_00050D90), and no bit of 0x4200 in the state, which an attack has. The move's script
 // (jojutsu_3_towards) ends with the second strike, a wait until 5 animation frames before the end, and the recovery: the

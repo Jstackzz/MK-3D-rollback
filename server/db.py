@@ -134,6 +134,21 @@ class Database:
         else:
             self.conn.execute("COMMIT")
 
+    def backup(self, path: str) -> None:
+        """A complete copy of the database in a new file at `path`."""
+        copy = sqlite3.connect(path)
+        try:
+            self.conn.backup(copy)
+        finally:
+            copy.close()
+
+    def reset_ranked(self) -> int:
+        """Everyone back to the start of the ranked ladder, in every game and mode: the ranked records go (Elo, wins
+        and losses), so each player is at the starting Elo and off the leaderboard until their next ranked set. Kasual
+        records, accounts and the match history stay. Returns how many records went."""
+        with self.transaction() as conn:
+            return conn.execute("DELETE FROM stats WHERE kind = 'ranked'").rowcount
+
     # --- accounts -------------------------------------------------------------------------------
 
     def create_account(self, name: str, pw_hash: str, now: float | None = None) -> int:

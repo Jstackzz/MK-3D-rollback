@@ -90,17 +90,17 @@ S: {"type":"welcome","proto":1,"server":"mk3d-server","version":"0.1.0","udp_por
     "motd":"Welcome!","online":12,"min_client":"0.1.0",
     "games":{"mkda":["kombat"],"mkd":["kombat","chess","puzzle"],"mka":["kombat","motor"]},
     "regions":["na","sa","eu","me","af","as","oc"],"direct_above_ms":100,
-    "ranks":[{"title":"Beginner","from":null},{"title":"Learner","from":1425},
-             {"title":"Fighter","from":1475}, ...,{"title":"Eldest God","from":2200}]}
+    "ranks":[{"title":"Beginner","from":null},{"title":"Learner","from":975},
+             {"title":"Fighter","from":1475}, ...,{"title":"Eldest God","from":25725}]}
 ```
 
 - `proto` must equal the server's `PROTO`, else `error{code:"proto_mismatch"}`.
 - `ranks` (0.1.21): the ranked titles by Elo, lowest first, each held from its
   `from` up to the next one's (the first, `null`, below the second's): Beginner
-  below 1425, Learner 1425, Fighter 1475 (everyone starts at 1500), Expert
-  1525, Warrior 1575, Gladiator 1625, Master 1675, Commander 1725, Grandmaster
-  1775, Warlord 1825, Chosen One 1875, Demi God 1925, God 1975, Elder God 2025,
-  Titan 2100, Eldest God 2200 (server/elo.py `RANKS`; these 16, each with its
+  below 975, Learner 975, Fighter 1475 (everyone starts at 1500), Expert
+  1975, Warrior 2725, Gladiator 3725, Master 4725, Commander 5725, Grandmaster
+  7225, Warlord 8725, Chosen One 10725, Demi God 12725, God 15725, Elder God
+  18725, Titan 22225, Eldest God 25725 (server/elo.py `RANKS`; these 16, each with its
   badge, replaced 0.1.21's 12 titles). Every ranked rating the server sends
   comes with its `title` (1.5, 1.7, 1.8, 1.9.1, 1.11), and so does every
   player in a lobby or a match, ranked or not (1.8 `match_go`, 1.10, 1.10.1);

@@ -585,8 +585,8 @@ Found with the debug monitor stepping versus fights (scratchpad r30: `versus_tra
 - Bo' Rai Cho's Jojutsu forward + 3 (jojutsu_3_towards, both costumes): strikes from commands +0x918 and +0x94C, then
   the wait and the recovery (5, 5, 15, 1, 1), so 12 frames after the second strike's last the gate shuts for 5 more
   and the block for 15: recovery 16, -19 to attack, -29 on block. From the seventh frame of that it may go into a back
-  dash when blocked or missed (noinfinites.cpp hooks sub_00126E20, 0.1.34; not run or tested when it shipped); the
-  block stays shut until the frame it would have opened.
+  dash when the second strike is blocked or both strikes miss (noinfinites.cpp hooks sub_00126E20; not run or tested
+  when it shipped); the block stays shut until the frame it would have opened.
 
 ## Tools
 
