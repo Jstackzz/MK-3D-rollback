@@ -3,10 +3,17 @@
 #include "mk3d/framedata.h"
 #include "mk3d/link.h"
 #include "mk3d/names.h"
+#include "mk3d/record.h"
 
 namespace {
 
-// the overlays: the players' names over an online fight, the practice frame data
+// window messages: F7 and F8 for the practice frame data, F9 to F12 for the practice record
+bool Message(void* hwnd, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* result) {
+    if (mk3d::record::Message(hwnd, msg, wp, lp, result)) return true;
+    return mk3d::framedata::Message(hwnd, msg, wp, lp, result);
+}
+
+// the overlays: the players' names over an online fight, the practice frame data and record
 void OverlayWindow(void* hwnd) {
     mk3d::framedata::Window(hwnd);
     mk3d::names::Window(hwnd);
@@ -15,6 +22,7 @@ void OverlayWindow(void* hwnd) {
 void OverlayUi(double fps) {
     mk3d::names::Ui(fps);
     mk3d::framedata::Ui(fps);
+    mk3d::record::Ui(fps);
 }
 
 }  // namespace
@@ -35,7 +43,7 @@ const app::GameInfo app::kGame = {
     .init = mk3d::link::ApplyLauncherDisplay,  // after the settings load, before the window and boot
     .loaded = nullptr,                     // image in memory, before its entry point runs
     .window = OverlayWindow,               // the game window is up
-    .message = mk3d::framedata::Message,   // window messages first; true takes one
+    .message = Message,                    // window messages first; true takes one (F7 to F12)
     .ui = OverlayUi,                       // ImGui drawing each frame
     .pad = mkd::PadHook,                   // scripted test input now, netplay input later
     .rumble = nullptr,                     // changes a rumble before it is set

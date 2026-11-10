@@ -14,6 +14,8 @@
 // "is this action held" function.
 #include <cstdint>
 
+struct ImFont;
+
 namespace mk3d::framedata {
 
 // one fighter at the top of a frame, as the game's own rules see it
@@ -51,6 +53,15 @@ void Install(const Adapter& adapter);
 // a practice fight is being followed: the game's hooks report nothing otherwise
 bool Following();
 
+// A practice fight on this PC alone with both fighters readable, as of the top of this frame, whether or not the
+// panel is shown (the practice record, record.h): the fighters as the adapter read them then, and their names.
+bool PracticeFight();
+bool TopFighter(int side, Fighter& out);
+const char* FighterName(int side);
+// the overlay's font (null: the runtime's default) and the size it was loaded at, for the other practice overlays
+ImFont* OverlayFont();
+float OverlayFontPixels();
+
 // tests: <prefix>_FRAMEDATA_VERSUS=1 follows versus fights too, where player 2 can block with a second controller (a
 // game's practice() accepts its versus mode then; still never online)
 bool VersusToo();
@@ -60,7 +71,8 @@ bool VersusToo();
 // game asks it about the dummy's controls (its port or player number) and the block action (both standing and
 // crouching) or down (crouching only).
 enum class Dummy { Stands, Blocks, CrouchBlocks };
-// what the dummy does now: Stands outside a practice fight
+// what the dummy does now: Stands outside a practice fight, and while a recording or the player's controller drives
+// the dummy (record.h)
 Dummy DummyBlock();
 // for a game's "is this action held" hook: the dummy holds this action now (the game's numbers for block and down)
 bool DummyHolds(int action, int block_action, int down_action);

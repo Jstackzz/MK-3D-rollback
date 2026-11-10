@@ -506,7 +506,9 @@ SettingsPage::SettingsPage(ServerClient* server, QWidget* parent) : Page(parent)
     frameData->setChecked(cfg::frameData());
     frameData->setToolTip(tr("In practice, shows how many frames player 1's last attack takes to hit, and how far ahead "
                              "or behind player 1 is after it hits or is blocked. F7 in the game shows or hides it; F8 "
-                             "makes the dummy block or crouch-block."));
+                             "makes the dummy block or crouch-block. Practice also records the dummy, whatever this "
+                             "says: F9 records what your controller does as the dummy, F10 plays it back, F11 picks "
+                             "one of 8 slots, F12 sets once, repeat or random."));
     df->addRow(QString(), stretch);
     df->addRow(QString(), frameData);
     auto* displayNote = ui::label(tr("A game that is running takes these too, its window the next time you switch to "

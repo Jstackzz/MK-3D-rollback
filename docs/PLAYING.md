@@ -245,6 +245,26 @@ whether to trust it: compare it with your host's.
   on-block numbers. **F7** shows or hides the panel; **Settings → Frame data
   in practice** sets whether it is shown when practice starts. None of it is
   ever in an online match.
+- Record the dummy (all three games): practice records what the dummy does
+  and plays it back, as the training modes of today's fighting games do.
+  Press **F9**: your controller now moves the dummy (your own fighter stands
+  still) and a red REC line at the top counts the seconds, up to 30. Do the
+  string, the throw, the wake-up you want to practise against, then press F9
+  again. **F10** plays it back: the dummy does exactly that, with you on your
+  own fighter again, so you can block it, punish it or find the gap in it.
+  F10 stops it early. **F11** picks one of 8 slots (each keeps its own
+  recording; the line names the slot and how long it is), and **F12** sets
+  how a slot plays: **once**, **repeat** (again and again, a moment after the
+  dummy is free each time) or **random slot** (one of the recorded slots
+  each time, so you cannot know which is coming). Left and right are kept
+  relative to where the dummy faces, so a recording made on one side plays
+  the same from the other. Between repeats and when nothing plays, the dummy
+  is the game's own again: standing, or blocking with F8. START and BACK stay
+  yours while recording (the pause menu), and a paused game records and plays
+  nothing. The slots are saved per dummy fighter in the game's `practice`
+  folder, so they are there the next time that fighter is the dummy. The
+  keys are shown at the top for the first seconds of a practice fight. None
+  of it is ever in an online match.
 - Player names (all three games): in an online match, and in a lobby match you
   watch, each player's account name stands just above their health bar,
   player 1's at the left and player 2's at the right. They come and go with

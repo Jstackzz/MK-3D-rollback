@@ -4,16 +4,19 @@
 #include "mk3d/framedata.h"
 #include "mk3d/link.h"
 #include "mk3d/names.h"
+#include "mk3d/record.h"
 
 namespace {
 
-// window messages: F7 for the practice frame data, then the close requests' log
+// window messages: F7 and F8 for the practice frame data, F9 to F12 for the practice record, then the close
+// requests' log
 bool Message(void* hwnd, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* result) {
+    if (mk3d::record::Message(hwnd, msg, wp, lp, result)) return true;
     mk3d::framedata::Message(hwnd, msg, wp, lp, result);
     return mkda::WindowMessage(hwnd, msg, wp, lp, result);
 }
 
-// the overlays: the players' names over an online fight, the practice frame data
+// the overlays: the players' names over an online fight, the practice frame data and record
 void OverlayWindow(void* hwnd) {
     mk3d::framedata::Window(hwnd);
     mk3d::names::Window(hwnd);
@@ -22,6 +25,7 @@ void OverlayWindow(void* hwnd) {
 void OverlayUi(double fps) {
     mk3d::names::Ui(fps);
     mk3d::framedata::Ui(fps);
+    mk3d::record::Ui(fps);
 }
 
 }  // namespace

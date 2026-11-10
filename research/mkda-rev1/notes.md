@@ -438,6 +438,32 @@ pressing every frame, the rest from the practice panel):
 | crouching A (a low) | 19 | 2 | 50 | +34 | | -18 (mashed) |
 | A, 2 hits | 12, again 25 | 6 (7) 5 | 51 (mashed) | +5 (mashed) | -22 | |
 
+## Practice record (2026-11-09)
+
+Practice records the dummy and plays it back (`recomp/common/src/mk3d/record.cpp`, this game's side
+`src/game/record.cpp`): F9 records, F10 plays, F11 the slot, F12 once / repeat / random. What it took in this game:
+- Controls are per player, not per port: the pad update sub_00143030 writes P1's block (0x2CE770: previous, current
+  0x2CE774, new presses 0x2CE778; sticks 0x2CE7A0) from the port at 0x266B24 and P2's (0x2CE77C / 0x2CE780 / 0x2CE784;
+  sticks 0x2CE7A4) from 0x266B28, -1 none, and a press on a port on no player joins it (sub_00076B20). A fighter's
+  actions are read for its player (+0x19C) by sub_00075B50(player, action) (held: current & the player's
+  configuration mask, P1 0x42C640, P2 0x42C560, 17 actions of 12 bytes) and sub_00075CA0 (new presses), both
+  returning 0 while the player's word at 0x2CE7B8 + player * 4 is set, and a player in state 4 (the attract demo)
+  reads 0x42AAE4 / 0x42AAE8 instead.
+- The fight task (sub_0006E010) sets practice's dummy up as player state 0 with 0x2CE7BC = 1 (no controls), and the
+  move gate sub_000EA250 starts no move for a player whose state (0x2EA550 / 0x2EA554) is not 3 or 4. Driven, the
+  dummy has state 3, 0x2CE7BC = 0 and P1's configuration copied over P2's, and its block is written right after the
+  pad update (OnPadsRead); the dummy is the game's own again while the pause menu is up (so a PLAYER SELECT or MAIN
+  MENU from it finds state 0; the select setup sub_0010CB00 turns a 3 into 2) and when the fight ends.
+- Left means forward or back by sub_00057B60 for the fighter whose task runs: the control object's (fighter +0x28, id
+  +0x2C; sub_00102F20) flags +8 bit 17, turned by the sign of sub_000543F0 (the cross product of the camera's lines to
+  the two control objects, x +0x84 and z +0x8C, camera object [0x42CBF4]), and by bit 3 of +0x30 of the animation
+  state sub_000E0300 gives (left out here). The word is true when right is forward (a dummy on the right of player 1:
+  false). Each recorded frame keeps the dummy's facing; played facing the other way, LEFT and RIGHT (logical 0x8000 /
+  0x2000) are swapped.
+- Tested with `tools/py/practice_record_test.py` (release build, the debug monitor's pad command and window keys):
+  the dummy walks in and hits on playback from the same side and, after player 1 jumps over it, from the other
+  (mirrored); a pause in a recording records nothing.
+
 ## The online select screen (2026-11-02)
 
 Players who pick on the select screen (the launcher's `p1=- p2=-`), brought in line with Armageddon's:

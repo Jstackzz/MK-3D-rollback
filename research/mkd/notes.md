@@ -599,6 +599,27 @@ the practice panel (the same gate), with the dummy standing, blocking (F8) or cr
 | A, 2 hits | 12, again 25 | 6 (7) 1 | 51 | +3 | -20 (second block: +0x1D8 = frame + 6, mashed) | |
 | spear (back, forward, X) | contact in 37 (phase stays 0) | | | | | |
 
+### Practice record (2026-11-09)
+
+Practice records the dummy and plays it back (`recomp/common/src/mk3d/record.cpp`, this game's side
+`src/game/record.cpp`): F9 records, F10 plays, F11 the slot, F12 once / repeat / random. What it took in this game:
+- A fighter's actions are read from the port at its +0x21C by sub_0008A210(port, action): the port's block
+  (0x62109C + port * 0x1C) must be open (flags bit 1) and drive a record (+8) that sub_0006A2C0 accepts (state 3 at
+  once; a record on port -1 never), and the action's bits come from the port's button table (+4, the player's own
+  configuration; default 0x3E95A0). Practice's dummy has port -1 and port 1 drives no record. Driven, the dummy's port
+  is 1, port 1's block is open on P2's record (0x621030, state 3) with port 0's table, and its words are written right
+  after the pad update (OnPadsRead), which only touches ports with a controller. A record's +0 is its port (sub_0006A9E0
+  binds a port: record +0 = port, +4 = player index, fighter +0x21C = port), not a profile.
+- Left means forward or back by sub_00075360 for the fighter whose task runs (sub_00046460 sets its globals): the
+  control object's ([record + 0x5C], the record at fighter +0x18) flags +8 bit 17, turned by bit 3 of fighter +0x5BC
+  (its +0x58C block's +0x30) and by the sign of sub_000712B0 (the cross product of the camera's lines to the two
+  control objects, x +0xA0 and z +0xA8, the opponent's at fighter +0x14, the camera object [0x6217F4]). Each recorded
+  frame keeps the dummy's facing; played facing the other way, LEFT and RIGHT (the table's entries 15 and 13, default
+  0x8000 / 0x2000) are swapped.
+- Tested with `tools/py/practice_record_test.py` (release build, the debug monitor's pad command and window keys):
+  the dummy walks in and hits on playback from the same side and, after player 1 jumps over it, from the other
+  (mirrored); a pause in a recording records nothing.
+
 ### The online select screen (2026-11-02)
 
 Players who pick on the select screen (the launcher's `p1=- p2=-`), brought in line with Armageddon's:

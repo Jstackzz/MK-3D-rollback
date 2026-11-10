@@ -482,6 +482,28 @@ later than the frame, 0x831A40 bit 2). Scorpion's X blocks from move frame 29 an
 to attack), his B from 44 and 54 (-23, -33: a jab put in reach lands on 43 and is blocked on 44), back + X 26 and 40
 (-3, -17). The table above has the gate's numbers; the frame data shows both since then.
 
+## Practice record (2026-11-09)
+
+Practice records the dummy and plays it back (`recomp/common/src/mk3d/record.cpp`, this game's side
+`src/game/record.cpp`): F9 records, F10 plays, F11 the slot, F12 once / repeat / random. What it took in this game:
+- A fighter's actions are read from the port at its +0x390 by sub_000A0FD0(port, action) (new presses sub_000A1060):
+  the port's block (0x831C0C + port * 0x20) must be open (flags bit 1) and drive a record (+8) that sub_0007ABB0 accepts
+  (state 3, practice's dummy, at once; a record on port -1 never), and the action's bits come from the port's button
+  table (+4, default 0x54CCA0). Practice's dummy has port -1 and port 1 drives no record. Driven, the dummy's port is
+  1, port 1's block is open on P2's record (0x831B34) with port 0's table, and its words are written right after the
+  pad update (OnPadsRead), which only touches ports with a controller (sub_0007B690 is how the game binds a port:
+  record +0 = port, +4 = player index, fighter +0x390 = port).
+- Left means forward or back by sub_00089890 for the fighter whose task runs (sub_00040990 sets its globals): the
+  control object's ([record + 0x34], the record at fighter +0x18) flags +0xC bit 17, turned by bit 3 of fighter
+  +0xB54 (its +0xB1C block's +0x38) and by the sign of sub_00083E50 (the cross product of the camera's lines to the two
+  control objects, x +0xC0 and z +0xC8, the opponent's at fighter +0x14, the camera object [0x5B74BC], sub_000573B0(0)).
+  The word is true when right is forward (a dummy on the right of player 1: false). Each recorded frame keeps the
+  dummy's facing; played facing the other way, LEFT and RIGHT (the table's entries 15
+  and 13, default 0x8000 / 0x2000) are swapped.
+- Tested with `tools/py/practice_record_test.py` (release build, the debug monitor's pad command and window keys):
+  the dummy walks in and hits on playback from the same side and, after player 1 jumps over it, from the other
+  (mirrored); a pause in a recording records nothing.
+
 ## The online select screen (2026-11-02, for 0.1.18)
 
 36 Armageddon desync reports since 0.1.17: 24 "match setups differ" (each player's own game fought another

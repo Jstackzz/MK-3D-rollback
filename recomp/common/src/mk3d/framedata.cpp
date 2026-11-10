@@ -36,6 +36,7 @@
 #include "mk3d/game.h"
 #include "mk3d/link.h"
 #include "mk3d/netplay.h"
+#include "mk3d/record.h"
 
 namespace mk3d::framedata {
 namespace {
@@ -50,6 +51,8 @@ bool g_installed = false;
 std::atomic<bool> g_on{true};          // MK3D_FRAMEDATA, F7
 std::atomic<bool> g_practice{false};   // a practice fight on this PC alone (the dummy may block)
 std::atomic<bool> g_following{false};  // ... and the overlay follows it
+std::atomic<bool> g_fight{false};      // ... with both fighters readable at the top of this frame (g_top)
+Fighter g_top[2];                      // both fighters as read at the top of this frame (main thread)
 std::atomic<int> g_dummy{int(Dummy::Stands)};  // F8
 ImFont* g_font = nullptr;              // a larger font than the runtime's 13 px default, when Windows has one
 
@@ -190,6 +193,14 @@ void Reset() {
 void OnFrame(uint64_t) {
     const bool practice = Allowed();
     g_practice = practice;
+    // both fighters, read once at the top of the frame for the panel and the practice record alike
+    Fighter p[2];
+    const bool fight = practice && g_game.read(0, p[0]) && g_game.read(1, p[1]);
+    if (fight) {
+        g_top[0] = p[0];
+        g_top[1] = p[1];
+    }
+    g_fight = fight;
     if (!g_on.load(std::memory_order_relaxed) || !practice) {
         g_following = false;
         Reset();
@@ -197,8 +208,7 @@ void OnFrame(uint64_t) {
     }
     const uint32_t t = g_game.time();
     if (g_prev_valid && t == g_prev_time) return;  // paused: nothing ran
-    Fighter p[2];
-    if (!g_game.read(0, p[0]) || !g_game.read(1, p[1])) {
+    if (!fight) {
         g_following = false;
         Reset();
         return;
@@ -291,8 +301,23 @@ bool VersusToo() {
 }
 
 Dummy DummyBlock() {
-    return g_practice.load(std::memory_order_relaxed) ? Dummy(g_dummy.load(std::memory_order_relaxed)) : Dummy::Stands;
+    if (!g_practice.load(std::memory_order_relaxed) || record::DrivesDummy()) return Dummy::Stands;
+    return Dummy(g_dummy.load(std::memory_order_relaxed));
 }
+
+bool PracticeFight() { return g_fight.load(std::memory_order_relaxed); }
+
+bool TopFighter(int side, Fighter& out) {
+    if (!g_fight.load(std::memory_order_relaxed) || (side != 0 && side != 1)) return false;
+    out = g_top[side];
+    return true;
+}
+
+const char* FighterName(int side) { return g_installed && g_game.name ? g_game.name(side) : nullptr; }
+
+ImFont* OverlayFont() { return g_font; }
+
+float OverlayFontPixels() { return kFontPixels; }
 
 bool DummyHolds(int action, int block_action, int down_action) {
     const Dummy d = DummyBlock();

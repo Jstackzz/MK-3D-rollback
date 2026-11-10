@@ -167,7 +167,9 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    game with no 16:9 layout, else 4:3 between bars), *Frame data in practice*
    (`display/frame_data`, on unless unticked: whether a game shows the practice
    frame data panel when it starts, `recomp/common/src/mk3d/framedata.h`; F7 in
-   the game shows or hides it, F8 makes the dummy block): borderless at the
+   the game shows or hides it, F8 makes the dummy block; the practice record,
+   `recomp/common/src/mk3d/record.h`, is always on in practice: F9 records the
+   dummy, F10 plays it, F11 picks the slot, F12 the playback mode): borderless at the
    monitor's own resolution unless changed; a game takes them over its
    `settings.toml` when it starts, through `MK3D_DISPLAY`, `MK3D_RESOLUTION`,
    `MK3D_VSYNC`, `MK3D_ADAPTIVE_SYNC`, `MK3D_BRIGHTNESS`, `MK3D_STRETCH_4X3` and
