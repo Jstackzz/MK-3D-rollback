@@ -7,28 +7,26 @@ from typing import Any
 INITIAL = 475
 K_FACTOR = 32
 
-# The ranked titles by Elo, lowest to highest: each holds from its Elo up to the next one's, the lowest below 975.
+# The ranked titles by Elo, lowest to highest: each holds from its Elo up to the next one's, the lowest below 575.
 # Each has its badge (art/ranks, the launcher and the games draw them by title). A new player starts at INITIAL, a
-# Beginner, one step (500) below Learner; a record made when the start was 1500 (a Fighter) keeps its Elo and its title.
-# The steps up are set by rank (2026-11-09): 500 up to Expert, 750 from Expert, 1000 each from Warrior, 1500 each from
-# Commander, 2000 each from Warlord, 3000 each from Demi God, 3500 each from Elder God.
+# Beginner, one step below Learner. The steps up (2026-11-10): 100 Elo a rank up to God, 120 a rank from God on.
 RANKS: tuple[tuple[int | None, str], ...] = (
     (None, "Beginner"),
-    (975, "Learner"),
-    (1475, "Fighter"),
-    (1975, "Expert"),
-    (2725, "Warrior"),
-    (3725, "Gladiator"),
-    (4725, "Master"),
-    (5725, "Commander"),
-    (7225, "Grandmaster"),
-    (8725, "Warlord"),
-    (10725, "Chosen One"),
-    (12725, "Demi God"),
-    (15725, "God"),
-    (18725, "Elder God"),
-    (22225, "Titan"),
-    (25725, "Eldest God"),
+    (575, "Learner"),
+    (675, "Fighter"),
+    (775, "Expert"),
+    (875, "Warrior"),
+    (975, "Gladiator"),
+    (1075, "Master"),
+    (1175, "Commander"),
+    (1275, "Grandmaster"),
+    (1375, "Warlord"),
+    (1475, "Chosen One"),
+    (1575, "Demi God"),
+    (1675, "God"),
+    (1795, "Elder God"),
+    (1915, "Titan"),
+    (2035, "Eldest God"),
 )
 
 

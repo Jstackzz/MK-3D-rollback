@@ -15,10 +15,9 @@ from .test_lobby import create_msg
 from .test_series import play
 
 LADDER = [
-    ("Beginner", None), ("Learner", 975), ("Fighter", 1475), ("Expert", 1975), ("Warrior", 2725),
-    ("Gladiator", 3725), ("Master", 4725), ("Commander", 5725), ("Grandmaster", 7225), ("Warlord", 8725),
-    ("Chosen One", 10725), ("Demi God", 12725), ("God", 15725), ("Elder God", 18725), ("Titan", 22225),
-    ("Eldest God", 25725),
+    ("Beginner", None), ("Learner", 575), ("Fighter", 675), ("Expert", 775), ("Warrior", 875), ("Gladiator", 975),
+    ("Master", 1075), ("Commander", 1175), ("Grandmaster", 1275), ("Warlord", 1375), ("Chosen One", 1475),
+    ("Demi God", 1575), ("God", 1675), ("Elder God", 1795), ("Titan", 1915), ("Eldest God", 2035),
 ]
 
 
@@ -43,28 +42,28 @@ def set_rating(server, name, rating, game="mkd", mode="kombat"):
 async def test_every_ranked_rating_comes_with_its_title(server, connect, udp_peers):
     conns = [await connect(n) for n in ("Fujin", "Raijin", "Shinnok")]
     assert conns[0].welcome["ranks"] == elo.ladder()  # the ladder, for the launcher to show
-    for name, rating in (("Fujin", 2020), ("Raijin", 1960), ("Shinnok", 900)):
+    for name, rating in (("Fujin", 1840), ("Raijin", 1780), ("Shinnok", 500)):
         set_rating(server, name, rating)
 
     prof = await conns[0].request({"type": "profile"})
-    assert prof["stats"]["mkd"]["kombat"]["ranked"] == {"elo": 2020, "title": "Expert", "wins": 3, "losses": 2}
+    assert prof["stats"]["mkd"]["kombat"]["ranked"] == {"elo": 1840, "title": "Elder God", "wins": 3, "losses": 2}
     board = await conns[2].request({"type": "leaderboard", "game": "mkd", "mode": "kombat"})
     assert [(r["name"], r["elo"], r["title"]) for r in board["rows"]] == [
-        ("Fujin", 2020, "Expert"), ("Raijin", 1960, "Fighter"), ("Shinnok", 900, "Beginner")]
-    assert board["me"] == {"rank": 3, "elo": 900, "title": "Beginner", "wins": 3, "losses": 2}
+        ("Fujin", 1840, "Elder God"), ("Raijin", 1780, "God"), ("Shinnok", 500, "Beginner")]
+    assert board["me"] == {"rank": 3, "elo": 500, "title": "Beginner", "wins": 3, "losses": 2}
 
     players = conns[:2]
     udps = [await udp_peers(), await udp_peers()]
     queued = [await c.request(queue_msg(ranked=True)) for c in players]
-    assert [(q["elo"], q["title"]) for q in queued] == [(2020, "Expert"), (1960, "Fighter")]
+    assert [(q["elo"], q["title"]) for q in queued] == [(1840, "Elder God"), (1780, "God")]
     # the opponent stays hidden until both accept, then comes with their rating and its title
     founds = [await c.expect("match_found") for c in players]
     assert all(f["opponent"] is None for f in founds)
     for c, udp, found in zip(players, udps, founds):
         await hello_and_accept(server, c, udp, found)
     peers = [await c.expect("match_peer") for c in players]
-    assert (peers[0]["opponent"]["elo"], peers[0]["opponent"]["title"]) == (1960, "Fighter")
-    assert (peers[1]["opponent"]["elo"], peers[1]["opponent"]["title"]) == (2020, "Expert")
+    assert (peers[0]["opponent"]["elo"], peers[0]["opponent"]["title"]) == (1780, "God")
+    assert (peers[1]["opponent"]["elo"], peers[1]["opponent"]["title"]) == (1840, "Elder God")
     reports = await asyncio.gather(*[
         udp.punch(peer["peer"], match=peer["match"], key=peer["key"], side=peer["side"], timeout=5)
         for udp, peer in zip(udps, peers)])
@@ -75,21 +74,21 @@ async def test_every_ranked_rating_comes_with_its_title(server, connect, udp_pee
     # a set's state names the opponent's title; its end, each player's title before and after
     by_side = {go["side"]: c for c, go in zip(players, gos)}
     s1, s2 = await play(by_side[1], by_side[2], gos[0]["match"], 1)
-    assert {s["opponent"]: s["opponent_title"] for s in (s1, s2)} == {"Raijin": "Fighter", "Fujin": "Expert"}
+    assert {s["opponent"]: s["opponent_title"] for s in (s1, s2)} == {"Raijin": "God", "Fujin": "Elder God"}
     left = await players[0].request({"type": "series_ready", "series": s1["series"], "ready": False})
     assert left["type"] == "series_left"
     over = await players[1].expect("series", state="over")
     assert over["winner"] == "Raijin"
-    assert (over["elo"]["Fujin"]["title_before"], over["elo"]["Fujin"]["title_after"]) == ("Expert", "Expert")
-    # up a rank, from beating an Expert who left the set
-    assert over["elo"]["Raijin"] == {"before": 1960, "after": 1979, "delta": 19, "title_before": "Fighter",
-                                     "title_after": "Expert"}
+    assert (over["elo"]["Fujin"]["title_before"], over["elo"]["Fujin"]["title_after"]) == ("Elder God", "Elder God")
+    # up a rank, God to Elder God (a 120 Elo step), from beating an Elder God who left the set
+    assert over["elo"]["Raijin"] == {"before": 1780, "after": 1799, "delta": 19, "title_before": "God",
+                                     "title_after": "Elder God"}
 
 
 async def test_lobby_members_come_with_their_titles_in_its_game_and_mode(server, connect):
     host, guest = await connect("Kitana"), await connect("Jade")
-    set_rating(server, "Kitana", 16000)  # a God at kombat
-    set_rating(server, "Kitana", 900, mode="chess")  # a Beginner at chess kombat
+    set_rating(server, "Kitana", 1700)  # a God at kombat
+    set_rating(server, "Kitana", 500, mode="chess")  # a Beginner at chess kombat
     created = await host.request(create_msg())
     code = created["lobby"]["id"]
     assert [(m["name"], m["title"]) for m in created["lobby"]["members"]] == [("Kitana", "God")]
@@ -110,7 +109,7 @@ async def test_a_new_player_starts_a_beginner_and_a_record_from_the_old_start_st
     assert all(prof["stats"][game][mode]["ranked"] == start for game, modes in P.GAMES.items() for mode in modes)
     set_rating(server, "Goro", 1516)  # played ranked while everyone started at 1500
     prof = await c.request({"type": "profile"})
-    assert prof["stats"]["mkd"]["kombat"]["ranked"] == {"elo": 1516, "title": "Fighter", "wins": 3, "losses": 2}
+    assert prof["stats"]["mkd"]["kombat"]["ranked"] == {"elo": 1516, "title": "Chosen One", "wins": 3, "losses": 2}
     assert prof["stats"]["mkd"]["chess"]["ranked"] == start  # each mode has its own
 
 

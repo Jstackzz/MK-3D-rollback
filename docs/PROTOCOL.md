@@ -90,24 +90,25 @@ S: {"type":"welcome","proto":1,"server":"mk3d-server","version":"0.1.0","udp_por
     "motd":"Welcome!","online":12,"min_client":"0.1.0",
     "games":{"mkda":["kombat"],"mkd":["kombat","chess","puzzle"],"mka":["kombat","motor"]},
     "regions":["na","sa","eu","me","af","as","oc"],"direct_above_ms":100,
-    "ranks":[{"title":"Beginner","from":null},{"title":"Learner","from":975},
-             {"title":"Fighter","from":1475}, ...,{"title":"Eldest God","from":25725}]}
+    "ranks":[{"title":"Beginner","from":null},{"title":"Learner","from":575},
+             {"title":"Fighter","from":675}, ...,{"title":"Eldest God","from":2035}]}
 ```
 
 - `proto` must equal the server's `PROTO`, else `error{code:"proto_mismatch"}`.
 - `ranks` (0.1.21): the ranked titles by Elo, lowest first, each held from its
-  `from` up to the next one's (the first, `null`, below the second's): Beginner
-  below 975 (a new player starts at 475), Learner 975, Fighter 1475, Expert
-  1975, Warrior 2725, Gladiator 3725, Master 4725, Commander 5725, Grandmaster
-  7225, Warlord 8725, Chosen One 10725, Demi God 12725, God 15725, Elder God
-  18725, Titan 22225, Eldest God 25725 (server/elo.py `RANKS`; these 16, each with its
-  badge, replaced 0.1.21's 12 titles). Every ranked rating the server sends
-  comes with its `title` (1.5, 1.7, 1.8, 1.9.1, 1.11), and so does every
-  player in a lobby or a match, ranked or not (1.8 `match_go`, 1.10, 1.10.1);
-  the launcher shows the ladder in tooltips, the next title on the Ranked page
-  and each title's badge (launcher/data/ranks, by the title in lower case with
-  dashes for spaces: `chosen-one.png`); the games show it beside the timer,
-  above each player's health bar (2.1 `p1_rank`).
+  `from` up to the next one's (the first, `null`, below the second's):
+  Beginner below 575 (a new player starts at 475), Learner 575, Fighter 675,
+  Expert 775, Warrior 875, Gladiator 975, Master 1075, Commander 1175,
+  Grandmaster 1275, Warlord 1375, Chosen One 1475, Demi God 1575, God 1675,
+  Elder God 1795, Titan 1915, Eldest God 2035: 100 Elo a rank, 120 from God on
+  (server/elo.py `RANKS`; these 16, each with its badge, replaced 0.1.21's 12
+  titles). Every ranked rating the server sends comes with its `title` (1.5,
+  1.7, 1.8, 1.9.1, 1.11), and so does every player in a lobby or a match,
+  ranked or not (1.8 `match_go`, 1.10, 1.10.1); the launcher shows the ladder
+  in tooltips, the next title on the Ranked page and each title's badge
+  (launcher/data/ranks, by the title in lower case with dashes for spaces:
+  `chosen-one.png`); the games show it beside the timer, above each player's
+  health bar (2.1 `p1_rank`).
 - `direct_above_ms` (0.1.18): a match relayed only because a player hides their
   address tries a direct connection when its ping through the relay is over
   this (1.7 `relay`; 0: never), for the launcher's Settings to say.

@@ -112,26 +112,27 @@ whether to trust it: compare it with your host's.
   beside the timer, above their health bar (player 1's on the left, player 2's
   on the right). Each game has its own: your rank in Deadly Alliance comes from
   your Deadly Alliance Elo. New players start at 475, a Beginner, and show as
-  one until they play ranked:
+  one until they play ranked. Each rank is 100 Elo above the one before it, and
+  from God on 120:
 
   | Rank | Elo |
   |---|---|
-  | Beginner | below 975 |
-  | Learner | 975 to 1474 |
-  | Fighter | 1475 to 1974 |
-  | Expert | 1975 to 2724 |
-  | Warrior | 2725 to 3724 |
-  | Gladiator | 3725 to 4724 |
-  | Master | 4725 to 5724 |
-  | Commander | 5725 to 7224 |
-  | Grandmaster | 7225 to 8724 |
-  | Warlord | 8725 to 10724 |
-  | Chosen One | 10725 to 12724 |
-  | Demi God | 12725 to 15724 |
-  | God | 15725 to 18724 |
-  | Elder God | 18725 to 22224 |
-  | Titan | 22225 to 25724 |
-  | Eldest God | 25725 and up |
+  | Beginner | below 575 |
+  | Learner | 575 to 674 |
+  | Fighter | 675 to 774 |
+  | Expert | 775 to 874 |
+  | Warrior | 875 to 974 |
+  | Gladiator | 975 to 1074 |
+  | Master | 1075 to 1174 |
+  | Commander | 1175 to 1274 |
+  | Grandmaster | 1275 to 1374 |
+  | Warlord | 1375 to 1474 |
+  | Chosen One | 1475 to 1574 |
+  | Demi God | 1575 to 1674 |
+  | God | 1675 to 1794 |
+  | Elder God | 1795 to 1914 |
+  | Titan | 1915 to 2034 |
+  | Eldest God | 2035 and up |
 
   A set against a player with your Elo moves it 16, more against a better one
   and less against a weaker one.
