@@ -44,6 +44,7 @@
 X86_EXTERN_FUNC(__imp__sub_00076700);
 X86_EXTERN_FUNC(__imp__sub_00051290);
 X86_EXTERN_FUNC(__imp__sub_000537B0);
+X86_EXTERN_FUNC(__imp__sub_0011D560);
 X86_EXTERN_FUNC(__imp__sub_00053650);
 X86_EXTERN_FUNC(__imp__sub_001381E0);
 X86_EXTERN_FUNC(__imp__sub_00051B20);
@@ -76,6 +77,13 @@ constexpr Limit kLimits[] = {
 constexpr uint32_t kNoBlock = 0x158, kNoBlockToo = 0x15C, kBlockFrom = 0x160;
 constexpr uint32_t kGameFrames = 0x42A8A0;
 
+// Bo' Rai Cho's Jojutsu forward + 3: the name of a fighter's move script and the command after the one it is at, the
+// command after this move's recovery counted from the name, what a strike did (0 nothing, 1 hit, 2 blocked)
+constexpr uint32_t kScriptName = 0x9F0, kCommand = 0x9F8, kContact = 0x154, kBlocked = 2;
+constexpr char kForwardThree[] = "jojutsu_3_towards";
+constexpr uint32_t kForwardThreeRecovery = 0x970, kForwardThreeFirst = 0x918, kForwardThreeSecond = 0x94C;
+constexpr uint32_t kForwardThreeOpensAfter = 12;  // frames after the second strike's last live frame
+
 // the block lock, see the hook of sub_000537B0
 constexpr uint32_t kLockLater = 5;          // frames
 constexpr uint32_t kFrameCount = 0x42A888;  // the count sub_000E7A90 times the block reaction with
@@ -85,7 +93,7 @@ constexpr uint32_t kComputer = 0x20C;       // not 0: the computer plays this fi
 
 // guest memory: per side, the hits of the combo it is in or still getting up from (added up across knockdowns), and
 // the game's own count when last looked at; the attack its block routine is not told of yet, and since when
-constexpr uint32_t kComboOf = 0, kSeenOf = 8, kLockAttack = 16, kLockSince = 24, kStyleAt = 32, kBytes = 40;
+constexpr uint32_t kComboOf = 0, kSeenOf = 8, kLockAttack = 16, kLockSince = 24, kStyleAt = 32, kStrikeLive = 40, kFirstStrike = 48, kBytes = 56;
 uint32_t g_mem = 0;
 uint32_t g_logged = 0;  // rule lines logged so far, the first 200 (LOG_FIRST is silent in release builds)
 
@@ -156,10 +164,44 @@ bool Free(uint32_t state) {
            kind == 0x0900;
 }
 
+// Bo' Rai Cho in his Jojutsu forward + 3
+bool InForwardThree(uint32_t f) {
+    if (kernel::R32(f + kCharacterId) != kBoRaiCho) return false;
+    const uint32_t kind = kernel::R32(f + kState) & 0xFF00;
+    if (kind != 0x1200 && kind != 0x1300) return false;
+    const uint32_t name = kernel::R32(f + kScriptName);
+    return mem::IsCommitted(name) && mem::IsCommitted(name + sizeof kForwardThree - 1) &&
+           std::memcmp(kernel::HostPtr(name), kForwardThree, sizeof kForwardThree) == 0;
+}
+
+void OpenBlock(uint32_t f) {
+    kernel::W32(f + kBlockFrom, 0);
+    kernel::W32(f + kNoBlock, 0);
+    kernel::W32(f + kNoBlockToo, 0);
+}
+
+// from a frame's top, so both sides have it before either's task runs: the last frame the second strike was live (the
+// first must have come: a command left over from one cut short is not this one's), and with that strike blocked, the
+// block open from kForwardThreeOpensAfter frames later
+void ForwardThreeBlock(uint32_t f, int side, uint32_t m) {
+    uint32_t live = 0, first = 0;
+    if (f && mem::IsCommitted(f) && InForwardThree(f)) {
+        const uint32_t at = kernel::R32(f + kCommand) - kernel::R32(f + kScriptName), now = kernel::R32(kGameFrames);
+        live = kernel::R32(m + kStrikeLive + side * 4);
+        first = kernel::R32(m + kFirstStrike + side * 4);
+        if (at == kForwardThreeFirst) first = 1;
+        if (first && at == kForwardThreeSecond) live = now;
+        if (live && kernel::R32(f + kContact) == kBlocked && now >= live + kForwardThreeOpensAfter) OpenBlock(f);
+    }
+    kernel::W32(m + kStrikeLive + side * 4, live);
+    kernel::W32(m + kFirstStrike + side * 4, first);
+}
+
 void EachFrame(uint64_t) {
     const uint32_t m = Mem();
     if (!m) return;
     for (int s = 0; s < 2; s++) {
+        ForwardThreeBlock(kernel::R32(kFighter[s]), s, m);
         const uint32_t f = kernel::R32(kFighter[s]);
         const bool here = f && mem::IsCommitted(f);
         // a style change that went ahead of an attack button: as it started it marked the newest press used, and that
@@ -232,6 +274,12 @@ bool KickOverPuddle() {
 }
 
 }  // namespace
+
+// the frame data panel asks first, from its own frame hook, so it reads what this frame's fighters can do
+void ForwardThreeAtTop(int side) {
+    if (const uint32_t m = Mem()) ForwardThreeBlock(kernel::R32(kFighter[side]), side, m);
+}
+
 }  // namespace mkda::rules
 
 // a character's special moves for a button: the limited ones are not looked at past their hits
@@ -383,4 +431,19 @@ X86_FUNC(sub_001381E0) {
         if (LogMore()) LOGR("rules: an attack over Bo' Rai Cho's puddle: it slips");
         ctx.eax = 0;
     }
+}
+
+// Bo' Rai Cho's Jojutsu forward + 3 is -14 on block. The script's recovery command gives the block 15 more frames from
+// the start of the recovery (-29 on block) and his no-block marks stay until he is back in stance. With the second
+// strike blocked, the block opens at that frame's top (ForwardThreeBlock) and this command's time is 0, so the recovery
+// (sub_00055AC0) does not shut it again. Only that changes: the move gate (-19 to attack), the animation, and the move
+// on hit or on a whiff stay as they are. Game state only, so a rollback puts it back and two games online decide the same.
+X86_FUNC(sub_0011D560) {
+    using namespace mkda::rules;
+    __imp__sub_0011D560(ctx, base);
+    const uint32_t self = kernel::R32(kSelf);
+    if (!self || !mem::IsCommitted(self) || !InForwardThree(self) || kernel::R32(self + kContact) != kBlocked ||
+        kernel::R32(self + kCommand) - kernel::R32(self + kScriptName) != kForwardThreeRecovery)
+        return;
+    OpenBlock(self);
 }

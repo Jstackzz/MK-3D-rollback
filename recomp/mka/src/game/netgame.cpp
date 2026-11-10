@@ -34,6 +34,7 @@ constexpr uint32_t kFighterBytes = 0xC80;        // a fighter object reaches +0x
 constexpr uint32_t kRaceBytes = 0x107C;          // the Motor Kombat race object [0x5B8334]
 constexpr uint32_t kKartBytes = 0x4E8;           // a kart: the task data sub_000C2C30 makes for it
 constexpr uint32_t kKartSlots = 8;
+constexpr uint32_t kNextComputerKart = 0x5B8344, kKartsOnTheList = 10;
 constexpr uint32_t kArenaCycle = 0x831A64;       // the next arena's place on the list (events.h, linkgame.cpp)
 constexpr uint32_t kPhysicalButtons = 0x59C828;  // the pad update's 16 inputs: analog flag, digital mask or index
 constexpr uint32_t kStateBlock = 0x830900, kStateBlockBytes = 0x1400;  // records, port blocks, fight state
@@ -82,9 +83,20 @@ uint32_t Handle(uint32_t at) {
 // the kart in a slot of the race (handles at race + 0x24C + slot * 8; the players' slots first), 0 if none
 uint32_t Kart(uint32_t race, uint32_t slot) { return race ? Handle(race + kKarts + slot * 8) : 0; }
 
+// A kart's words that are the screen's, which differs between two players of one race, not the race's: +0x154 how far
+// a marker on the HUD has faded (a byte, sub_000F48B0: it fades where it overlaps what is on this PC's screen) and
+// +0x174 half this PC's viewport (320 or 360).
+constexpr uint32_t kKartScreenWords[] = {0x154, 0x174};
+
 uint32_t KartHash(uint32_t race, uint32_t slot) {
     uint32_t kart = Kart(race, slot);
-    return kart ? HashBlock(2166136261u, kart, kKartBytes) : 0;
+    if (!kart) return 0;
+    uint32_t h = 2166136261u, from = 0;
+    for (uint32_t word : kKartScreenWords) {
+        h = HashBlock(h, kart + from, word - from);
+        from = word + 4;
+    }
+    return HashBlock(h, kart + from, kKartBytes - from);
 }
 
 // the race object and its karts
@@ -264,6 +276,9 @@ void Agree(X86Context&, int, const std::vector<uint32_t>& mine, const std::vecto
 void Reseed(X86Context& ctx, uint32_t seed) {
     kernel::CallGuest(ctx, kSeedRandom, {seed});
     kernel::W32(kRandomDrawn, 0);
+    // the next kart a computer racer takes (sub_00105040) goes on from the last race and nothing resets it, so a game
+    // that has raced before would field other computer racers than a fresh one: the match's seed picks the place
+    if (GameMode() == kModeKart) kernel::W32(kNextComputerKart, seed % kKartsOnTheList);
     rng::BeginFrame(seed, 0xFFFFFFFFu);  // the setup's own draws
 }
 

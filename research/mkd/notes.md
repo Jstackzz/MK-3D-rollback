@@ -665,3 +665,24 @@ Players who pick on the select screen (the launcher's `p1=- p2=-`), brought in l
 - The same layers for Armageddon (with its Motor Kombat side mode) and Deadly Alliance, from a shared core.
 - Rematches without the main menu in between (the game takes `rematch`; the launcher and server do not send it).
 - In-game character and team select in sync, instead of the launcher's picks.
+
+### Puzzle and Chess Kombat desyncs: the screen's width and what a game remembers (2026-11-09)
+
+- The guest's viewport width 0x6212D4 is 720 on a screen 3:2 or wider, else 640. Puzzle's fighter director (15 functions
+  in 0x181D30..0x18E3D0: walk limits, places) and Chess's panels (the width readers in 0x100000..0x120000: a slide's end
+  decides when kFlags bit 0x4000 and the chess game's +0x34 / +0x50 change, a few frames apart) ran by it, so a 4:3
+  player and a wide one parted. In a match in sync those functions see the narrower of the two players' widths, told at
+  the meeting point (src/game/agreed_width.cpp; READY word kWordWidth, a spectator gets both). Same-shape screens: no change.
+- sub_000F52A0 draws a variant and draws again while it equals 0x3EE904, the last match's, which nothing resets (boot
+  0x2710): each Puzzle match in sync starts from the boot value (netgame.cpp Agree).
+- Known and left: a game that played Puzzle earlier in the session and has the same fighter on the same side again loads
+  that fighter about 3 frames sooner, so its intro starts at 86 where a fresh game's starts at 91: the two part at frame
+  8, a no contest at frame 30. One fighter is enough: after 0:10 or 10:4, a match of 0 vs 4 against a fresh game parted;
+  after 10:0 or 4:0 (those fighters on the other side) or 19:10 (other fighters) it did not. A rematch is the same on
+  both games, so it takes a player who changed opponents. That the side matters suggests a per-side check rather than
+  the table 0x3FC490 alone (not confirmed). Ruled out 2026-11-09: emptying the director's slots 0x3FDB80 with the game's
+  own unload changes nothing; both games open the same files in the same order, but at the load's frame 7 they read
+  different parts of the fighter's .ssf (warm 1869824, 2000896, 2766848; fresh 1808384, 1835008), so what the load asks
+  for differs. 0x3EBB28.. are the positions of an input event ring (0x6200A0, 30 entries). Writing fresh values over the
+  words that differ did not find it, and most such writes hang the game.
+- CheckBlocks now includes a side mode's board, so a desync's dump shows it.

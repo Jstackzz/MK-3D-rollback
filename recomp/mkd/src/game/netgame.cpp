@@ -14,6 +14,7 @@
 #include "game/events.h"
 #include "game/frame.h"
 #include "game/netgame.h"
+#include "game/agreed_width.h"
 #include "game/rng.h"
 #include "kernel/kernel.h"
 #include "kernel/memory.h"
@@ -121,9 +122,15 @@ enum ReadyWord {
     kWordMode, kWordP1, kWordP2, kWordFrames, kWordGameFrames, kWordArena, kWordTeams,
     kWordOptions = kWordTeams + 10,  // the options a launcher match sets (linkgame.cpp): round time, blood, death traps
     kWordCostumes = kWordOptions + 3,  // each player's costume flags (record + 0x14): both games must have each's own
-    kWordCount = kWordCostumes + 2
+    kWordWidth = kWordCostumes + 2,    // this PC's viewport width (agreed_width.cpp)
+    kWordCount = kWordWidth + 1
 };
 constexpr uint32_t kOptions[3] = {0x5FC9AC, 0x5FC9B4, 0x5FC9B8};
+
+// Puzzle Kombat's last variant: sub_000F52A0 draws one of three and draws again while it equals this, and nothing but
+// that function ever writes it, so a game that has played Puzzle before could take another variant than a fresh one
+// with the same seed. Each match in sync starts from the value it has at boot.
+constexpr uint32_t kPuzzleLastVariant = 0x3EE904, kPuzzleLastVariantAtBoot = 0x2710;
 
 }  // namespace
 }  // namespace mkd
@@ -191,6 +198,7 @@ void ReadyWords(std::vector<uint32_t>& out) {
     for (uint32_t i = 0; i < 3; i++) out[kWordOptions + i] = kernel::R32(kOptions[i]);
     out[kWordCostumes] = kernel::R32(kP1Record + 0x14);
     out[kWordCostumes + 1] = kernel::R32(kP2Record + 0x14);
+    out[kWordWidth] = width::ViewportWidth();
 }
 
 std::string Describe() {
@@ -237,6 +245,10 @@ void Agree(X86Context&, int side, const std::vector<uint32_t>& mine, const std::
         if (arena != kernel::R32(kArena)) LOGI("netplay: arena %u (ours was %u)", arena, kernel::R32(kArena));
         kernel::W32(kArena, arena);
     }
+    if (mode == kModePuzzle) {
+        kernel::W32(kPuzzleLastVariant, kPuzzleLastVariantAtBoot);
+    }
+    if (mode == kModePuzzle || mode == kModeChess) width::AgreeWidth(mine[kWordWidth], theirs[kWordWidth]);
     if (mode == kModeChess) {
         for (uint32_t team = 0; team < 2; team++) {
             if (int(team) == side) continue;  // P1's from side 0, P2's from side 1
@@ -319,11 +331,12 @@ void LogState(FILE* f) {
                  kernel::R32(kPuzzleWinner), kernel::R32(kPuzzleStreak[0]), kernel::R32(kPuzzleStreak[1]));
 }
 
-// the two fighter objects and the game state block 0x620000..0x622000
+// the two fighter objects, the game state block 0x620000..0x622000 and a side mode match's board
 void CheckBlocks(std::vector<std::pair<uint32_t, uint32_t>>& out) {
     out.push_back({kernel::R32(kP1Record + 0x58), kFighterBytes});
     out.push_back({kernel::R32(kP2Record + 0x58), kFighterBytes});
     out.push_back({0x620000, 0x2000});
+    SideModeBlocks(out);
 }
 
 // the .data section (0x3E3580..0x64007C)

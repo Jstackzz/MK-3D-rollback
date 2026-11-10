@@ -567,3 +567,12 @@ No runtime patch was needed: everything above is config (`recomp/mka/config/game
   in the runs above. The D3D getters it marks DEV read device fields the runtime keeps (patch 0005 layout keys).
 - Release preset: configured offline like the debug one (`cmake --preset release` with the four
   `FETCHCONTENT_SOURCE_DIR_*` of `out/deps-src`), built in about 2 minutes; boots to the main menu and plays (rel1).
+
+### Motor Kombat desyncs: the screen's shape and the computer karts (2026-11-09)
+
+- A kart's +0x174 is half this PC's viewport and its byte +0x154 how far a HUD marker has faded (sub_000F48B0, against what
+  is on this PC's screen): neither is the race's, both are left out of KartHash. They were false alarms for any 4:3 + wide
+  race (+0x174 at frame 60; once that was out, +0x154 in bursts of about 9 frames).
+- sub_00105040 hands the computer racers their karts from a counter (0x5B8344) that goes on from race to race and nothing
+  resets, so a game that had raced before fielded other racers than a fresh one and parted at once. Reseed sets it from
+  the match's seed (seed % 10), which keeps the variety.

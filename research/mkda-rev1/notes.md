@@ -585,6 +585,9 @@ Found with the debug monitor stepping versus fights (scratchpad r30: `versus_tra
 - Bo' Rai Cho's Jojutsu forward + 3 (jojutsu_3_towards, both costumes): strikes from commands +0x918 and +0x94C, then
   the wait and the recovery (5, 5, 15, 1, 1), so 12 frames after the second strike's last the gate shuts for 5 more
   and the block for 15: recovery 16, -19 to attack, -29 on block.
+  Since 2026-11-09 -14 on block when the second strike is blocked (noinfinites.cpp ForwardThreeBlock and the hook of
+  sub_0011D560: the block opens at the top of the frame 12 after that strike's last); -19 to attack, on hit and on a
+  whiff as they were.
 
 ## Tools
 

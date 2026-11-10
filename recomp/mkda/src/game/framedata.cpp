@@ -14,6 +14,8 @@
 X86_EXTERN_FUNC(__imp__sub_000547B0);
 X86_EXTERN_FUNC(__imp__sub_00075B50);
 
+namespace mkda::rules { void ForwardThreeAtTop(int side); }
+
 namespace mkda {
 namespace {
 
@@ -60,6 +62,7 @@ bool Practice() {
 uint32_t Time() { return kernel::R32(kGameFrames); }
 
 bool Read(int side, mk3d::framedata::Fighter& f) {
+    mkda::rules::ForwardThreeAtTop(side);
     const uint32_t obj = FighterObject(side);
     if (!obj || !mem::IsCommitted(obj)) return false;
     const uint32_t state = kernel::R32(obj + kState), now = Time(), busy = kernel::R32(obj + kBusyUntil);
