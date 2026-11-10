@@ -16,6 +16,7 @@ from .db import Database
 from .matchmaking import MatchmakingConfig
 
 RESET_RANKS_FLAG = "reset-ranks"  # a file of this name beside the database: the next start resets everyone's rank
+RESTORE_RECORDS_FLAG = "restore-ranked-records"  # likewise: the next start puts back the Elo and records a reset cleared
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -101,6 +102,41 @@ def reset_ranks_if_asked(db_path: str) -> None:
     log.info("ranks reset: %d ranked records cleared, the database as it was is in %s", cleared, copy)
 
 
+def restore_ranked_records_if_asked(db_path: str) -> None:
+    """RESTORE_RECORDS_FLAG beside the database (empty, or naming a copy beside it; empty is the newest copy a rank reset
+    left): the next start puts that copy's ranked Elo back and adds its wins and losses to what was played since, in
+    every game. The database is copied first, the file goes before anything changes so it can never add twice, and the
+    server starts whatever happens."""
+    log = logging.getLogger("mk3d.server")
+    base = os.path.dirname(os.path.abspath(db_path))
+    flag = os.path.join(base, RESTORE_RECORDS_FLAG)
+    if not os.path.exists(flag):
+        return
+    try:
+        with open(flag, encoding="utf-8") as f:
+            named = f.read().strip()
+        prefix = os.path.basename(db_path) + ".before-rank-reset-"
+        copies = sorted(n for n in os.listdir(base) if n.startswith(prefix) and not n.endswith(("-wal", "-shm")))
+        name = os.path.basename(named) if named else (copies[-1] if copies else "")
+        source = os.path.join(base, name)
+        if not name or not os.path.isfile(source):
+            log.error("ranked records NOT restored: no copy to take them from (%r)", name)
+            return
+        db = Database(db_path)
+        try:
+            copy = f"{db_path}.before-records-restore-{time.strftime('%Y%m%d-%H%M%S')}"
+            db.backup(copy)
+            os.remove(flag)
+            added, back = db.restore_ranked_records(source)
+        finally:
+            db.close()
+    except (OSError, sqlite3.Error):
+        log.exception("ranked records NOT restored")
+        return
+    log.info("ranked Elo and records restored from %s: %d combined with what was played since, %d brought back; the "
+             "database as it was is in %s", name, added, back, copy)
+
+
 async def serve(cfg: ServerConfig) -> None:
     server = Server(cfg)
     await server.start()
@@ -124,6 +160,7 @@ def main(argv: list[str] | None = None) -> int:
               file=sys.stderr)
         return 2
     reset_ranks_if_asked(cfg.db_path)
+    restore_ranked_records_if_asked(cfg.db_path)
     try:
         asyncio.run(serve(cfg))
     except KeyboardInterrupt:

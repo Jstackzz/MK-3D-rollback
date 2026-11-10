@@ -7,7 +7,7 @@ import asyncio
 
 from server import elo
 from server import protocol as P
-from server.__main__ import RESET_RANKS_FLAG, reset_ranks_if_asked
+from server.__main__ import RESET_RANKS_FLAG, RESTORE_RECORDS_FLAG, reset_ranks_if_asked, restore_ranked_records_if_asked
 from server.db import Database
 
 from .conftest import hello_and_accept, queue_msg
@@ -114,7 +114,8 @@ async def test_a_new_player_starts_a_beginner_and_a_record_from_the_old_start_st
     assert prof["stats"]["mkd"]["chess"]["ranked"] == start  # each mode has its own
 
 
-EVERY_RECORD = [("mkd", "chess", "ranked", 1300), ("mkda", "kombat", "casual", 1500), ("mkda", "kombat", "ranked", 1700)]
+EVERY_RECORD = [("mka", "kombat", "ranked", 1640), ("mkd", "chess", "ranked", 1300), ("mkda", "kombat", "casual", 1500),
+                ("mkda", "kombat", "ranked", 1700)]
 
 
 def database_with_records(tmp_path):
@@ -157,6 +158,43 @@ def test_a_rank_reset_happens_once_when_asked_and_keeps_a_copy(tmp_path):
 
     reset_ranks_if_asked(path)  # the next start does not do it again
     assert len(copies()) == 1
+
+
+def full_records(path):
+    db = Database(path)
+    rows = [tuple(r) for r in db.conn.execute("SELECT game, mode, kind, elo, wins, losses FROM stats ORDER BY game, mode, kind")]
+    db.close()
+    return rows
+
+
+def test_restoring_brings_back_elo_and_records_in_every_game(tmp_path):
+    path, account = database_with_records(tmp_path)
+    (tmp_path / RESET_RANKS_FLAG).touch()
+    reset_ranks_if_asked(path)
+    db = Database(path)
+    for game, mode, rating, wins, losses in (("mkda", "kombat", 491, 2, 1),  # played since the reset
+                                             ("mkd", "kombat", 507, 3, 0)):  # a record that did not exist before it
+        db.conn.execute("INSERT INTO stats (account_id, game, mode, kind, elo, wins, losses, updated) "
+                        "VALUES (?, ?, ?, 'ranked', ?, ?, ?, 0)", (account, game, mode, rating, wins, losses))
+    db.close()
+
+    flag = tmp_path / RESTORE_RECORDS_FLAG
+    restore_ranked_records_if_asked(path)  # not asked: nothing happens
+    assert ("mkda", "kombat", "ranked", 491, 2, 1) in full_records(path)
+
+    flag.touch()
+    restore_ranked_records_if_asked(path)
+    assert not flag.exists()
+    expected = [("mka", "kombat", "ranked", 1640, 5, 4),  # nothing played since: as it was
+                ("mkd", "chess", "ranked", 1300, 5, 4),
+                ("mkd", "kombat", "ranked", 507, 3, 0),  # not in the copy: stays
+                ("mkda", "kombat", "casual", 1500, 5, 4),
+                ("mkda", "kombat", "ranked", 1700, 7, 5)]  # played since: the Elo it had, the records add up
+    assert full_records(path) == expected
+
+    restore_ranked_records_if_asked(path)  # the next start does not add them again
+    assert full_records(path) == expected
+    assert [c for c in tmp_path.glob("server.sqlite.before-records-restore-*") if not c.name.endswith(("-wal", "-shm"))]
 
 
 def test_a_rank_reset_that_cannot_copy_the_database_clears_nothing(tmp_path, monkeypatch):

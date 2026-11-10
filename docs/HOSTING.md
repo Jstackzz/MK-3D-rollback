@@ -71,6 +71,14 @@ the file and clears every ranked record, in every game and mode: everyone is
 back at the starting Elo and off the leaderboards until their next ranked set.
 Kasual records, accounts and the match history stay.
 
+To undo a reset, leave a file named `restore-ranked-records` there before a
+start (empty, or holding the name of a `server.sqlite.before-rank-reset-<date>`
+copy; empty takes the newest). That start copies the database to
+`server.sqlite.before-records-restore-<date>`, removes the file, and, in every
+game, puts each ranked record's Elo back to what it was in the copy and adds its
+wins and losses to what was played since. Ranked records the copy does not have
+stay as they are.
+
 ### Oracle Cloud Always Free, step by step
 
 1. **Account.** <https://www.oracle.com/cloud/free/>, *Start for free*: email,

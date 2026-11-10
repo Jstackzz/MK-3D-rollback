@@ -45,6 +45,7 @@ X86_EXTERN_FUNC(__imp__sub_00076700);
 X86_EXTERN_FUNC(__imp__sub_00051290);
 X86_EXTERN_FUNC(__imp__sub_000537B0);
 X86_EXTERN_FUNC(__imp__sub_0011D560);
+X86_EXTERN_FUNC(__imp__sub_000E97A0);
 X86_EXTERN_FUNC(__imp__sub_00053650);
 X86_EXTERN_FUNC(__imp__sub_001381E0);
 X86_EXTERN_FUNC(__imp__sub_00051B20);
@@ -60,13 +61,14 @@ constexpr uint32_t kState = 0x194;      // 0 stance, 0x12xx 0x13xx attacks, 0x0A
 constexpr uint32_t kComboHits = 0x1A0;  // the hits of the combo it is in
 constexpr uint32_t kSonya = 0x09, kFrost = 0x0B, kDrahmin = 0x12, kBoRaiCho = 0x14;
 constexpr uint32_t kPuddleSlip = 0x4207;  // slipping in Bo' Rai Cho's puddle
+constexpr uint32_t kPuddleTable = 0x2712AC;  // his button 2's special moves: back, forward
 
 struct Limit {
     uint32_t character, table, hits;
     const char* move;
 };
 constexpr Limit kLimits[] = {
-    {kBoRaiCho, 0x2712AC, 1, "Bo' Rai Cho's Puke Puddle"},  // button 2: back, forward
+    {kBoRaiCho, kPuddleTable, 1, "Bo' Rai Cho's Puke Puddle"},  // button 2: back, forward
     {kFrost, 0x271330, 3, "Frost's Ground Ice"},             // button 3: down, back (the table's only move)
     {kDrahmin, 0x271200, 6, "Drahmin's Ground Smash"},       // button 4: back, down (the table's only move)
     {kSonya, 0x270D90, 9, "Sonya's Kiss of Death"},          // button 1: down, back
@@ -84,6 +86,13 @@ constexpr char kForwardThree[] = "jojutsu_3_towards";
 constexpr uint32_t kForwardThreeRecovery = 0x970, kForwardThreeFirst = 0x918, kForwardThreeSecond = 0x94C;
 constexpr uint32_t kForwardThreeOpensAfter = 12;  // frames after the second strike's last live frame
 
+// his Jojutsu standing 4 and 2,4: -14 on block, by the block time their recovery commands give (14 frames in the script)
+struct BlockTime {
+    const char* script;
+    uint32_t recovery, frames;  // the command after the recovery, counted from the name; the block time then
+};
+constexpr BlockTime kBlockTimes[] = {{"jojutsu_4", 0xAD8, 1}, {"jojutsu_2", 0x5E0, 4}};
+
 // the block lock, see the hook of sub_000537B0
 constexpr uint32_t kLockLater = 5;          // frames
 constexpr uint32_t kFrameCount = 0x42A888;  // the count sub_000E7A90 times the block reaction with
@@ -92,8 +101,9 @@ constexpr uint32_t kHitAt = 0x1B4;          // when the opponent's attack is to 
 constexpr uint32_t kComputer = 0x20C;       // not 0: the computer plays this fighter
 
 // guest memory: per side, the hits of the combo it is in or still getting up from (added up across knockdowns), and
-// the game's own count when last looked at; the attack its block routine is not told of yet, and since when
-constexpr uint32_t kComboOf = 0, kSeenOf = 8, kLockAttack = 16, kLockSince = 24, kStyleAt = 32, kStrikeLive = 40, kFirstStrike = 48, kBytes = 56;
+// the game's own count when last looked at; the attack its block routine is not told of yet, and since when; the count
+// set aside for the Puke Puddle's test (the hook of sub_000E97A0)
+constexpr uint32_t kComboOf = 0, kSeenOf = 8, kLockAttack = 16, kLockSince = 24, kStyleAt = 32, kStrikeLive = 40, kFirstStrike = 48, kHeldHits = 56, kBytes = 60;
 uint32_t g_mem = 0;
 uint32_t g_logged = 0;  // rule lines logged so far, the first 200 (LOG_FIRST is silent in release builds)
 
@@ -236,6 +246,15 @@ uint32_t ComboHits(uint32_t fighter, int side, uint32_t m) {
     return std::max(hits, kernel::R32(m + kComboOf + side * 4) + (hits > seen ? hits - seen : 0));
 }
 
+// the opponent's count, set aside for the Puke Puddle's test, back where the game had it
+void PutHitsBack() {
+    const uint32_t m = Mem(), opp = kernel::R32(kOpponent);
+    const uint32_t held = m ? kernel::R32(m + kHeldHits) : 0;
+    if (!held) return;
+    kernel::W32(m + kHeldHits, 0);
+    if (opp && mem::IsCommitted(opp) && !kernel::R32(opp + kComboHits)) kernel::W32(opp + kComboHits, held);
+}
+
 const bool g_registered = (mk3d::OnFrameStart(&EachFrame), true);
 
 float AsFloat(uint32_t word) {
@@ -298,6 +317,7 @@ X86_FUNC(sub_00076700) {
         }
         if (LogMore()) LOGR("rules: %s may come out: the opponent is at %u hits", l.move, hits);
     }
+    if (table == kPuddleTable) PutHitsBack();  // the game's test has passed: nothing else sees the difference
     __imp__sub_00076700(ctx, base);
 }
 
@@ -442,8 +462,35 @@ X86_FUNC(sub_0011D560) {
     using namespace mkda::rules;
     __imp__sub_0011D560(ctx, base);
     const uint32_t self = kernel::R32(kSelf);
-    if (!self || !mem::IsCommitted(self) || !InForwardThree(self) || kernel::R32(self + kContact) != kBlocked ||
-        kernel::R32(self + kCommand) - kernel::R32(self + kScriptName) != kForwardThreeRecovery)
+    if (!self || !mem::IsCommitted(self) || kernel::R32(self + kContact) != kBlocked ||
+        kernel::R32(self + kCharacterId) != kBoRaiCho)
         return;
-    OpenBlock(self);
+    const uint32_t name = kernel::R32(self + kScriptName), at = kernel::R32(self + kCommand) - name;
+    if (InForwardThree(self) && at == kForwardThreeRecovery) {
+        OpenBlock(self);
+        return;
+    }
+    // his Jojutsu standing 4 and 2,4, the last strike blocked: -14 on block, the block's time alone changes
+    if (!mem::IsCommitted(name) || !mem::IsCommitted(name + 15)) return;
+    for (const BlockTime& move : kBlockTimes)
+        if (at == move.recovery && std::strncmp(static_cast<const char*>(kernel::HostPtr(name)), move.script, 16) == 0)
+            kernel::W32(self + kBlockFrom, move.frames);
+}
+
+// Bo' Rai Cho's button 2 offers his Puke Puddle only while the opponent's combo count is 0 (+0x1A0, the game's own test
+// in this routine). The game clears the count on the way back to stance, so a fighter who was hit and then keeps holding
+// block never gets there and the puddle stays refused, though nobody is in a combo any more. A free opponent (see Free,
+// the rule at the top of this file) shows 0 to that test: the count is set aside here, and the hook of sub_00076700 puts
+// it back right after the test. A move that starts does not come back here for a long while, so that is the place;
+// here is for the way out that never reaches the test.
+X86_FUNC(sub_000E97A0) {
+    using namespace mkda::rules;
+    const uint32_t self = kernel::R32(kSelf), opp = kernel::R32(kOpponent), m = Mem();
+    if (m && self && opp && mem::IsCommitted(opp) && kernel::R32(self + kCharacterId) == kBoRaiCho &&
+        Free(kernel::R32(opp + kState))) {
+        kernel::W32(m + kHeldHits, kernel::R32(opp + kComboHits));
+        kernel::W32(opp + kComboHits, 0);
+    }
+    __imp__sub_000E97A0(ctx, base);
+    PutHitsBack();
 }

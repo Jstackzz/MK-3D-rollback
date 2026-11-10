@@ -149,6 +149,29 @@ class Database:
         with self.transaction() as conn:
             return conn.execute("DELETE FROM stats WHERE kind = 'ranked'").rowcount
 
+    def restore_ranked_records(self, copy_path: str) -> tuple[int, int]:
+        """Every game's ranked records from a copy of this database made before a rank reset. Each record's Elo goes back
+        to what it was in the copy, and its wins and losses are added to what has been played since; one with nothing
+        played since comes back as it was, and one the copy does not have stays as it is. Returns (records combined with
+        what was played since, records brought back)."""
+        same = "o.account_id = stats.account_id AND o.game = stats.game AND o.mode = stats.mode AND o.kind = 'ranked'"
+        self.conn.execute("ATTACH DATABASE ? AS old", (copy_path,))
+        try:
+            with self.transaction() as conn:
+                added = conn.execute(
+                    f"UPDATE stats SET elo = (SELECT o.elo FROM old.stats AS o WHERE {same}), "
+                    f"wins = wins + (SELECT o.wins FROM old.stats AS o WHERE {same}), "
+                    f"losses = losses + (SELECT o.losses FROM old.stats AS o WHERE {same}) "
+                    f"WHERE kind = 'ranked' AND EXISTS (SELECT 1 FROM old.stats AS o WHERE {same})").rowcount
+                back = conn.execute(
+                    "INSERT INTO stats (account_id, game, mode, kind, elo, wins, losses, updated) "
+                    "SELECT o.account_id, o.game, o.mode, 'ranked', o.elo, o.wins, o.losses, o.updated FROM old.stats AS o "
+                    "JOIN accounts AS a ON a.id = o.account_id WHERE o.kind = 'ranked' AND NOT EXISTS (SELECT 1 FROM stats AS s "
+                    "WHERE s.account_id = o.account_id AND s.game = o.game AND s.mode = o.mode AND s.kind = 'ranked')").rowcount
+        finally:
+            self.conn.execute("DETACH DATABASE old")
+        return added, back
+
     # --- accounts -------------------------------------------------------------------------------
 
     def create_account(self, name: str, pw_hash: str, now: float | None = None) -> int:

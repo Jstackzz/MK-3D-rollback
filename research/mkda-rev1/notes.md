@@ -588,6 +588,17 @@ Found with the debug monitor stepping versus fights (scratchpad r30: `versus_tra
   Since 2026-11-09 -14 on block when the second strike is blocked (noinfinites.cpp ForwardThreeBlock and the hook of
   sub_0011D560: the block opens at the top of the frame 12 after that strike's last); -19 to attack, on hit and on a
   whiff as they were.
+- His Jojutsu standing 4 (jojutsu_4, the command after its recovery +0xAD8) and 2,4 (jojutsu_2, +0x5E0; a 2 alone has its
+  own recovery): 14 frames of block time in the script, -27 and -25 on block. Since 2026-11-09 the block time is 1 and 4
+  when the last strike is blocked (the hook of sub_0011D560): -14 on block for both, -27 and -25 to attack, on hit and on
+  a whiff as they were. The contact word +0x154 is cleared when a strike starts, so a blocked 2 and a 4 that misses is
+  not this case. Jax's X pressed at his first chance hits, a frame later it is blocked, on both moves.
+- The Puke Puddle's test: button 2's routine sub_000E97A0 offers it only while the opponent's count +0x1A0 is 0
+  (0xE98CE). The count goes back to 0 only on the way to stance (sub_00056480, called from sub_00050E40, 00057510,
+  00117DA0 and 0011D740), so a fighter who was hit and goes from the reaction straight into holding block (0x900) keeps
+  1 for as long as it holds, and back, forward + 2 comes out as a plain 2. Since 2026-11-09 a free opponent
+  (noinfinites.cpp Free) shows 0 to that test alone: the hook of sub_000E97A0 sets the count aside in guest memory and
+  the hook of sub_00076700 puts it back before the move starts. A count on a fighter still in a reaction refuses it as before.
 
 ## Tools
 
