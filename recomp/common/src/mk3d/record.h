@@ -29,9 +29,16 @@ struct Adapter {
     uint32_t (*time)();
     // the pause menu is up
     bool (*paused)();
-    // the dummy faces left: left on the pad walks it towards player 1 (the game's own rule for its walk); false when
-    // there is no fight to read
+    // the dummy faces left: left on the pad walks it towards player 1 (the game's own rule for its walk, by the side
+    // player 1 is on); the last answer when there is no fight to read
     bool (*dummy_faces_left)();
+    // the dummy stands turned away from player 1 (one jumped over it and it has had no input since): the game turns it
+    // round at its first input, a direction without a step, so that input is no move
+    bool (*dummy_turned_away)();
+    // the dummy's fighting style (the game's own number, which its style button cycles), -1 when not known; and the
+    // logical bits of that button in the dummy's controls
+    int (*dummy_style)();
+    uint32_t (*style_bits)();
     // the dummy's input for the frame about to run, right after the game's pad update (main thread):
     //   Off     the game's own practice: the dummy on no controls (undo whatever Record or Play set up; cheap when
     //           nothing is set up)

@@ -176,8 +176,9 @@ S: {"type":"profile","name":"Raijin","created":1761300000,
 ```
 
 Stats exist per game per mode: ranked Elo (start 475, moved per set) with
-its title (1.3 `ranks`, 0.1.21) and ranked match wins/losses, and casual
-wins/losses. A mode never played ranked comes with its start (Elo 475, a Beginner,
+its title (1.3 `ranks`, 0.1.21) and ranked wins/losses, which count sets
+(1.9.1; since 1.0.1, matches before), and casual wins/losses, which count
+matches. A mode never played ranked comes with its start (Elo 475, a Beginner,
 0-0).
 
 ### 1.6 Online count and notices
@@ -402,9 +403,10 @@ S: {"type":"match_result","match":"5f2c9a01d4e3","status":"agreed","winner":1,
     "p1_rounds":2,"p2_rounds":1,"ranked":true,"left":null,"left_side":null}
 ```
 
-- **Agree** (same `winner`, `p1_rounds`, `p2_rounds`): status `agreed`; the
-  match counts as a win and a loss (ranked or casual wins/losses). Elo moves
-  per ranked set, not per match (1.9.1).
+- **Agree** (same `winner`, `p1_rounds`, `p2_rounds`): status `agreed`; a
+  casual match counts as a win and a loss (casual wins/losses), a ranked one
+  counts in its set, whose end moves the ranked wins/losses (sets, since
+  1.0.1) and Elo, not each match (1.9.1).
 - `p1_char`/`p2_char` (optional, from the game's `result` line: its own
   character ids, absent in modes without fighters) are the match's fighters,
   from 0.1.21 with the costume they fought in after a dot (`12.1`: character
@@ -443,7 +445,8 @@ After a queue match (once its `match_result` went out) the two players are in
 a series. Casual: another match whenever both want one, with the same fighters
 or after both pick again, without end (0.1.14: matches that did not count
 included); it ends only when a player leaves it or lets the time run out. Ranked: a set, won by the first to win 3 matches
-(`need`; 2 before 0.1.21), each match's winner keeping their fighter for the next one; Elo moves once, when it ends. A
+(`need`; 2 before 0.1.21), each match's winner keeping their fighter for the next one; Elo moves once, when it ends,
+and so do the two ranked records: a set won and a set lost, whatever its score (1.0.1; each match before). A
 player is in one series at a time; searching again or creating/joining a lobby leaves it.
 
 ```json

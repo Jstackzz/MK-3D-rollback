@@ -7,7 +7,8 @@ import asyncio
 
 from server import elo
 from server import protocol as P
-from server.__main__ import RESET_RANKS_FLAG, RESTORE_RECORDS_FLAG, reset_ranks_if_asked, restore_ranked_records_if_asked
+from server.__main__ import (RECOUNT_RECORDS_FLAG, RESET_RANKS_FLAG, RESTORE_RECORDS_FLAG, recount_ranked_records_if_asked,
+                             reset_ranks_if_asked, restore_ranked_records_if_asked)
 from server.db import Database
 
 from .conftest import hello_and_accept, queue_msg
@@ -194,6 +195,33 @@ def test_restoring_brings_back_elo_and_records_in_every_game(tmp_path):
     restore_ranked_records_if_asked(path)  # the next start does not add them again
     assert full_records(path) == expected
     assert [c for c in tmp_path.glob("server.sqlite.before-records-restore-*") if not c.name.endswith(("-wal", "-shm"))]
+
+
+def test_a_recount_makes_the_ranked_records_sets_won_and_lost_once(tmp_path):
+    path, account = database_with_records(tmp_path)  # every record 5-4: matches
+    db = Database(path)
+    other = db.create_account("Raijin", "x")
+    for set_id, game, mode, p1, p2, winner in (("s1", "mkda", "kombat", account, other, account),
+                                               ("s2", "mkda", "kombat", other, account, other),
+                                               ("s3", "mkda", "kombat", other, account, account),
+                                               ("s4", "mkda", "kombat", account, other, None),  # void: neither
+                                               ("s5", "mkd", "chess", account, other, account)):
+        db.log_set(set_id, game, mode, p1, p2, 0, 1, "won" if winner else "void", winner, 0, 0, None)
+    db.close()
+
+    flag = tmp_path / RECOUNT_RECORDS_FLAG
+    recount_ranked_records_if_asked(path)  # not asked: nothing happens
+    assert ("mkda", "kombat", "ranked", 1700, 5, 4) in full_records(path)
+
+    flag.touch()
+    recount_ranked_records_if_asked(path)
+    assert not flag.exists()
+    expected = [("mka", "kombat", "ranked", 1640, 0, 0),  # no set in the log
+                ("mkd", "chess", "ranked", 1300, 1, 0),
+                ("mkda", "kombat", "casual", 1500, 5, 4),  # Kasual counts matches
+                ("mkda", "kombat", "ranked", 1700, 2, 1)]  # the Elo stays
+    assert full_records(path) == expected
+    assert [c for c in tmp_path.glob("server.sqlite.before-records-recount-*") if not c.name.endswith(("-wal", "-shm"))]
 
 
 def test_a_rank_reset_that_cannot_copy_the_database_clears_nothing(tmp_path, monkeypatch):

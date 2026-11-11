@@ -85,7 +85,8 @@ QueuePage::QueuePage(bool ranked, ServerClient* server, MatchController* control
     root->addWidget(ui::pageHeader(
         ranked ? tr("Ranked Kombat") : tr("Kasual Kombat"),
         ranked ? tr("Sets against one opponent, the first to win 3 matches takes it: the winner of each match keeps "
-                    "their fighter, the loser picks again. Elo changes once per set and gives your rank. Leaving a set "
+                    "their fighter, the loser picks again. Your wins and losses count sets, and Elo changes once per "
+                    "set and gives your rank. Leaving a set "
                     "after a match of it has counted loses it. Your opponent is revealed once both have accepted.")
                : tr("Quick matches against the first compatible player in your region, with a rematch whenever you "
                     "both want one. Wins and losses are recorded; Elo is not touched.")));

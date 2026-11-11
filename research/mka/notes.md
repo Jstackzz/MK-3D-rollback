@@ -503,6 +503,18 @@ Practice records the dummy and plays it back (`recomp/common/src/mk3d/record.cpp
 - Tested with `tools/py/practice_record_test.py` (release build, the debug monitor's pad command and window keys):
   the dummy walks in and hits on playback from the same side and, after player 1 jumps over it, from the other
   (mirrored); a pause in a recording records nothing.
+- 1.0.1 (2026-11-10, a player's report: 1,1,back+2 played back as 1,1, Bo' Rai Cho's forward+3 as back+3): the
+  facing is now the sign of that cross product alone, `(mx-cx)*-(oz-cz) - (ox-cx)*-(mz-cz)` with m the dummy's control
+  object, o player 1's and c the camera (above 0: the dummy faces left, player 1 to its left; at 0 the last answer
+  stays). The flags bit meant facing the right way, not left or right, so the old mirroring swapped the wrong frames.
+  A fighter whose yaw is more than 2.7 rad off the line to its opponent (the game's own test, the double at 0x4DA268,
+  the yaw at control +0xF4, the game's atan2 taking x over z, 0 along z) TURNS round at its first direction (state
+  0x201, about 19 frames) instead of walking or striking, and one that is never driven never turns by itself: a
+  recording and each playback first press towards player 1 for one frame (neutral never turns it, away walks back
+  after the turn, an attack button attacks after it, block does not turn it; three at most) and wait until the dummy
+  stands free (the frame data's can_act and state 0). Each slot keeps the fighting style it began in (fighter +0x448; file
+  magic MK3DREC2), which a playback restores first with the style button (entry 2 of port 0's button table), a frame at a time, three at most.
+  Tested every side combination, recorded and played on either side with a jump-over between: walk back, walk forward and an attack come out the same, also in an arena whose camera looks from the other side (world x and the screen disagree there).
 
 ## The online select screen (2026-11-02, for 0.1.18)
 

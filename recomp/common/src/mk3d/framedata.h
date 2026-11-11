@@ -22,6 +22,7 @@ namespace mk3d::framedata {
 struct Fighter {
     bool can_act = false;       // the game would start a new move for it in this frame (its own gate)
     bool can_act_next = false;  // holding block where letting go is possible now: it could attack from the next frame
+    bool neutral = false;       // standing in its stance: not walking, not in a move or a reaction (the practice record)
     bool can_block = false;     // holding block, a hit landing in this frame would be blocked (Adapter::block_rule;
                                 // else false)
     bool block_waits_over = false;  // ... but for its no-block flags (Adapter::block_flags_early)

@@ -1717,9 +1717,9 @@ class Server:
         broken = status == "abandoned" or any(r is None or r.get("outcome") in BROKEN_OUTCOMES for r in (r1, r2))
         if status == "agreed":
             w, lose = (p1, p2) if winner == 1 else (p2, p1)
-            if m.ranked:  # the match counts; Elo moves when the set ends (_end_series)
-                self.db.record_ranked_match(w.account_id, lose.account_id, m.game, m.mode, now)
-            else:
+            # a ranked match counts in its set: the ranked record (sets won and lost) and Elo move when the set ends
+            # (_end_series); a casual record counts matches
+            if not m.ranked:
                 self.db.record_casual(w.account_id, lose.account_id, m.game, m.mode, now)
             fields.update(winner=winner, p1_rounds=p1_rounds, p2_rounds=p2_rounds)
             log.info("RESULT match=%s %s beat %s %s-%s (%s)", m.id, w.name, lose.name, p1_rounds, p2_rounds,

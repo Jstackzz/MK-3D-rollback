@@ -17,6 +17,7 @@ from .matchmaking import MatchmakingConfig
 
 RESET_RANKS_FLAG = "reset-ranks"  # a file of this name beside the database: the next start resets everyone's rank
 RESTORE_RECORDS_FLAG = "restore-ranked-records"  # likewise: the next start puts back the Elo and records a reset cleared
+RECOUNT_RECORDS_FLAG = "recount-ranked-records"  # likewise: the next start recounts the ranked records as sets
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -137,6 +138,29 @@ def restore_ranked_records_if_asked(db_path: str) -> None:
              "database as it was is in %s", name, added, back, copy)
 
 
+def recount_ranked_records_if_asked(db_path: str) -> None:
+    """RECOUNT_RECORDS_FLAG beside the database: the next start recounts every ranked record's wins and losses as the
+    sets won and lost in the set log (ranked records counted matches before 1.0.1), Elo untouched. The database is
+    copied first, the file goes before anything changes, and the server starts whatever happens."""
+    log = logging.getLogger("mk3d.server")
+    flag = os.path.join(os.path.dirname(os.path.abspath(db_path)), RECOUNT_RECORDS_FLAG)
+    if not os.path.exists(flag):
+        return
+    try:
+        db = Database(db_path)
+        try:
+            copy = f"{db_path}.before-records-recount-{time.strftime('%Y%m%d-%H%M%S')}"
+            db.backup(copy)
+            os.remove(flag)
+            changed = db.recount_ranked_records()
+        finally:
+            db.close()
+    except (OSError, sqlite3.Error):
+        log.exception("ranked records NOT recounted")
+        return
+    log.info("ranked records recounted as sets won and lost: %d changed; the database as it was is in %s", changed, copy)
+
+
 async def serve(cfg: ServerConfig) -> None:
     server = Server(cfg)
     await server.start()
@@ -161,6 +185,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     reset_ranks_if_asked(cfg.db_path)
     restore_ranked_records_if_asked(cfg.db_path)
+    recount_ranked_records_if_asked(cfg.db_path)
     try:
         asyncio.run(serve(cfg))
     except KeyboardInterrupt:

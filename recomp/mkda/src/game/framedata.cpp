@@ -14,7 +14,7 @@
 X86_EXTERN_FUNC(__imp__sub_000547B0);
 X86_EXTERN_FUNC(__imp__sub_00075B50);
 
-namespace mkda::rules { void ForwardThreeAtTop(int side); }
+namespace mkda::rules { void BlockRulesAtTop(int side); }
 
 namespace mkda {
 namespace {
@@ -62,7 +62,7 @@ bool Practice() {
 uint32_t Time() { return kernel::R32(kGameFrames); }
 
 bool Read(int side, mk3d::framedata::Fighter& f) {
-    mkda::rules::ForwardThreeAtTop(side);
+    mkda::rules::BlockRulesAtTop(side);
     const uint32_t obj = FighterObject(side);
     if (!obj || !mem::IsCommitted(obj)) return false;
     const uint32_t state = kernel::R32(obj + kState), now = Time(), busy = kernel::R32(obj + kBusyUntil);
@@ -75,6 +75,7 @@ bool Read(int side, mk3d::framedata::Fighter& f) {
                 ((!((state & 0x200) && state != 0x420D) && !(state & 0x800) && state != 0x6000) ||
                  routine == kCrouchBlockHold);
     f.can_act_next = alive && routine == kBlockHold && now + 1 >= busy;
+    f.neutral = alive && state == 0;
     f.can_block = alive && state != 0x605 && state != 0x3202 && !kernel::R32(obj + kNoBlock) &&
                   !kernel::R32(obj + kNoBlockToo) && now >= kernel::R32(obj + kBlockFrom) && kernel::R32(kBlockingOn);
     f.striking = g_strike_command[side] && kernel::R32(obj + kCommand) == g_strike_command[side];

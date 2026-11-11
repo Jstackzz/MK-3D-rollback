@@ -81,7 +81,8 @@ whether to trust it: compare it with your host's.
   it to choose your fighter in the launcher instead. Puzzle Kombat's fighter is
   picked the same way, and Chess Kombat's team (leader, champion, sorcerer,
   shifter, grunt) always on the game's own select screen. Your record (wins, losses,
-  and Elo and rank in Ranked) is on the right of the page, and above it how many play the
+  and Elo and rank in Ranked) is on the right of the page: in Ranked it counts the
+  sets you won and lost (a set won 3-2 is one win), in Kasual each match. Above it how many play the
   game right now: searching (and how many of them in the mode you picked, the
   ones you can meet), in matches and in lobbies, then who is searching right
   now in each of the three games (point at the line to see whether each one
@@ -253,13 +254,16 @@ whether to trust it: compare it with your host's.
   string, the throw, the wake-up you want to practise against, then press F9
   again. **F10** plays it back: the dummy does exactly that, with you on your
   own fighter again, so you can block it, punish it or find the gap in it.
+  A recording and each playback start once the dummy stands free in its
+  stance, facing you (a dummy turned away turns round first), and a playback
+  puts the dummy back in the fighting style the recording began in.
   F10 stops it early. **F11** picks one of 8 slots (each keeps its own
   recording; the line names the slot and how long it is), and **F12** sets
   how a slot plays: **once**, **repeat** (again and again, a moment after the
   dummy is free each time) or **random slot** (one of the recorded slots
-  each time, so you cannot know which is coming). Left and right are kept
-  relative to where the dummy faces, so a recording made on one side plays
-  the same from the other. Between repeats and when nothing plays, the dummy
+  each time, so you cannot know which is coming). Forward and back are kept
+  as recorded, towards you and away from you, so a recording made on one side
+  plays the same from the other: a back + 2 stays a back + 2. Between repeats and when nothing plays, the dummy
   is the game's own again: standing, or blocking with F8. START and BACK stay
   yours while recording (the pause menu), and a paused game records and plays
   nothing. The slots are saved per dummy fighter in the game's `practice`

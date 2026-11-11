@@ -1,5 +1,5 @@
-"""Result reporting: agreement counts wins (Elo moves per ranked set, test_series.py), disagreement changes nothing
-and is logged."""
+"""Result reporting: agreement counts the match (a casual win and loss; a ranked one in its set, whose end moves the
+ranked record and Elo, test_series.py), disagreement changes nothing and is logged."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ def report(conn, match, winner, r1, r2):
     return conn.request({"type": "result", "match": match, "winner": winner, "p1_rounds": r1, "p2_rounds": r2})
 
 
-async def test_ranked_agreement_counts_the_match(server, connect, udp_peers):
+async def test_ranked_agreement_counts_in_the_set(server, connect, udp_peers):
     sides, match = await setup_match(server, connect, udp_peers, ["Shujinko", "Onaga"], ranked=True)
     (c1, go1), (c2, _) = sides[1], sides[2]
     ack = await report(c1, match, 1, 2, 1)
@@ -34,17 +34,17 @@ async def test_ranked_agreement_counts_the_match(server, connect, udp_peers):
     assert r1 == {**r2, "type": "match_result"}
     assert r1["status"] == "agreed" and r1["winner"] == 1 and (r1["p1_rounds"], r1["p2_rounds"]) == (2, 1)
     assert "elo" not in r1  # the set it opened decides the rating
-    winner, loser = go1["p1_name"], go1["p2_name"]
+    assert server.db.match_row(match)["winner"] == 1
+    series = await c1.expect("series", state="between")
+    assert (series["you"], series["them"]) == (1, 0)  # the match counts in its set
 
-    prof = await c1.request({"type": "profile", "name": winner})
-    assert prof["stats"]["mkd"]["kombat"]["ranked"] == {"elo": 475, "title": "Beginner", "wins": 1, "losses": 0}
-    prof = await c1.request({"type": "profile", "name": loser})
-    assert prof["stats"]["mkd"]["kombat"]["ranked"] == {"elo": 475, "title": "Beginner", "wins": 0, "losses": 1}
-
+    # a ranked record counts sets: neither has one yet, nor a place on the leaderboard (test_series.py)
+    start = {"elo": 475, "title": "Beginner", "wins": 0, "losses": 0}
+    for name in (go1["p1_name"], go1["p2_name"]):
+        prof = await c1.request({"type": "profile", "name": name})
+        assert prof["stats"]["mkd"]["kombat"]["ranked"] == start
     board = await c2.request({"type": "leaderboard", "game": "mkd", "mode": "kombat"})
-    assert board["total"] == 2
-    assert [(r["rank"], r["name"], r["elo"]) for r in board["rows"]] == [(1, winner, 475), (2, loser, 475)]
-    assert board["me"]["rank"] in (1, 2)
+    assert board["rows"] == [] and board["total"] == 0 and "me" not in board
     empty = await c2.request({"type": "leaderboard", "game": "mkd", "mode": "chess"})
     assert empty["rows"] == [] and empty["total"] == 0
 

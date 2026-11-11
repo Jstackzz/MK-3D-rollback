@@ -172,6 +172,18 @@ class Database:
             self.conn.execute("DETACH DATABASE old")
         return added, back
 
+    def recount_ranked_records(self) -> int:
+        """Every ranked record's wins and losses recounted as the sets won and lost in the log of ranked sets (every set
+        since 0.1.5; one without a winner counts for neither), for records that counted matches before 1.0.1. Elo and the
+        Kasual records stay. Returns how many records changed."""
+        won = ("SELECT COUNT(*) FROM sets AS t WHERE t.game = stats.game AND t.mode = stats.mode "
+               "AND t.winner = stats.account_id")
+        lost = ("SELECT COUNT(*) FROM sets AS t WHERE t.game = stats.game AND t.mode = stats.mode "
+                "AND t.winner IS NOT NULL AND t.winner != stats.account_id AND stats.account_id IN (t.p1, t.p2)")
+        with self.transaction() as conn:
+            return conn.execute(f"UPDATE stats SET wins = ({won}), losses = ({lost}) "
+                                f"WHERE kind = 'ranked' AND (wins != ({won}) OR losses != ({lost}))").rowcount
+
     # --- accounts -------------------------------------------------------------------------------
 
     def create_account(self, name: str, pw_hash: str, now: float | None = None) -> int:
@@ -258,33 +270,18 @@ class Database:
             self._bump(conn, winner_id, game, mode, "casual", True, None, now)
             self._bump(conn, loser_id, game, mode, "casual", False, None, now)
 
-    def record_ranked_match(self, winner_id: int, loser_id: int, game: str, mode: str,
-                            now: float | None = None) -> None:
-        """Count one ranked match won and lost; Elo moves per set (record_ranked_set)."""
-        now = now or time.time()
-        with self.transaction() as conn:
-            self._bump(conn, winner_id, game, mode, "ranked", True, None, now)
-            self._bump(conn, loser_id, game, mode, "ranked", False, None, now)
-
     def record_ranked_set(self, winner_id: int, loser_id: int, game: str, mode: str,
                           now: float | None = None) -> dict[int, tuple[int, int]]:
-        """Apply one ranked set won (or forfeited by the loser); returns {account_id: (elo_before, elo_after)}."""
+        """Apply one ranked set won (or forfeited by the loser): a set won and a set lost on the two ranked records
+        (they count sets, not the matches in them) and both Elo changes; returns {account_id: (elo_before,
+        elo_after)}."""
         now = now or time.time()
         with self.transaction() as conn:
             before_w = self.rating(winner_id, game, mode)["elo"]
             before_l = self.rating(loser_id, game, mode)["elo"]
             after_w, after_l = elo.update(before_w, before_l, 1.0)
-            for account_id, after in ((winner_id, after_w), (loser_id, after_l)):
-                conn.execute(
-                    "INSERT OR IGNORE INTO stats (account_id, game, mode, kind, elo, wins, losses, updated) "
-                    "VALUES (?, ?, ?, 'ranked', ?, 0, 0, ?)",
-                    (account_id, game, mode, elo.INITIAL, now),
-                )
-                conn.execute(
-                    "UPDATE stats SET elo = ?, updated = ? WHERE account_id = ? AND game = ? AND mode = ? "
-                    "AND kind = 'ranked'",
-                    (after, now, account_id, game, mode),
-                )
+            self._bump(conn, winner_id, game, mode, "ranked", True, after_w, now)
+            self._bump(conn, loser_id, game, mode, "ranked", False, after_l, now)
         return {winner_id: (before_w, after_w), loser_id: (before_l, after_l)}
 
     def log_set(self, set_id: str, game: str, mode: str, p1: int, p2: int, created: float, ended: float,

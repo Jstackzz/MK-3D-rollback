@@ -12,6 +12,7 @@
 // which player 1 keeps.
 #include "mk3d/record.h"
 
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 
@@ -75,17 +76,20 @@ uint32_t Time() { return kernel::R32(kGameCounter); }
 
 bool Paused() { return kernel::R32(kPaused) != 0; }
 
-// the game's rule for which way the dummy walks on left (sub_00057B60 for the fighter whose task runs, without its
-// animation's mirror bit): its control object's mirrored flag, turned by which side of the camera's line to it the
-// opponent is on; true when left walks it forward, measured: a dummy on the right of player 1 faces left
+// Which way the dummy faces, as the game's walk sees it: its stance routine (sub_000BFCC0) walks a fighter forward on
+// LEFT when sub_000543F0 (the cross product of the camera's lines to the fighter and to its opponent) is above 0 and on
+// RIGHT below it, nothing else. Measured: above 0 for the dummy at a practice start, on the right facing left; below
+// after player 1 jumps over it. (The sidestep's rule, sub_00057B60, also takes the control object's flag bit 17, which
+// changes as a fighter turns round: no use here.) At exactly 0 the last answer stands.
 bool DummyFacesLeft() {
+    static bool left = true;
     const uint32_t dummy = kernel::R32(kFighter[1]);
-    if (!dummy || !mem::IsCommitted(dummy)) return false;
+    if (!dummy || !mem::IsCommitted(dummy)) return left;
     const uint32_t me = kernel::R32(dummy + kControlObject), other = kernel::R32(dummy + kOpponentControl),
                    cam = kernel::R32(kCamera);
     if (!me || !other || !cam || !mem::IsCommitted(me) || !mem::IsCommitted(other) || !mem::IsCommitted(cam) ||
         kernel::R32(me + 4) != kernel::R32(dummy + kControlObjectId))
-        return false;
+        return left;
     const auto f32 = [](uint32_t va) {
         float f;
         const uint32_t v = kernel::R32(va);
@@ -95,11 +99,44 @@ bool DummyFacesLeft() {
     const float mx = f32(me + 0x84), mz = f32(me + 0x8C), ox = f32(other + 0x84), oz = f32(other + 0x8C),
                 cx = f32(cam + 0x84), cz = f32(cam + 0x8C);
     const float side = (mx - cx) * -(oz - cz) - (ox - cx) * -(mz - cz);
-    // the game's word is true when right is forward: the dummy then faces right
-    bool right = (kernel::R32(me + 8) >> 17) & 1;
-    if (side > 0) right = !right;
-    return !right;
+    if (side > 0) left = true;
+    else if (side < 0) left = false;
+    return left;
 }
+
+// The dummy stands turned away from player 1: the game turns a fighter round (a turn animation, state 0x201) instead of
+// walking or striking when the direction to its opponent is more than 2.7 off its yaw; less, it only eases round.
+// sub_00056B40 for the fighter whose task runs: sub_00158500 of the opponent's control object less its own (x +0x84, z
+// +0x8C), against its yaw +0xA8; the threshold is the double at 0x2326C8. A dummy with no controls never turns by
+// itself, so after player 1 jumps over it it stays turned away.
+bool DummyTurnedAway() {
+    const uint32_t dummy = kernel::R32(kFighter[1]);
+    if (!dummy || !mem::IsCommitted(dummy)) return false;
+    const uint32_t me = kernel::R32(dummy + kControlObject);
+    const uint32_t other = kernel::R32(dummy + kOpponentControl);
+    if (!me || !other || !mem::IsCommitted(me) || !mem::IsCommitted(other) ||
+        kernel::R32(me + 4) != kernel::R32(dummy + kControlObjectId)) return false;
+    const auto f32 = [](uint32_t va) {
+        float f;
+        const uint32_t v = kernel::R32(va);
+        std::memcpy(&f, &v, 4);
+        return f;
+    };
+    const float dx = f32(other + 0x84) - f32(me + 0x84), dz = f32(other + 0x8C) - f32(me + 0x8C);
+    if (dx == 0 && dz == 0) return false;
+    // the game's atan2 takes x over z (0 along z); the difference as the game wraps it, -pi to pi
+    const float off = std::remainder(std::atan2(dx, dz) - f32(me + 0xA8), 6.28318531f);
+    return std::fabs(off) > 2.7f;
+}
+
+// its fighting style (fighter +0x8A0: 0, 1, 2, the weapon last), and the logical bits of the style button (action 2, LT
+// by default) in its controls
+int DummyStyle() {
+    const uint32_t dummy = kernel::R32(kFighter[1]);
+    return dummy && mem::IsCommitted(dummy) ? int(kernel::R32(dummy + 0x8A0)) : -1;
+}
+// player 1's configuration, which the dummy gets a copy of while it is driven
+uint32_t StyleBits() { return kernel::R32(kConfig[0] + 2 * 12); }
 
 void DriveDummy(mk3d::record::Drive mode, const mk3d::record::Input& in, mk3d::record::Input& out) {
     using mk3d::record::Drive;
@@ -129,7 +166,8 @@ void DriveDummy(mk3d::record::Drive mode, const mk3d::record::Input& in, mk3d::r
 }
 
 const bool g_installed = [] {
-    mk3d::record::Install({Time, Paused, DummyFacesLeft, DriveDummy, kLeft, kRight, kNeutralSticks});
+    mk3d::record::Install({Time, Paused, DummyFacesLeft, DummyTurnedAway, DummyStyle, StyleBits, DriveDummy, kLeft,
+                           kRight, kNeutralSticks});
     return true;
 }();
 

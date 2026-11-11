@@ -67,6 +67,7 @@ bool Read(int side, mk3d::framedata::Fighter& f) {
                 ((!((state & 0x200) && state != 0x420D) && !(state & 0x800) && state != 0x6000) ||
                  routine == kCrouchBlockHold);
     f.can_act_next = alive && routine == kBlockHold && now + 1 >= busy;
+    f.neutral = alive && state == 0;
     const uint32_t body = kernel::R32(obj + kBody), ground = kernel::R32(kOnGround);
     const bool grounded = body && mem::IsCommitted(body) && kernel::R32(body + 4) == kernel::R32(obj + kBodyId) &&
                           (kernel::R32(body + 0xD4) == ground || kernel::R32(body + 0x34) == ground || state == 0x60C);
