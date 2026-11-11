@@ -357,6 +357,33 @@ void SideBlocks(std::vector<std::pair<uint32_t, uint32_t>>& out) {
     if (uint32_t race = Race()) out.push_back({race, kRaceBytes});
 }
 
+// each fighter's character (record +0x2C), its state (+0x388: 0 stance, 0x1200 an attack, 0x60x a hit reaction...),
+// its attack's phase (+0x380: 1 startup, 2 hit window, 3 recovery) and the routine its task runs (record +0x3C, the
+// task's function +0x30)
+void DescribeFighters(char* out, size_t n) {
+    constexpr uint32_t kRecordTask = 0x3C;
+    if (!n) return;
+    out[0] = 0;
+    size_t at = 0;
+    for (int p = 0; p < 2 && at + 1 < n; p++) {
+        const uint32_t record = p ? kP2Record : kP1Record, obj = kernel::R32(record + kRecordFighter);
+        int w;
+        if (!obj || !mem::IsCommitted(obj) || !mem::IsCommitted(obj + kFighterBytes - 1)) {
+            w = std::snprintf(out + at, n - at, "%sP%d none", p ? ", " : "", p + 1);
+        } else {
+            const uint32_t task = kernel::R32(record + kRecordTask);
+            const uint32_t routine = task && mem::IsCommitted(task) && mem::IsCommitted(task + 0x33)
+                                         ? kernel::R32(task + 0x30)
+                                         : 0;
+            w = std::snprintf(out + at, n - at, "%sP%d %u state %04X phase %u routine %08X", p ? ", " : "", p + 1,
+                              kernel::R32(record + kRecordCharacter), kernel::R32(obj + 0x388),
+                              kernel::R32(obj + 0x380), routine);
+        }
+        if (w < 0) break;
+        at = std::min(n - 1, at + size_t(w));
+    }
+}
+
 }  // namespace mk3d::net::game
 
 // a player's button table (sub_0007B650(record, table): the record's port's +4): the default one while a match is in

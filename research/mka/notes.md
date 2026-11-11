@@ -515,6 +515,21 @@ Practice records the dummy and plays it back (`recomp/common/src/mk3d/record.cpp
   stands free (the frame data's can_act and state 0). Each slot keeps the fighting style it began in (fighter +0x448; file
   magic MK3DREC2), which a playback restores first with the style button (entry 2 of port 0's button table), a frame at a time, three at most.
   Tested every side combination, recorded and played on either side with a jump-over between: walk back, walk forward and an attack come out the same, also in an arena whose camera looks from the other side (world x and the screen disagree there).
+- 1.0.2 (2026-11-11, a player's report: in Armageddon and Deception the dummy driven in an F9 recording did no strings
+  and jumped late; Deadly Alliance was fine): two causes. (1) Left in practice's dummy state (record +8 = 3), the
+  game takes the first hit of a string from the dummy's controls but never the next ones: Scorpion's 2, 2, 1 came out
+  as a 2 (three hits for player 1, and for a versus player 2 on port 1); the dummy's +0x3A0, which the AI's string
+  routine sub_0001B8D0 tests, held 3 through its first hit (player 1's 0). Driven, the dummy's record is now a picked
+  player on port 1 (state 2, the record's port +0 = 1, as a versus player 2's; sub_0007ABB0 accepts that with port 1's
+  block driving the record), both put back when the recording or playback ends. (2) The dummy's previous buttons word
+  was read back from port 1's block, which the pad update also writes when a controller sits on port 1 (a second pad,
+  or the player's own seen twice, as DS4Windows or Steam Input can show it): then the player's presses were never new
+  for the dummy (nothing came out at all; an idle second pad made a held button new every frame instead). The adapter
+  keeps the word it wrote last. Tested (release, stepped through the monitor, scratchpad rec/recdrive.py; the same
+  fighter on both sides): 2, 2, 1, a mash of 1, a jump kick and a forward jump the same for player 1, the dummy while
+  recording and its playback (3 hits, 2 hits, the kick on frame 14, the jump leaving the ground on the same frame),
+  with one controller and with the same presses on port 1 too; every side combination recorded and played
+  (rec/recsides_g.py): all the same.
 
 ## The online select screen (2026-11-02, for 0.1.18)
 

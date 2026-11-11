@@ -2,13 +2,15 @@
 // player the game reads controls for, on port 1, whose input block this writes from the player's own port or a slot.
 //
 // A fighter's actions are read from the port at its +0x390 (sub_000A0FD0(port, action)): the port's block must be
-// open (flags bit 1), drive a player record (+8) in state 3 (sub_0007ABB0: the state practice gives its dummy), and
-// the action's bits come from the port's button table (+4, the player's own configuration). The practice dummy's
-// port is -1, and port 1's block drives no record, so no controls reach it. Driven, the dummy's port is 1, port 1's
-// block is open on the dummy's record with port 0's button table, and this writes its words right after the game's
-// pad update (which only touches ports with a controller): previous, current, new presses and the sticks, as the
-// pad update would. Recording moves port 0's current buttons over, but START and BACK (the pause), which player 1
-// keeps.
+// open (flags bit 1) and drive a player record (+8) that sub_0007ABB0 accepts (state 3, the state practice gives its
+// dummy, at once; state 2, picked, with the record's own port at +0 driving it), and the action's bits come from the
+// port's button table (+4, the player's own configuration). The practice dummy's port is -1, and port 1's block
+// drives no record, so no controls reach it. Driven, the dummy's port is 1, port 1's block is open on the dummy's
+// record with port 0's button table, and the record is a picked player on port 1 (state 2, port 1, as a versus
+// player 2's): left in practice's dummy state the game took the first hit of a string from its controls but never the
+// next ones (1.0.2: Scorpion's 2, 2, 1 came out as a 2). This writes the block's words right after the game's pad
+// update (which only touches ports with a controller): previous, current, new presses and the sticks, as the pad
+// update would. Recording moves port 0's current buttons over, but START and BACK (the pause), which player 1 keeps.
 #include "mk3d/record.h"
 
 #include <cmath>
@@ -46,10 +48,18 @@ uint32_t Table(int port) {
 uint32_t Entry(uint32_t table, uint32_t entry) { return kernel::R32(table + entry * 12); }
 uint32_t Dummy() { return kernel::R32(kP2Record + kRecordFighter); }
 
+constexpr uint32_t kRecordPort = 0x0;   // a player record's port, -1 none
+constexpr uint32_t kStatePicked = 2;    // a record's state: picked (practice's dummy is 3)
+
 bool g_driven = false;
 struct Saved {
-    uint32_t flags, table, record, controls, state;
+    uint32_t flags, table, record, controls, state, port;
 } g_saved;
+// The dummy's buttons as this last wrote them: its previous word comes from here, never from port 1's block, which the
+// pad update writes too when a controller sits on that port (a second pad, or the player's own seen twice, as
+// DS4Windows or Steam Input can show it). Read back from there, the player's own presses were never new for the dummy
+// (no attack, no string), or a held button was new every frame.
+uint32_t g_word = 0;
 
 void Engage(bool on) {
     const uint32_t dummy = Dummy(), p1 = Port(1);
@@ -57,26 +67,30 @@ void Engage(bool on) {
     if (on) {
         if (!dummy || !mem::IsCommitted(dummy)) return;
         g_saved = {kernel::R32(p1 + kPortFlags), kernel::R32(p1 + kPortButtonMap), kernel::R32(p1 + kPortRecord),
-                   kernel::R32(dummy + kControls), kernel::R32(kP2Record + kRecordState)};
+                   kernel::R32(dummy + kControls), kernel::R32(kP2Record + kRecordState),
+                   kernel::R32(kP2Record + kRecordPort)};
         kernel::W32(p1 + kPortFlags, g_saved.flags | 2);
         kernel::W32(p1 + kPortButtonMap, Table(0));
         kernel::W32(p1 + kPortRecord, kP2Record);
         kernel::W32(dummy + kControls, 1);
-        kernel::W32(kP2Record + kRecordState, 3);
-        LOGR_FIRST(1, "record: the dummy on port 1 (its port was %d, its state %u)", int32_t(g_saved.controls),
-                   g_saved.state);
+        kernel::W32(kP2Record + kRecordPort, 1);
+        kernel::W32(kP2Record + kRecordState, kStatePicked);
+        LOGR_FIRST(1, "record: the dummy a picked player on port 1 (its port was %d, its record's %d, its state %u)",
+                   int32_t(g_saved.controls), int32_t(g_saved.port), g_saved.state);
     } else {
         kernel::W32(p1 + kPortFlags, g_saved.flags);
         kernel::W32(p1 + kPortButtonMap, g_saved.table);
         kernel::W32(p1 + kPortRecord, g_saved.record);
         if (dummy && mem::IsCommitted(dummy)) kernel::W32(dummy + kControls, g_saved.controls);
         kernel::W32(kP2Record + kRecordState, g_saved.state);
+        kernel::W32(kP2Record + kRecordPort, g_saved.port);
         kernel::W32(p1 + kPortPrevious, 0);
         kernel::W32(p1 + kPortCurrent, 0);
         kernel::W32(p1 + kPortPressed, 0);
         kernel::W32(p1 + kPortSticks, kNeutralSticks);
     }
     g_driven = on;
+    g_word = 0;
 }
 
 uint32_t Time() { return kernel::R32(kGameFrames); }
@@ -165,11 +179,12 @@ void DriveDummy(mk3d::record::Drive mode, const mk3d::record::Input& in, mk3d::r
         kernel::W32(p0 + kPortCurrent, cur & pause);
         kernel::W32(p0 + kPortPressed, kernel::R32(p0 + kPortPressed) & pause);
     }
-    const uint32_t prev = kernel::R32(p1 + kPortCurrent);
+    const uint32_t prev = g_word;
     kernel::W32(p1 + kPortPrevious, prev);
     kernel::W32(p1 + kPortCurrent, word);
     kernel::W32(p1 + kPortPressed, (word ^ prev) & word);
     kernel::W32(p1 + kPortSticks, sticks);
+    g_word = word;
     out = {word, sticks};
 }
 

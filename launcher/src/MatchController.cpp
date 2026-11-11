@@ -7,13 +7,18 @@
 #include <QDirIterator>
 #include <QElapsedTimer>
 #include <QFile>
+#include <QHash>
 #include <QJsonArray>
 #include <QMetaEnum>
+#include <QMutex>
 #include <QPointer>
 #include <QRandomGenerator>
 #include <QRegularExpression>
+#include <QSet>
+#include <QThread>
 #include <QTimer>
 
+#include <atomic>
 #include <cmath>
 #include <memory>
 
@@ -75,10 +80,15 @@ QString reasonText(const QString& reason) {
     };
     return texts.value(reason, reason);
 }
+
+void startHashingGameFiles(const QString& gameId);
+void stopHashingGameFiles();
 }  // namespace
 
 MatchController::MatchController(ServerClient* server, QObject* parent)
     : QObject(parent), server_(server), udp_(new UdpRendezvous(this)) {
+    // what a desync report says of the game's files (gameFiles): their contents hashed in the background meanwhile
+    for (const QString& g : {QStringLiteral("mkd"), QStringLiteral("mka"), QStringLiteral("mkda")}) startHashingGameFiles(g);
     connect(server_, &ServerClient::message, this, &MatchController::onServerMessage);
     connect(server_, &ServerClient::loggedIn, this, [this] {
         if (!pendingResult_.isEmpty()) {
@@ -194,8 +204,9 @@ QString reportLine(const QByteArray& raw) {
 
 // What a desync report says of a game's log (PROTOCOL.md 1.13.1): the PC (Windows, processor, the game's executable)
 // from the log's start, then the last match's lines from its start (the link's "start" line): the picks, the setup
-// both games agreed on (or did not), the check that failed; the per-second stats left out, 36 lines at most (its
-// first 22 and its last 14)
+// both games agreed on (or did not), the check that failed and its detail (where the two games parted, the words that
+// differ); the per-second stats left out, 36 lines at most: every line from the failed check's on (28 at most), then
+// as many of the match's first lines as fit
 QStringList desyncLines(const QString& sessionDir) {
     QFile file(QDir(sessionDir).filePath(QStringLiteral("game.log")));
     if (!file.open(QIODevice::ReadOnly)) return {};
@@ -221,7 +232,20 @@ QStringList desyncLines(const QString& sessionDir) {
                             raw.contains("picked character") || raw.contains("error:") || raw.contains("warning:");
         if (wanted && !stats.match(QString::fromLatin1(raw)).hasMatch()) match << reportLine(raw);
     }
-    if (match.size() > 36) match = match.mid(0, 22) + match.mid(match.size() - 14);
+    constexpr qsizetype kLines = 36, kFromCheck = 28;
+    qsizetype check = -1;
+    for (qsizetype i = 0; i < match.size(); ++i) {
+        if (match[i].contains(QLatin1String("DESYNC at frame"))) {
+            check = i;
+            break;
+        }
+    }
+    if (check >= 0 && match.size() > kLines) {
+        const QStringList from = match.mid(check, kFromCheck);
+        match = match.mid(0, std::min(check, kLines - from.size())) + from;
+    } else if (match.size() > kLines) {
+        match = match.mid(0, 22) + match.mid(match.size() - 14);
+    }
     return out + match;
 }
 
@@ -236,12 +260,116 @@ QStringList lastLines(const QString& sessionDir, int n) {
     return out.mid(std::max<qsizetype>(0, out.size() - n));
 }
 
-// The game's files as extracted from the player's disc (its assets folder): how many, how large, and a hash of
-// their names and sizes; two copies that differ there (a modded disc, files left out of a smaller copy) play two
-// different games. Once a run per game.
+// The game files' contents: every file's bytes hashed once in the background (Windows' background mode, behind any
+// game's loading) and kept in the data folder with each file's size and time (game-files-<game>.txt), so a later run
+// hashes only what changed. Copies whose names and sizes match can still differ inside (a modded or badly dumped
+// fighter file), and two such copies play two different games: their matches part.
+struct Contents {
+    QMutex lock;
+    QHash<QString, QString> hash;  // by game: the hash of every file's name and contents
+    QSet<QString> started;
+    // the hashing threads, stopped and waited for as the launcher closes (shutdown): one still reading when the
+    // program's statics go away would use them after
+    QList<QPointer<QThread>> workers;
+    std::atomic<bool> stop{false};
+};
+Contents& contents() {
+    static Contents c;
+    return c;
+}
+
+void hashGameFiles(const QString& gameId, const QString& assets) {
+    winutil::backgroundMode(true);
+    const QString cacheFile = QDir(paths::dataDir()).filePath(QStringLiteral("game-files-%1.txt").arg(gameId));
+    QHash<QString, QStringList> cache;  // name -> name, size, time, sha1
+    {
+        QFile f(cacheFile);
+        if (f.open(QIODevice::ReadOnly)) {
+            for (const QByteArray& raw : f.readAll().split('\n')) {
+                const QStringList parts = QString::fromUtf8(raw.trimmed()).split(QLatin1Char('|'));
+                if (parts.size() == 4) cache.insert(parts[0], parts);
+            }
+        }
+    }
+    QStringList named, lines;
+    QDirIterator it(assets, QDir::Files | QDir::Hidden, QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        if (contents().stop.load(std::memory_order_relaxed)) break;
+        it.next();
+        const QFileInfo fi = it.fileInfo();
+        const QString name = QDir(assets).relativeFilePath(it.filePath()).toLower();
+        const QString size = QString::number(fi.size()), time = QString::number(fi.lastModified().toMSecsSinceEpoch());
+        QString sha;
+        if (const auto c = cache.constFind(name); c != cache.constEnd() && (*c)[1] == size && (*c)[2] == time) {
+            sha = (*c)[3];
+        } else {
+            QFile f(it.filePath());
+            if (!f.open(QIODevice::ReadOnly)) continue;
+            QCryptographicHash h(QCryptographicHash::Sha1);
+            bool read = true;
+            while (read && !f.atEnd()) {  // a megabyte at a time, so a close never waits on a whole large file
+                if (contents().stop.load(std::memory_order_relaxed)) break;
+                const QByteArray chunk = f.read(1 << 20);
+                read = !chunk.isEmpty();
+                h.addData(chunk);
+            }
+            if (!read || !f.atEnd()) continue;
+            sha = QString::fromLatin1(h.result().toHex());
+        }
+        named << name + QLatin1Char('|') + sha;
+        lines << QStringList{name, size, time, sha}.join(QLatin1Char('|'));
+    }
+    if (contents().stop.load(std::memory_order_relaxed)) return;  // the launcher is closing: the next run goes on
+    named.sort();
+    lines.sort();
+    winutil::writeFileAtomic(cacheFile, lines.join(QLatin1Char('\n')).toUtf8() + '\n');
+    const QByteArray all = QCryptographicHash::hash(named.join(QLatin1Char('\n')).toUtf8(), QCryptographicHash::Sha1);
+    winutil::backgroundMode(false);
+    QMutexLocker locker(&contents().lock);
+    contents().hash.insert(gameId, QString::fromLatin1(all.toHex().left(16)));
+}
+
+// once a run per game whose files are there: the launcher's start, so a match's report has them
+void startHashingGameFiles(const QString& gameId) {
+    const QString assets = QDir(cfg::gameFolder(gameId)).filePath(QStringLiteral("assets"));
+    {
+        QMutexLocker locker(&contents().lock);
+        if (contents().started.contains(gameId) || !QFileInfo(assets).isDir()) return;
+        contents().started.insert(gameId);
+    }
+    QThread* worker = QThread::create([gameId, assets] { hashGameFiles(gameId, assets); });
+    QObject::connect(worker, &QThread::finished, worker, &QObject::deleteLater);
+    {
+        QMutexLocker locker(&contents().lock);
+        contents().workers.append(QPointer<QThread>(worker));
+    }
+    worker->start(QThread::LowestPriority);
+}
+
+// the launcher is closing: the hashing threads stop at their next megabyte, and are waited for
+void stopHashingGameFiles() {
+    contents().stop = true;
+    QList<QPointer<QThread>> workers;
+    {
+        QMutexLocker locker(&contents().lock);
+        workers = contents().workers;
+    }
+    for (const QPointer<QThread>& w : workers)
+        if (w) w->wait(3000);
+}
+
+// The game's files as extracted from the player's disc (its assets folder): how many, how large, a hash of their
+// names and sizes, and one of their contents once the background hash is done; two copies that differ there (a modded
+// disc, files left out of a smaller copy, a bad dump) play two different games. The names once a run per game.
 QString gameFiles(const QString& gameId) {
     static QHash<QString, QString> known;
-    if (const auto it = known.constFind(gameId); it != known.constEnd()) return *it;
+    QString contentsText = QStringLiteral("contents not hashed yet");
+    {
+        QMutexLocker locker(&contents().lock);
+        if (const auto c = contents().hash.constFind(gameId); c != contents().hash.constEnd())
+            contentsText = QStringLiteral("contents %1").arg(*c);
+    }
+    if (const auto it = known.constFind(gameId); it != known.constEnd()) return *it + QStringLiteral(", ") + contentsText;
     const QString assets = QDir(cfg::gameFolder(gameId)).filePath(QStringLiteral("assets"));
     QStringList entries;
     qint64 bytes = 0;
@@ -254,10 +382,11 @@ QString gameFiles(const QString& gameId) {
     }
     entries.sort();
     const QByteArray list = QCryptographicHash::hash(entries.join(QLatin1Char('\n')).toUtf8(), QCryptographicHash::Sha1);
-    return known[gameId] = QStringLiteral("Game files: %1 files, %2 bytes, names and sizes %3")
-                               .arg(entries.size())
-                               .arg(bytes)
-                               .arg(QString::fromLatin1(list.toHex().left(16)));
+    known[gameId] = QStringLiteral("Game files: %1 files, %2 bytes, names and sizes %3")
+                        .arg(entries.size())
+                        .arg(bytes)
+                        .arg(QString::fromLatin1(list.toHex().left(16)));
+    return known[gameId] + QStringLiteral(", ") + contentsText;
 }
 }  // namespace
 
@@ -1561,6 +1690,7 @@ void MatchController::maybeCloseIdleGame() {
 }
 
 void MatchController::shutdown() {
+    stopHashingGameFiles();
     prepQueue_.clear();  // a game being prepared stops with the rest, and the next start carries on
     stopLocalTest();
     if (phase_ == Phase::Searching) cancelSearch();

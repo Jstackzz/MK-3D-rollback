@@ -59,6 +59,9 @@ void LogState(FILE* f);  // the per-frame log line's state fields (health, count
 void CheckBlocks(std::vector<std::pair<uint32_t, uint32_t>>& out);  // guest blocks a desync dump writes (va, size)
 void DataRange(uint32_t& lo, uint32_t& hi);  // the image's data and bss (<prefix>_NET_MEMDUMP, <prefix>_NET_DATA)
 void SideBlocks(std::vector<std::pair<uint32_t, uint32_t>>& out);  // a side mode's board (<prefix>_NET_SIDEDUMP)
+// what each fighter does at the top of this frame (its character, its move, its state), short: a desync's detail says
+// it of the frame two games first differ at; n bytes of out at most, ended by a 0
+void DescribeFighters(char* out, size_t n);
 
 }  // namespace game
 }  // namespace mk3d::net

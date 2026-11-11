@@ -68,4 +68,8 @@ bool playWav(const QString& path);
 // Windows. MK3D_SMART_APP_CONTROL=<state> pretends a state, to see what the launcher says.
 int smartAppControl();
 
+// The calling thread in Windows' background mode (its disk reads and its processor time behind everything else's), for
+// long reads that must not slow a game's loading, or out of it again
+void backgroundMode(bool on);
+
 }  // namespace winutil

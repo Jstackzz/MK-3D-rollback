@@ -326,6 +326,37 @@ void DataRange(uint32_t& lo, uint32_t& hi) {
 
 void SideBlocks(std::vector<std::pair<uint32_t, uint32_t>>&) {}  // no side modes
 
+// each fighter's character, the move script it runs (+0x9F0 the script's name), the command it is at in it (+0x9F8,
+// from the name) and its state (+0x194): "P1 12 quanchi_zap+1A0 state 1200, P2 20 drunken_2+688 state 0601"
+void DescribeFighters(char* out, size_t n) {
+    if (!n) return;
+    out[0] = 0;
+    size_t at = 0;
+    for (int p = 0; p < 2 && at + 1 < n; p++) {
+        const uint32_t f = kernel::R32(kFighter[p]);
+        int w;
+        if (!f || !mem::IsCommitted(f) || !mem::IsCommitted(f + kFighterBytes - 1)) {
+            w = std::snprintf(out + at, n - at, "%sP%d none", p ? ", " : "", p + 1);
+        } else {
+            const uint32_t script = kernel::R32(f + 0x9F0), next = kernel::R32(f + 0x9F8);
+            char name[25] = "?";
+            if (script && mem::IsCommitted(script) && mem::IsCommitted(script + 24)) {
+                const char* s = static_cast<const char*>(kernel::HostPtr(script));
+                size_t i = 0;
+                while (i < 24 && s[i] >= 0x20 && s[i] <= 0x7E) {
+                    name[i] = s[i];
+                    i++;
+                }
+                name[i ? i : 1] = 0;
+            }
+            w = std::snprintf(out + at, n - at, "%sP%d %u %s+%X state %04X", p ? ", " : "", p + 1,
+                              kernel::R32(f + 0x144), name, next - script, kernel::R32(f + 0x194));
+        }
+        if (w < 0) break;
+        at = std::min(n - 1, at + size_t(w));
+    }
+}
+
 }  // namespace mk3d::net::game
 
 // The C runtime's rand (no srand is linked). In a match in sync a draw is keyed by the agreed seed, the frame, the

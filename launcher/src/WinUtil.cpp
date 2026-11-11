@@ -276,4 +276,8 @@ int smartAppControl() {
     return static_cast<int>(value);
 }
 
+void backgroundMode(bool on) {
+    SetThreadPriority(GetCurrentThread(), on ? THREAD_MODE_BACKGROUND_BEGIN : THREAD_MODE_BACKGROUND_END);
+}
+
 }  // namespace winutil

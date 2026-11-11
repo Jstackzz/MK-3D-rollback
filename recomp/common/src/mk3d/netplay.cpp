@@ -14,6 +14,13 @@
 //   4 CHECK   u32 frame, u32 state, u32 rand, u8 loading
 //             at the top of a frame both games agree on: the game's state hash, the C runtime's random numbers drawn
 //             since the barrier reseeded them, and whether the match was still loading (Checks)
+//  10 DETAIL  u32 check, u8 kind, then by kind: after a failed check, what the other game needs to tell where the two
+//             parted (an older game sends none and passes them by)
+//             1 frames: u32 first, u8 n, n x (u32 state, u32 rand, u8 loading)   each frame's top from the check before
+//                       the failed one, as this game's run of it that counts had it
+//             0 pieces: u32 frame, u8 blocks, u8 runs, runs x (u8 block, u32 size, u16 first, u8 n, n x u16)   the
+//                       16-bit hash of each 64-byte piece of the check blocks at that frame's top (the first one the
+//                       two games' states differ at)
 //
 // The spectator feed (TCP to the launcher, each packet after its u16 length; the header's side is the sender's):
 //   5 PICK    [u8 n, n x u32]             the sender's player's pick on the select screen (as in HELLO)
@@ -51,6 +58,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <xmmintrin.h>
 
 #include "app/app.h"
 #include "core/log.h"
@@ -73,6 +81,7 @@ using Clock = std::chrono::steady_clock;
 constexpr uint32_t kMagic = 0x52444B4D;  // "MKDR"
 constexpr uint8_t kHello = 1, kReady = 2, kInput = 3, kCheck = 4;
 constexpr uint8_t kFeedPick = 5, kFeedMeet = 6, kFeedOwn = 7, kFeedCheck = 8, kFeedEnd = 9;
+constexpr uint8_t kDetail = 10, kDetailPieces = 0, kDetailFrames = 1;
 constexpr uint32_t kMaxResend = 48;              // inputs an INPUT packet holds at most: 409 bytes, the relay takes 512
 constexpr uint32_t kCheckEvery = 30;
 constexpr uint32_t kMaxPredict = 12;             // frames past the last agreed one (rollback keeps 16)
@@ -321,8 +330,10 @@ void StopRollback() {
     g_replaying = false;
 }
 
-// the top of a frame both games agree on: what the launcher may report from it
+// the top of a frame both games agree on: what the launcher may report from it (nothing once a check failed: the
+// match ends as a desync, FinishDetail)
 void Settle() {
+    if (g_desynced) return;
     Settled s;
     game::Settle(s);
     std::lock_guard<std::mutex> lock(g_settled_lock);
@@ -344,6 +355,7 @@ void Unsettle() {
 // frame resting on real inputs alone, which at a high ping it seldom is, the result went out late: at 120 ms one
 // game's came 11 to 13 s after the other's, and the rematch waited for it.
 void SettleConfirmed(uint32_t frame) {
+    if (g_desynced) return;
     Settled s;
     game::Settle(s);
     g_frame_settled[frame] = s;
@@ -360,8 +372,10 @@ void SettleConfirmed(uint32_t frame) {
 
 bool InSync();
 void FeedEnd(uint32_t frame, uint8_t how);
+void FinishDetail(bool complete);
 
 void CloseNow() {
+    FinishDetail(false);  // a failed check's detail still under way: written out with what came of it
     if (InSync()) {  // the launcher ended the match while it ran (the other player left it): spectators stop there too
         LOGR("netplay: the match in sync was ended at frame %u", g_frame);
         FeedEnd(g_frame, 1);
@@ -717,6 +731,8 @@ void FeedEnd(uint32_t frame, uint8_t how) {
 
 bool InSync() { return g_phase == Phase::Lockstep || g_phase == Phase::Rollback; }
 
+void OnDetail(const uint8_t* b, int n);
+
 void Receive() {
     Pump();
     FeedPump();
@@ -791,6 +807,8 @@ void Receive() {
             UpdateContiguous();
         } else if (type == kCheck && n >= 21 && seq == g_seq && u32(8) <= g_frame + kMaxAhead) {
             g_their_checks[u32(8)] = Check{u32(12), u32(16), b[20] != 0};
+        } else if (type == kDetail && seq == g_seq) {
+            OnDetail(b, n);  // a failed check's, in the match or out of it
         } else if (type == kHello && n >= 9 && seq == g_seq && !InSync()) {
             // the other player's pick for the match set up next
             int count = std::min<int>(b[8], kMaxPickWords);
@@ -966,103 +984,548 @@ uint32_t StateHash() { return Fnv(2166136261u, game::StateHash()); }
 // game's first frame, at its frames 1 and 8 in the other's), so they are compared once neither game is loading.
 uint32_t RandHash() { return Fnv(Fnv(2166136261u, g_rand_calls.load()), g_rand_last.load()); }
 
-// what a check covered, kept a while: written out when the other game disagrees
-struct CheckCopy {
-    uint32_t frame = 0;
-    std::vector<std::pair<uint32_t, std::vector<uint8_t>>> blocks;  // va, bytes
-};
-std::deque<CheckCopy> g_check_copies;
+// --- each frame's top as the run of it that counts had it. Rollback runs a frame again after a misprediction; once
+// every input before a frame is real, its latest run is the one both games must agree on. Its record holds the check's
+// hashes and what a failed check needs to tell where and how two games parted.
 
-void KeepCheckCopy(uint32_t frame) {
-    CheckCopy c;
-    c.frame = frame;
+constexpr size_t kPiece = 64;          // the check blocks in pieces of 64 bytes, 16 bits of hash each
+constexpr uint32_t kFramesKept = 160;  // frame records kept below the frames agreed on
+
+struct Block {
+    uint32_t va = 0;
+    std::vector<uint8_t> bytes;  // empty when its memory was not there
+};
+struct FrameRecord {
+    Check check;
+    uint32_t mxcsr = 0;          // the main thread's MXCSR: the game's SSE math rounds and flushes by the host's
+    char about[160] = {};        // what each fighter does (netgame.h DescribeFighters)
+    std::vector<Block> blocks;   // the check blocks (netgame.h CheckBlocks)
+};
+std::map<uint32_t, FrameRecord> g_frames;
+uint32_t g_next_check = 0;   // the next check frame to send
+uint32_t g_match_mxcsr = 0;  // the main thread's MXCSR as the match in sync began
+
+uint32_t Mxcsr() { return _mm_getcsr(); }
+
+// this run of a frame's top: what the frame's record holds from now on
+void RecordFrame(uint32_t frame) {
+    FrameRecord& r = g_frames[frame];
+    r.check = Check{StateHash(), RandHash(), g_loading};
+    r.mxcsr = Mxcsr();
+    r.about[0] = 0;
+    game::DescribeFighters(r.about, sizeof r.about);
     std::vector<std::pair<uint32_t, uint32_t>> blocks;
     game::CheckBlocks(blocks);
-    for (auto [va, size] : blocks) {
-        std::vector<uint8_t> bytes;
+    r.blocks.resize(blocks.size());
+    for (size_t i = 0; i < blocks.size(); i++) {
+        const auto [va, size] = blocks[i];
+        Block& b = r.blocks[i];
+        b.va = va;
         if (va && size && mem::IsCommitted(va) && mem::IsCommitted(va + size - 1)) {
             auto* src = static_cast<const uint8_t*>(kernel::HostPtr(va));
-            bytes.assign(src, src + size);
-        }
-        c.blocks.push_back({va, std::move(bytes)});
-    }
-    g_check_copies.push_back(std::move(c));
-    while (g_check_copies.size() > 16) g_check_copies.pop_front();
-}
-
-// The failed check's blocks as short hashes, into the game's log (so into a desync report, both players' side by side
-// in the server's log): each block's 64-byte pieces, 16 bits a piece, pointers left out as the state checks leave
-// them, so the pieces that differ between the two reports are where the games parted. A piece of nothing but
-// pointers shows 0000.
-void LogCheckPieces(uint32_t frame) {
-    constexpr size_t kPiece = 64, kPerLine = 30;
-    for (const CheckCopy& c : g_check_copies) {
-        if (c.frame != frame) continue;
-        for (size_t i = 0; i < c.blocks.size(); i++) {
-            const auto& [va, bytes] = c.blocks[i];
-            const size_t pieces = (bytes.size() + kPiece - 1) / kPiece;
-            for (size_t first = 0; first < pieces; first += kPerLine) {
-                char hex[kPerLine * 4 + 1] = {};
-                size_t n = 0;
-                for (size_t p = first; p < pieces && p < first + kPerLine; p++) {
-                    uint32_t h = 2166136261u;
-                    bool any = false;
-                    for (size_t o = p * kPiece; o + 4 <= bytes.size() && o < (p + 1) * kPiece; o += 4) {
-                        uint32_t v;
-                        std::memcpy(&v, bytes.data() + o, 4);
-                        if ((v >= 0x10000 && v < 0x4000000) || v >= 0x80000000u) continue;
-                        h = (h ^ v) * 16777619u;
-                        any = true;
-                    }
-                    std::snprintf(hex + n * 4, 5, "%04X", any ? (h ^ (h >> 16)) & 0xFFFF : 0);
-                    n++;
-                }
-                LOGR("netplay: frame %u block %zu at %08X, pieces %zu-%zu: %s", frame, i, va, first, first + n - 1,
-                     hex);
-            }
+            b.bytes.assign(src, src + size);
+        } else {
+            b.bytes.clear();
         }
     }
 }
 
-void DumpCheckCopy(uint32_t frame) {
-    LogCheckPieces(frame);
+// a 64-byte piece's hash over the words the checks take (pointers left out, as the state checks leave them: the two
+// games' heaps may lie differently), 16 bits of FNV; 0 for a piece of nothing but pointers
+uint16_t PieceHash(const std::vector<uint8_t>& bytes, size_t piece) {
+    uint32_t h = 2166136261u;
+    bool any = false;
+    for (size_t o = piece * kPiece; o + 4 <= bytes.size() && o < (piece + 1) * kPiece; o += 4) {
+        uint32_t v;
+        std::memcpy(&v, bytes.data() + o, 4);
+        if ((v >= 0x10000 && v < 0x4000000) || v >= 0x80000000u) continue;
+        h = (h ^ v) * 16777619u;
+        any = true;
+    }
+    return any ? uint16_t((h ^ (h >> 16)) & 0xFFFF) : 0;
+}
+
+size_t Pieces(const Block& b) { return (b.bytes.size() + kPiece - 1) / kPiece; }
+
+// A frame's blocks as short hashes, into the game's log (so into a desync report): each block's 64-byte pieces, 16
+// bits a piece. What a report carried before the two games told each other their pieces, and still does when the
+// other game is an older one: the pieces that differ between the two players' reports are where the games parted.
+void LogPieceHashes(uint32_t frame, const FrameRecord& r) {
+    constexpr size_t kPerLine = 30;
+    for (size_t i = 0; i < r.blocks.size(); i++) {
+        const Block& b = r.blocks[i];
+        const size_t pieces = Pieces(b);
+        for (size_t first = 0; first < pieces; first += kPerLine) {
+            char hex[kPerLine * 4 + 1] = {};
+            size_t n = 0;
+            for (size_t p = first; p < pieces && p < first + kPerLine; p++, n++)
+                std::snprintf(hex + n * 4, 5, "%04X", PieceHash(b.bytes, p));
+            LOGR("netplay: frame %u block %zu at %08X, pieces %zu-%zu: %s", frame, i, b.va, first, first + n - 1, hex);
+        }
+    }
+}
+
+// a frame's blocks word by word, into this match's net log (the player's own file)
+void DumpBlocks(uint32_t frame, const FrameRecord& r) {
     if (!g_cfg.log) return;
-    for (const CheckCopy& c : g_check_copies) {
-        if (c.frame != frame) continue;
-        for (size_t i = 0; i < c.blocks.size(); i++) {
-            const auto& [va, bytes] = c.blocks[i];
-            std::fprintf(g_cfg.log, "# dump %u block %zu at %08X\n", frame, i, va);
-            for (size_t o = 0; o + 16 <= bytes.size(); o += 16) {
-                uint32_t v[4];
-                std::memcpy(v, bytes.data() + o, 16);
-                std::fprintf(g_cfg.log, "# %zu %04zX %08X %08X %08X %08X\n", i, o, v[0], v[1], v[2], v[3]);
-            }
+    for (size_t i = 0; i < r.blocks.size(); i++) {
+        const Block& b = r.blocks[i];
+        std::fprintf(g_cfg.log, "# dump %u block %zu at %08X\n", frame, i, b.va);
+        for (size_t o = 0; o < b.bytes.size(); o += 16) {
+            uint32_t v[4] = {};
+            std::memcpy(v, b.bytes.data() + o, std::min<size_t>(16, b.bytes.size() - o) & ~size_t(3));
+            std::fprintf(g_cfg.log, "# %zu %04zX %08X %08X %08X %08X\n", i, o, v[0], v[1], v[2], v[3]);
         }
-        std::fflush(g_cfg.log);
     }
+    std::fflush(g_cfg.log);
+}
+
+// --- a failed check. The two games tell each other what they had (DETAIL), so that each game's log, and so each
+// player's desync report, says where they parted and what differed: the first frame whose top differs (each frame's
+// state since the check before, compared), the inputs that led to it, what each fighter did then, this PC's floating
+// point control and display, and this game's words of every 64-byte piece the other game's hashes disagree with (the
+// server's log then has both players' words side by side). The desync is reported (Status::Desynced, which ends the
+// match for the launcher) once that is written, or after kDetailWait without the other game's pieces (an older game
+// sends none): then the piece hashes, as before. Until then the match plays on, settling nothing (SettleConfirmed),
+// so no result goes out of it.
+constexpr auto kDetailWait = std::chrono::milliseconds(2000);
+constexpr auto kDetailResend = std::chrono::milliseconds(250);
+constexpr int kMaxWordLines = 12;      // pieces written out word by word, at most
+constexpr int kMaxDetailPacket = 440;  // bytes a DETAIL packet holds at most
+constexpr uint8_t kNoRecord = 2;       // a frames entry's loading byte: this game kept no record of that frame
+const bool g_test_no_detail = Env("NET_TEST_NO_DETAIL") != nullptr;
+
+struct Detail {
+    bool active = false;  // a check failed: its detail is under way
+    bool done = false;    // written out, the desync reported
+    uint32_t check = 0;   // the failed check's frame
+    uint32_t first = 0;   // this game's records from the frame after the check before, up to it
+    std::map<uint32_t, FrameRecord> frames;
+    std::map<uint32_t, std::pair<Input, Input>> inputs;  // P1's and P2's input of each of those frames, and 4 before
+    Clock::time_point t0, last_send;
+    uint32_t at = UINT32_MAX;  // the frame whose pieces both compare: the first whose state differs, else the check
+    // and the frame before it, where the two states still agreed: a piece that differs there already is told apart
+    // from the ones that changed at the parting (some words outside the state hash differ between two games all along)
+    uint32_t before = UINT32_MAX;
+    bool found = false;        // the frames differed somewhere (else the check's own hashes did)
+    bool by_rand = false;      // only the C runtime's random numbers did
+};
+Detail g_detail;
+
+struct TheirBlock {
+    uint32_t size = 0;
+    std::vector<uint16_t> hashes;
+    std::vector<uint8_t> have;
+    size_t got = 0;
+};
+// the other game's pieces of one frame
+struct TheirFrame {
+    uint32_t blocks = 0;
+    std::map<uint32_t, TheirBlock> pieces;
+};
+// the other game's detail; it may come before this game saw the check fail
+struct TheirDetail {
+    uint32_t check = UINT32_MAX;
+    bool frames_in = false;
+    uint32_t first = 0;
+    std::vector<Check> frames;
+    std::vector<uint8_t> known;
+    std::map<uint32_t, TheirFrame> pieces;  // by frame: the parting one and the one before it
+};
+TheirDetail g_their_detail;
+
+Input Mine(uint32_t f);
+Input Theirs(uint32_t f);
+
+// the other player's input a frame's run that counts used (rollback), else the one that came for it
+Input TheirsRan(uint32_t f) {
+    auto it = g_used.find(f);
+    return it != g_used.end() ? it->second : Theirs(f);
+}
+
+std::string InputText(const Input& in) {
+    char buf[32];
+    if (in.sticks == game::NeutralSticks()) std::snprintf(buf, sizeof buf, "%X", in.buttons);
+    else std::snprintf(buf, sizeof buf, "%X/%08X", in.buttons, in.sticks);
+    return buf;
+}
+
+// this PC's side of a desync: the floating point control the game's math ran with, the display it ran on
+std::string PcFacts(uint32_t frame, uint32_t mxcsr) {
+    const app::Settings& s = app::Get();
+    const app::Mode out = app::Output();
+    uint32_t hz = 0;
+    if (HWND w = static_cast<HWND>(app::Window())) {
+        MONITORINFOEXW mi{};
+        mi.cbSize = sizeof mi;
+        DEVMODEW dm{};
+        dm.dmSize = sizeof dm;
+        if (GetMonitorInfoW(MonitorFromWindow(w, MONITOR_DEFAULTTOPRIMARY), &mi) &&
+            EnumDisplaySettingsW(mi.szDevice, ENUM_CURRENT_SETTINGS, &dm))
+            hz = dm.dmDisplayFrequency;
+    }
+    const char* mode = s.display_mode == app::DisplayMode::Fullscreen ? "fullscreen"
+                       : s.display_mode == app::DisplayMode::Windowed ? "windowed"
+                                                                      : "borderless";
+    // MXCSR's control (masks, rounding, flush to zero 8000, denormals as zero 0040) apart from its sticky flags, which
+    // only say what the math met so far (1F80 is Windows' own control)
+    char buf[180];
+    std::snprintf(buf, sizeof buf, "MXCSR control %04X flags %02X at frame %u (control %04X as the match began), %s "
+                  "%ux%u at %u Hz, vsync %s, cap %u, render %u%%, %s", mxcsr & 0xFFC0, mxcsr & 0x3F, frame,
+                  g_match_mxcsr & 0xFFC0, mode, out.width, out.height, hz, s.vsync ? "on" : "off", s.fps_cap,
+                  s.render_percent, app::Widescreen() ? "16:9" : "4:3");
+    return buf;
+}
+
+// what the other game needs from this one: each frame's state from the check before up to the failed one, then the
+// pieces of the frame both compare and of the one before it, once this game knows which
+void SendPieces(uint32_t frame);
+void SendDetail() {
+    Detail& d = g_detail;
+    d.last_send = Clock::now();
+    Writer w = Header(kDetail);
+    w.U32(d.check);
+    w.U8(kDetailFrames);
+    w.U32(d.first);
+    const uint32_t n = std::min<uint32_t>(d.check - d.first + 1, 40);
+    w.U8(uint8_t(n));
+    for (uint32_t f = d.first; f < d.first + n; f++) {
+        auto it = d.frames.find(f);
+        const Check c = it != d.frames.end() ? it->second.check : Check{};
+        w.U32(c.state);
+        w.U32(c.rand);
+        w.U8(it == d.frames.end() ? kNoRecord : c.loading ? 1 : 0);
+    }
+    Send(w);
+    if (d.at != UINT32_MAX) SendPieces(d.at);
+    if (d.before != UINT32_MAX) SendPieces(d.before);
+}
+
+void SendPieces(uint32_t frame) {
+    const Detail& d = g_detail;
+    auto rec = d.frames.find(frame);
+    if (rec == d.frames.end()) return;
+    const FrameRecord& r = rec->second;
+    const size_t blocks = std::min<size_t>(r.blocks.size(), 255);
+    Writer w;
+    int runs_at = -1;
+    auto open = [&] {
+        w = Header(kDetail);
+        w.U32(d.check);
+        w.U8(kDetailPieces);
+        w.U32(frame);
+        w.U8(uint8_t(blocks));
+        runs_at = w.n;
+        w.U8(0);
+    };
+    auto flush = [&] {
+        if (runs_at >= 0 && w.b[runs_at]) Send(w);
+        runs_at = -1;
+    };
+    open();
+    for (size_t i = 0; i < blocks; i++) {
+        const Block& b = r.blocks[i];
+        const size_t pieces = std::min<size_t>(Pieces(b), 0xFFFF);
+        size_t p = 0;
+        do {
+            if (w.n + 10 > kMaxDetailPacket || w.b[runs_at] == 255) {
+                flush();
+                open();
+            }
+            const size_t room = size_t(kMaxDetailPacket - w.n - 8) / 2;
+            const size_t n = std::min({pieces - p, room, size_t(255)});
+            w.U8(uint8_t(i));
+            w.U32(uint32_t(b.bytes.size()));
+            w.U16(uint16_t(p));
+            w.U8(uint8_t(n));
+            for (size_t k = 0; k < n; k++) w.U16(PieceHash(b.bytes, p + k));
+            w.b[runs_at]++;
+            p += n;
+        } while (p < pieces);
+    }
+    flush();
+}
+
+bool TheirPiecesIn(const TheirDetail& t, uint32_t frame) {
+    auto f = t.pieces.find(frame);
+    if (f == t.pieces.end() || !f->second.blocks || f->second.pieces.size() < f->second.blocks) return false;
+    for (const auto& [i, b] : f->second.pieces)
+        if (b.got < b.hashes.size()) return false;
+    return true;
+}
+
+// a piece of this game's block at a frame differs from the other game's (whose pieces of that frame are all here)
+bool PieceDiffers(const TheirDetail& t, uint32_t frame, const FrameRecord& r, size_t block, size_t piece) {
+    auto f = t.pieces.find(frame);
+    if (f == t.pieces.end() || block >= r.blocks.size()) return false;
+    auto b = f->second.pieces.find(uint32_t(block));
+    if (b == f->second.pieces.end() || b->second.size != r.blocks[block].bytes.size() || piece >= b->second.hashes.size() ||
+        !b->second.have[piece])
+        return false;
+    return b->second.hashes[piece] != PieceHash(r.blocks[block].bytes, piece);
+}
+
+// This game's words of every piece the other game's hashes disagree with at the parting frame, a line a piece: first
+// the pieces that changed there, then those that differed at the frame before already, where the states still agreed
+// (with the other game's pieces of that frame in), 12 lines in all at most.
+void LogDifferingWords(uint32_t frame, const FrameRecord& r, const FrameRecord* before, uint32_t before_frame,
+                       const TheirDetail& t) {
+    const TheirFrame& tf = t.pieces.at(frame);
+    std::string legend;
+    for (size_t i = 0; i < r.blocks.size() && legend.size() < 140; i++) {
+        char one[40];
+        std::snprintf(one, sizeof one, "%s%zu %08X+%zX", i ? ", " : "", i, r.blocks[i].va, r.blocks[i].bytes.size());
+        legend += one;
+    }
+    LOGR("netplay: desync detail: this game's blocks at frame %u: %s%s", frame, legend.c_str(),
+         tf.blocks == r.blocks.size() ? "" : " (the other game checked another count of them)");
+    struct Piece {
+        size_t block, piece;
+        bool already;  // differed at the frame before as well
+    };
+    std::vector<Piece> differ;
+    for (size_t i = 0; i < r.blocks.size(); i++) {
+        auto it = tf.pieces.find(uint32_t(i));
+        if (it != tf.pieces.end() && it->second.size != r.blocks[i].bytes.size())
+            LOGR("netplay: desync detail: block %zu holds %zX bytes here, %X in the other game", i,
+                 r.blocks[i].bytes.size(), it->second.size);
+        for (size_t p = 0; p < Pieces(r.blocks[i]); p++) {
+            if (!PieceDiffers(t, frame, r, i, p)) continue;
+            const bool already = before && TheirPiecesIn(t, before_frame) && PieceDiffers(t, before_frame, *before, i, p);
+            differ.push_back({i, p, already});
+        }
+    }
+    std::stable_partition(differ.begin(), differ.end(), [](const Piece& p) { return !p.already; });
+    int lines = 0, fresh = 0;
+    for (const Piece& d : differ) {
+        fresh += d.already ? 0 : 1;
+        if (lines >= kMaxWordLines) continue;
+        const Block& b = r.blocks[d.block];
+        char words[16 * 9 + 1] = {};
+        size_t n = 0;
+        for (size_t o = d.piece * kPiece; o + 4 <= b.bytes.size() && o < (d.piece + 1) * kPiece; o += 4) {
+            uint32_t v;
+            std::memcpy(&v, b.bytes.data() + o, 4);
+            n += size_t(std::snprintf(words + n, sizeof words - n, "%s%08X", n ? " " : "", v));
+        }
+        // short, as a report line holds 200 characters with the log's time in front: "from" the frame before, for a
+        // piece that differed there already
+        LOGR("netplay: differs %s %u, block %zu +%04zX: %s", d.already ? "from" : "at", d.already ? before_frame : frame,
+             d.block, d.piece * kPiece, words);
+        lines++;
+    }
+    if (differ.empty())
+        LOGR("netplay: desync detail: every piece agrees at frame %u: what differs is outside the check blocks", frame);
+    else
+        LOGR("netplay: desync detail: %zu pieces differ at frame %u, %d of them first there%s", differ.size(), frame,
+             fresh, differ.size() > size_t(lines) ? " (the rest not written out)" : "");
+}
+
+// writes the detail out and reports the desync: with the other game's pieces once they are all here (complete), else
+// with what came of them (the words when its pieces of the parting frame came, else this game's piece hashes)
+void FinishDetail(bool complete) {
+    (void)complete;
+    Detail& d = g_detail;
+    if (!d.active || d.done) return;
+    d.done = true;
+    const TheirDetail& t = g_their_detail;
+    const bool frames_in = t.check == d.check && t.frames_in && d.at != UINT32_MAX;
+    if (frames_in) {
+        if (d.found && !d.by_rand)
+            LOGR("netplay: desync detail: the two games' states first differ at the top of frame %u (alike from %u)",
+                 d.at, d.first);
+        else if (d.by_rand)
+            LOGR("netplay: desync detail: the states agree from %u to %u, the C runtime's random numbers first differ "
+                 "at %u", d.first, d.check, d.at);
+        else
+            LOGR("netplay: desync detail: frames %u-%u agree in both games' records, the check's hashes do not",
+                 d.first, d.check);
+    } else {
+        d.at = d.check;
+        LOGR("netplay: desync detail: %s", g_cfg.watch ? "a spectator's game: the players' games have their own"
+                                                       : "the other game told this one nothing of it (an older game?)");
+    }
+    std::string in;
+    for (uint32_t f = d.at >= 4 ? d.at - 4 : 0; f < d.at; f++) {
+        auto it = d.inputs.find(f);
+        if (it == d.inputs.end()) continue;
+        in += (in.empty() ? "" : ", ") + std::to_string(f) + " " + InputText(it->second.first) + " " +
+              InputText(it->second.second);
+    }
+    if (!in.empty()) LOGR("netplay: desync detail: P1's and P2's inputs before frame %u: %s", d.at, in.c_str());
+    auto rec = d.frames.find(d.at);
+    if (rec != d.frames.end()) {
+        if (rec->second.about[0]) LOGR("netplay: desync detail: frame %u: %s", d.at, rec->second.about);
+        LOGR("netplay: desync detail: this PC: %s", PcFacts(d.at, rec->second.mxcsr).c_str());
+        auto before = d.before != UINT32_MAX ? d.frames.find(d.before) : d.frames.end();
+        if (frames_in && TheirPiecesIn(t, d.at))
+            LogDifferingWords(d.at, rec->second, before != d.frames.end() ? &before->second : nullptr, d.before, t);
+        else
+            LogPieceHashes(d.at, rec->second);
+        DumpBlocks(d.at, rec->second);
+    }
+    if (d.at != d.check)
+        if (auto c = d.frames.find(d.check); c != d.frames.end()) DumpBlocks(d.check, c->second);
+    SetStatus(Status::Desynced);
+}
+
+// the other game's detail, as it comes (Receive)
+void DetailProgress();
+void OnDetail(const uint8_t* b, int n) {
+    auto u32 = [&](int o) {
+        uint32_t v;
+        std::memcpy(&v, b + o, 4);
+        return v;
+    };
+    auto u16 = [&](int o) {
+        uint16_t v;
+        std::memcpy(&v, b + o, 2);
+        return v;
+    };
+    if (n < 13 || g_test_no_detail) return;
+    const uint32_t check = u32(8);
+    TheirDetail& t = g_their_detail;
+    if (t.check != check) t = TheirDetail{check};
+    if (b[12] == kDetailFrames && n >= 18) {
+        const uint32_t first = u32(13);
+        const int count = b[17];
+        if (t.frames_in || count < 1 || 18 + count * 9 > n) return;
+        t.first = first;
+        t.frames.resize(size_t(count));
+        t.known.resize(size_t(count));
+        for (int i = 0; i < count; i++) {
+            const int o = 18 + i * 9;
+            t.frames[size_t(i)] = Check{u32(o), u32(o + 4), b[o + 8] == 1};
+            t.known[size_t(i)] = b[o + 8] != kNoRecord;
+        }
+        t.frames_in = true;
+    } else if (b[12] == kDetailPieces && n >= 19) {
+        const uint32_t frame = u32(13);
+        if (!t.pieces.count(frame) && t.pieces.size() >= 4) return;  // two frames are told, a few at most are kept
+        TheirFrame& tf = t.pieces[frame];
+        tf.blocks = b[17];
+        int o = 19;
+        for (int run = 0; run < b[18] && o + 8 <= n; run++) {
+            const uint32_t block = b[o], size = u32(o + 1), first = u16(o + 5), count = b[o + 7];
+            if (o + 8 + int(count) * 2 > n || size > (1u << 20)) break;
+            TheirBlock& tb = tf.pieces[block];
+            if (tb.size != size || tb.hashes.empty()) {
+                tb = TheirBlock{};
+                tb.size = size;
+                tb.hashes.resize((size + kPiece - 1) / kPiece);
+                tb.have.resize(tb.hashes.size());
+            }
+            for (uint32_t k = 0; k < count && first + k < tb.hashes.size(); k++) {
+                tb.hashes[first + k] = u16(o + 8 + int(k) * 2);
+                if (!tb.have[first + k]) tb.got++;
+                tb.have[first + k] = 1;
+            }
+            o += 8 + int(count) * 2;
+        }
+    }
+    DetailProgress();
+}
+
+// once the other game's frames are here: the frame both compare; once its pieces of that frame are: done
+void DetailProgress() {
+    Detail& d = g_detail;
+    const TheirDetail& t = g_their_detail;
+    if (!d.active || d.done || t.check != d.check) return;
+    if (d.at == UINT32_MAX && t.frames_in) {
+        uint32_t state_at = UINT32_MAX, rand_at = UINT32_MAX;
+        for (uint32_t f = std::max(d.first, t.first); f <= d.check && f - t.first < t.frames.size(); f++) {
+            auto mine = d.frames.find(f);
+            if (mine == d.frames.end() || !t.known[f - t.first]) continue;
+            const Check& a = mine->second.check;
+            const Check& c = t.frames[f - t.first];
+            if (a.state != c.state) {
+                state_at = f;
+                break;
+            }
+            if (rand_at == UINT32_MAX && !a.loading && !c.loading && a.rand != c.rand) rand_at = f;
+        }
+        d.found = state_at != UINT32_MAX || rand_at != UINT32_MAX;
+        d.by_rand = state_at == UINT32_MAX && rand_at != UINT32_MAX;
+        d.at = state_at != UINT32_MAX ? state_at : rand_at != UINT32_MAX ? rand_at : d.check;
+        if (d.at > 0 && d.frames.count(d.at - 1)) d.before = d.at - 1;
+        SendPieces(d.at);
+        if (d.before != UINT32_MAX) SendPieces(d.before);
+    }
+    if (d.at != UINT32_MAX && TheirPiecesIn(t, d.at) && (d.before == UINT32_MAX || TheirPiecesIn(t, d.before)))
+        FinishDetail(true);
+}
+
+// a check failed at frame `check`: this game's records of it kept, its detail out to the other game
+void BeginDetail(uint32_t check) {
+    g_detail = Detail{};
+    Detail& d = g_detail;
+    d.active = true;
+    d.check = check;
+    d.first = check >= kCheckEvery ? check - kCheckEvery + 1 : 0;
+    d.t0 = Clock::now();
+    // from the check before (both states agreed there), the frame before the first one compared
+    for (auto it = g_frames.lower_bound(d.first ? d.first - 1 : 0); it != g_frames.end() && it->first <= check; ++it)
+        d.frames.insert(*it);
+    if (!g_cfg.watch) {
+        for (uint32_t f = d.first >= 4 ? d.first - 4 : 0; f <= check; f++) {
+            const Input mine = Mine(f), theirs = TheirsRan(f);
+            d.inputs[f] = g_cfg.side == 0 ? std::make_pair(mine, theirs) : std::make_pair(theirs, mine);
+        }
+    }
+    // a spectator has no other game to ask; <prefix>_NET_TEST_NO_DETAIL=1 (tests) plays an older game's part: no detail
+    // sent or heard, the desync reported at once with the piece hashes
+    if (g_cfg.watch || g_sock == INVALID_SOCKET || g_test_no_detail) return FinishDetail(false);
+    SendDetail();
+    DetailProgress();  // the other game's may be here already
+}
+
+// every frame, in the match or out of it: the detail sent again for a while (a packet may be lost), and written out
+// without the other game's once kDetailWait is over
+void DetailPump() {
+    Detail& d = g_detail;
+    if (!d.active || g_test_no_detail) return;
+    const auto now = Clock::now();
+    if (now - d.t0 > kDetailWait) {
+        FinishDetail(false);
+        return;
+    }
+    if (now - d.last_send > kDetailResend) SendDetail();
 }
 
 void Leave(const char* why, Status st = Status::Local) {
     LOGR("netplay: leaving the match in sync at frame %u: %s", g_frame, why);
-    FeedEnd(g_frame, st == Status::Local ? 0 : 1);
+    FeedEnd(g_frame, st == Status::Local && !g_desynced ? 0 : 1);
     g_left_seq = g_seq;
     StopRollback();
     g_phase = Phase::Local;
+    // a failed check's detail still under way: the desync is what this match ends with, once it is written (the other
+    // game's may still come, out of the match too), at once when the other game is gone
+    if (g_detail.active && !g_detail.done) {
+        if (st != Status::Local) FinishDetail(false);
+        return;
+    }
     SetStatus(st);
 }
 
-// checks for frames both games agree on: send ours, compare theirs
+// Checks. Every frame's top is recorded as it runs; a check frame (every kCheckEvery) goes out once every input before
+// it is real, with the state its latest run had. Only a check frame run at a moment it was agreed went out before: a
+// right prediction is never run again, so at a high ping most were never checked, and two games that had parted
+// played on unchecked for seconds (598 frames in a test). Theirs are compared with ours as both come.
 void Checks(uint32_t frame, bool agreed) {
-    if (agreed && frame % kCheckEvery == 0 && !g_my_checks.count(frame)) {
-        const Check c{StateHash(), RandHash(), g_loading};
-        g_my_checks[frame] = c;
-        KeepCheckCopy(frame);
-        SendCheck(frame, c);
+    RecordFrame(frame);
+    const uint32_t upto = agreed ? frame : std::min(g_confirmed, frame);
+    for (; g_next_check <= upto; g_next_check += kCheckEvery) {
+        auto rec = g_frames.find(g_next_check);
+        if (rec == g_frames.end()) continue;
+        g_my_checks[g_next_check] = rec->second.check;
+        SendCheck(g_next_check, rec->second.check);
     }
     for (auto it = g_their_checks.begin(); it != g_their_checks.end();) {
         auto mine_it = g_my_checks.find(it->first);
         if (mine_it == g_my_checks.end()) {
-            ++it;
+            // ours went by unrecorded or was forgotten (it came very late): nothing left to compare it with
+            if (it->first < g_next_check) it = g_their_checks.erase(it);
+            else ++it;
             continue;
         }
         const Check& mine = mine_it->second;
@@ -1071,10 +1534,9 @@ void Checks(uint32_t frame, bool agreed) {
         if ((mine.state != theirs.state || (rand_counts && mine.rand != theirs.rand)) && !g_desynced) {
             LOGE("netplay: DESYNC at frame %u (ours %08X/%08X, theirs %08X/%08X%s)", it->first, mine.state, mine.rand,
                  theirs.state, theirs.rand, rand_counts ? "" : ", loading");
-            DumpCheckCopy(it->first);
             g_desynced = true;
             g_desync_frame = it->first;
-            SetStatus(Status::Desynced);
+            BeginDetail(it->first);
         }
         it = g_their_checks.erase(it);
     }
@@ -1086,6 +1548,12 @@ bool WaitForFeed(uint32_t f);
 
 void StartSync(X86Context& ctx) {
     ClearPicks();  // the match set up: the next one picks again
+    FinishDetail(false);  // the last match's, if it is still under way
+    g_detail = Detail{};
+    g_their_detail = TheirDetail{};
+    g_frames.clear();
+    g_next_check = 0;
+    g_match_mxcsr = Mxcsr();
     g_seq++;
     g_frame = 0;
     game::RngFrame(g_seed, 0);
@@ -1597,6 +2065,23 @@ const int g_test_frame_cost = [] {
     return v ? std::atoi(v) : 0;
 }();
 
+// <prefix>_NET_TEST_POKE=<frame>:<hex address>:<hex value> (tests, in one game): that 32-bit word written at the top of
+// every run of every frame from that one on, so this game's state parts from the other game's there, whatever rollback
+// does: what a desync's report must then name, frame and word
+struct TestPoke {
+    uint32_t frame = UINT32_MAX, va = 0, value = 0;
+};
+const TestPoke g_test_poke = [] {
+    TestPoke p;
+    unsigned f = 0, va = 0, value = 0;
+    if (const char* v = Env("NET_TEST_POKE"); v && std::sscanf(v, "%u:%x:%x", &f, &va, &value) == 3) p = {f, va, value};
+    return p;
+}();
+
+void TestPokeFrame() {
+    if (g_frame >= g_test_poke.frame && mem::IsCommitted(g_test_poke.va)) kernel::W32(g_test_poke.va, g_test_poke.value);
+}
+
 // after the pad update in a match with rollback
 void RollbackPads() {
     if (g_test_frame_cost) {
@@ -1619,6 +2104,7 @@ void RollbackPads() {
     WritePort(1 - g_cfg.side, theirs, theirs_prev);
     AdvanceConfirmed(g_frame);
     bool agreed = g_confirmed >= g_frame;  // the top of this frame rests on real inputs only
+    TestPokeFrame();
     Checks(g_frame, agreed);
     SettleConfirmed(g_frame);
     Diagnostics();
@@ -1648,6 +2134,7 @@ void RollbackPads() {
         g_my_checks.erase(g_my_checks.begin(), g_my_checks.lower_bound(keep));
         g_rand_at.erase(g_rand_at.begin(), g_rand_at.lower_bound(keep));
     }
+    if (g_confirmed > kFramesKept) g_frames.erase(g_frames.begin(), g_frames.lower_bound(g_confirmed - kFramesKept));
     g_lockstep_frame = g_confirmed;
 }
 
@@ -1689,6 +2176,7 @@ void LockstepPads() {
     WritePort(1 - g_cfg.side, theirs, g_prev_buttons[1 - g_cfg.side]);
     g_prev_buttons[1 - g_cfg.side] = theirs.buttons;
     g_confirmed = g_frame;
+    TestPokeFrame();
     Checks(g_frame, true);
     Settle();
     Diagnostics();
@@ -1698,6 +2186,7 @@ void LockstepPads() {
         g_mine.erase(g_mine.begin(), g_mine.lower_bound(std::min(g_frame - 64, g_their_ack > 64 ? g_their_ack - 64 : 0)));
         g_theirs.erase(g_theirs.begin(), g_theirs.lower_bound(g_frame - 64));
     }
+    if (g_frame > kFramesKept) g_frames.erase(g_frames.begin(), g_frames.lower_bound(g_frame - kFramesKept));
     g_frame++;
     game::RngFrame(g_seed, g_frame);
     g_lockstep_frame = g_frame;
@@ -1818,6 +2307,7 @@ void WatchPads() {
         for (WatchSide& w : g_watch) w.inputs.erase(w.inputs.begin(), w.inputs.lower_bound(keep));
         g_my_checks.erase(g_my_checks.begin(), g_my_checks.lower_bound(keep));
     }
+    if (g_frame > kFramesKept) g_frames.erase(g_frames.begin(), g_frames.lower_bound(g_frame - kFramesKept));
     g_lockstep_frame = g_frame;
 }
 
@@ -1826,6 +2316,7 @@ void WatchPads() {
 void FrameStart(uint64_t) {
     ApplyPending();
     if (!g_cfg.on) return;
+    DetailPump();
     X86Context* ctx = MainContext();
     if (g_cfg.watch && InSync()) {
         if (ctx) WatchFrameStart(*ctx);

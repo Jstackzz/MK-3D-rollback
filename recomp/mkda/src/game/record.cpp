@@ -45,6 +45,11 @@ struct Saved {
     uint32_t state, no_controls;
     uint32_t config[kConfigWords];
 } g_saved;
+// The dummy's buttons as this last wrote them: its previous word comes from here, never from player 2's block, which
+// the pad update writes too once a controller on port 1 joins (a second pad, or the player's own seen twice, as
+// DS4Windows or Steam Input can show it). Read back from there, the player's own presses would never be new for the
+// dummy, or a held button new every frame.
+uint32_t g_word = 0;
 
 void Engage(bool on) {
     if (on == g_driven) return;
@@ -70,6 +75,7 @@ void Engage(bool on) {
         kernel::W32(Sticks(1), kNeutralSticks);
     }
     g_driven = on;
+    g_word = 0;
 }
 
 uint32_t Time() { return kernel::R32(kGameCounter); }
@@ -157,11 +163,12 @@ void DriveDummy(mk3d::record::Drive mode, const mk3d::record::Input& in, mk3d::r
         kernel::W32(p1 + kPlayerCurrent, cur & pause);
         kernel::W32(p1 + kPlayerPressed, kernel::R32(p1 + kPlayerPressed) & pause);
     }
-    const uint32_t prev = kernel::R32(p2 + kPlayerCurrent);
+    const uint32_t prev = g_word;
     kernel::W32(p2 + kPlayerPrevious, prev);
     kernel::W32(p2 + kPlayerCurrent, word);
     kernel::W32(p2 + kPlayerPressed, (word ^ prev) & word);
     kernel::W32(Sticks(1), sticks);
+    g_word = word;
     out = {word, sticks};
 }
 

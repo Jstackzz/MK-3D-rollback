@@ -347,6 +347,32 @@ void DataRange(uint32_t& lo, uint32_t& hi) {
 
 void SideBlocks(std::vector<std::pair<uint32_t, uint32_t>>& out) { SideModeBlocks(out); }
 
+// each fighter's character, its state (+0x214: 0 stance, 0x1200 an attack, 0x60x a hit reaction...), its attack's
+// phase (+0x20C: 1 startup, 2 hit window, 3 recovery) and the routine its task runs (the task +0x20, its function +0x30)
+void DescribeFighters(char* out, size_t n) {
+    if (!n) return;
+    out[0] = 0;
+    size_t at = 0;
+    for (int p = 0; p < 2 && at + 1 < n; p++) {
+        const uint32_t record = p ? kP2Record : kP1Record, obj = kernel::R32(record + 0x58);
+        int w;
+        if (!obj || !mem::IsCommitted(obj) || !mem::IsCommitted(obj + kFighterBytes - 1)) {
+            w = std::snprintf(out + at, n - at, "%sP%d none", p ? ", " : "", p + 1);
+        } else {
+            const uint32_t task = kernel::R32(obj + 0x20);
+            const uint32_t routine = task && mem::IsCommitted(task) && mem::IsCommitted(task + 0x33) &&
+                                             kernel::R32(task + 4) == kernel::R32(obj + 0x24)
+                                         ? kernel::R32(task + 0x30)
+                                         : 0;
+            w = std::snprintf(out + at, n - at, "%sP%d %u state %04X phase %u routine %08X", p ? ", " : "", p + 1,
+                              kernel::R32(p ? kP2Character : kP1Character), kernel::R32(obj + 0x214),
+                              kernel::R32(obj + 0x20C), routine);
+        }
+        if (w < 0) break;
+        at = std::min(n - 1, at + size_t(w));
+    }
+}
+
 }  // namespace mk3d::net::game
 
 // The C runtime's rand. In a fight in sync a draw is keyed by the agreed seed, the frame, the call site and its count

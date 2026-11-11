@@ -631,6 +631,17 @@ Practice records the dummy and plays it back (`recomp/common/src/mk3d/record.cpp
   stands free (the frame data's can_act and state 0). Each slot keeps the fighting style it began in (fighter +0x2D8; file
   magic MK3DREC2), which a playback restores first with the style button (entry 2 of port 0's button table), a frame at a time, three at most.
   Tested every side combination, recorded and played on either side with a jump-over between: walk back, walk forward and an attack come out the same.
+- 1.0.2 (2026-11-11, a player's report: in Armageddon and Deception the dummy driven in an F9 recording did no strings
+  and jumped late; Deadly Alliance was fine): two causes, as in Armageddon. (1) Left in practice's dummy state (record
+  +8 = 3), the game takes the first hit of a string from the dummy's controls but never the next ones: Scorpion's 2, 2,
+  1 came out as a 2 (three hits for player 1). Driven, the dummy's record is now a picked player on port 1 (state 2,
+  the record's port +0 = 1, as a versus player 2's; sub_0006A2C0 accepts that with port 1's block driving the record),
+  both put back when the recording or playback ends. (2) The dummy's previous buttons word was read back from port
+  1's block, which the pad update also writes when a controller sits on port 1 (a second pad, or the player's own seen
+  twice, as DS4Windows or Steam Input can show it): then the player's presses were never new for the dummy. The
+  adapter keeps the word it wrote last. Tested as in Armageddon (rec/recdrive.py, rec/recsides_g.py): 2, 2, 1, a mash,
+  a jump kick and a forward jump the same for player 1, the dummy while recording and its playback, with one
+  controller and with the same presses on port 1 too; every side combination: all the same.
 
 ### The online select screen (2026-11-02)
 

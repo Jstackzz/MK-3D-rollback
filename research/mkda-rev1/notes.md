@@ -475,6 +475,12 @@ Practice records the dummy and plays it back (`recomp/common/src/mk3d/record.cpp
   stands free (the frame data's can_act and state 0). Each slot keeps the fighting style it began in (fighter +0x8A0, cycled by LT; file
   magic MK3DREC2), which a playback restores first with the style button (action 2 in player 1's configuration, 0x42C640 + 2 * 12), a frame at a time, three at most.
   Tested every side combination, recorded and played on either side with a jump-over between: Bo' Rai Cho's Jojutsu forward+3 and Frost's 1,1,back+2 come out the same.
+- 1.0.2 (2026-11-11): the dummy's previous buttons word is kept by the adapter, no longer read back from player 2's
+  block, which the pad update also writes once a controller on port 1 joins (a second pad, or the player's own seen
+  twice): read back, the player's presses would never be new for the dummy. Strings already came out here (the
+  driven dummy is a picked player, state 3 in this game's numbering). Tested: Scorpion's 1s and the jump kick the same
+  for player 1 and the dummy while recording (rec/recdrive_da.py); every side combination with Bo' Rai Cho's Jojutsu
+  forward+3 (rec/recsides.py --to-style 2: Bo's styles are 0 Drunken, 1 Mi Zong, 2 Jojutsu): all the same.
 
 ## The online select screen (2026-11-02)
 

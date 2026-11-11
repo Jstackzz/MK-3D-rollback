@@ -712,6 +712,27 @@ block's 64-byte pieces, 16 bits a piece, pointers left out as the check leaves
 them): the pieces that differ between the two players' reports are where the
 games parted.
 
+From 1.0.2 a game checks every 30th frame once both players' real inputs before
+it are in (before, only a frame that happened to run on real inputs alone was
+checked, so at a high ping two games that had parted could play on for seconds),
+and after a failed check the two games swap their records of it over the
+netplay connection (DETAIL packets, `recomp/common/src/mk3d/netplay.cpp`): each
+frame's state hash since the check before, then the piece hashes of the first
+frame whose state differs. Each game then logs `netplay: desync detail: ...`
+lines: the first frame the two states differ at, both players' inputs of the
+four frames before it, what each fighter did then (DA: character, move script
+and command, state; Deception and Armageddon: character, state, attack phase,
+the routine its task runs), this PC's MXCSR (the emulated SSE math follows the
+host's) and display, and `netplay: differs at <frame>, block <n> +<offset>:
+<16 words>` for every piece the other game's hashes disagree with (12 at most),
+so the server's log holds both players' words side by side. The desync status
+waits for that, 2 s at most; with an older game on the other side the piece
+hashes come as before. The report keeps every line from the failed check's on
+(28 at most) and fills the rest of its 36 with the match's first lines; the
+game files' line adds `contents <hash>`, every file's bytes hashed once in the
+background (`game-files-<game>.txt` beside the launcher keeps each file's hash,
+size and time), or `contents not hashed yet`.
+
 ### 1.13.2 F3 reports (0.1.18)
 
 ```json
