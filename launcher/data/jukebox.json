@@ -479,9 +479,7 @@
     },
     "mka": {
       "select_bank": "shell_music",
-      "select_streams": [
-        5
-      ],
+      "select_streams": [],
       "min_stream_seconds": 12,
       "stages": [
         {
@@ -894,7 +892,8 @@
             "cave"
           ]
         }
-      ]
+      ],
+      "_select_note": "shell_music stream 5 is the select screen's music, but it is a resident sound: replacing it with the resident block rebuilt left the select screen silent (the .mbx must describe residents too), so it stays the game's own for now"
     }
   }
 }
