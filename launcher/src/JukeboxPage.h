@@ -1,20 +1,21 @@
 #pragma once
-// The Jukebox page: a soundtrack of another Mortal Kombat for the game's stages and select screen, or a song per
-// stage, from the music folder (Jukebox.h). Changes apply by themselves a moment after the last one.
+// The Jukebox page, as Tekken 8's: a row of music sets (the game's own music, each soundtrack as its preset or
+// shuffled, every soundtrack shuffled, three playlists of the player's own) with what the chosen one plays where; a
+// playlist opens its own screen: each stage and menu with its song on the left, the soundtracks' songs game by game on
+// the right, to hear and to pick. Changes apply by themselves a moment after the last one.
 
+#include <QElapsedTimer>
 #include <QList>
-#include <QMap>
 #include <QTimer>
 
 #include "Jukebox.h"
 #include "Widgets.h"
 
-class QComboBox;
-class QGridLayout;
 class QLabel;
+class QListWidget;
+class QListWidgetItem;
 class QPushButton;
-class QStandardItemModel;
-class QWidget;
+class QStackedWidget;
 
 class JukeboxPage : public Page {
     Q_OBJECT
@@ -26,42 +27,53 @@ protected:
     void showEvent(QShowEvent* event) override;
 
 private:
-    struct Row {
-        int stage = -1;  // -1: the select screen
-        QComboBox* choice = nullptr;
-        QLabel* plays = nullptr;
-        QPushButton* play = nullptr;
-    };
     void rescan();
-    void rebuildTrackModel();
-    void rebuildRows();
-    void showConfig();     // the widgets from config_
-    void refreshPlan();    // plays labels and notes from the plan
-    void changed();        // a widget changed: save, plan, apply soon
-    void applyNow();
-    void preview(const Row& row);
-    QString choiceOf(QComboBox* box) const;
-    void selectChoice(QComboBox* box, const QString& choice);
+    void fillSets(bool toActive);  // the music set tiles; the current one the set that plays, or the one that was
+    void fillSlots();              // the stages and screens, in the overview and in the editor
+    void fillTabs();               // a tab a soundtrack, and the game's own
+    void fillTracks();             // the songs of the tab's soundtrack
+    void refresh();                // after a change of set or song: the plan, the hints, the second lines and the checks
+    void setClicked(QListWidgetItem* item);
+    void chooseSet(const QString& set);
+    void openEditor(const QString& slot);  // the playlist's screen, that stage or menu current
+    void closeEditor();
+    void assign(const QString& choice);  // the current slot of the playlist gets it ("own": the game's own)
+    void trackClicked(QListWidgetItem* item, bool fromMouse);
+    void changed();  // save, plan, apply in a moment
+    void togglePreview(const QString& file);
+    QString currentSlot() const;
+    QString tabSoundtrack() const;  // the open tab's soundtrack id; empty for the game's own
+    void showSlotSong();            // the tab of the current slot's song, that song current
+    void copyInto(int playlist);
 
     QList<jukebox::Soundtrack> library_;
     jukebox::Config config_;
     jukebox::Plan plan_;
-    jukebox::Applier applier_;
     jukebox::Preview preview_;
     QTimer applyTimer_;
-    bool applyAgain_ = false;
+    QElapsedTimer lastClick_;
     bool loading_ = false;
 
-    QStandardItemModel* tracks_ = nullptr;
+    QStackedWidget* views_ = nullptr;
+    // the sets
+    QListWidget* sets_ = nullptr;
+    QLabel* setHint_ = nullptr;
+    QLabel* overviewTitle_ = nullptr;
+    QListWidget* overview_ = nullptr;
+    QPushButton* edit_ = nullptr;
+    QPushButton* copy_ = nullptr;
+    // a playlist's screen
+    QLabel* editorTitle_ = nullptr;
+    QListWidget* slots_ = nullptr;
+    QListWidget* tabs_ = nullptr;
+    QLabel* tabTitle_ = nullptr;
+    QListWidget* tracks_ = nullptr;
+    QPushButton* play_ = nullptr;
+    QPushButton* reset_ = nullptr;
+    QPushButton* resetAll_ = nullptr;
+    QPushButton* fill_ = nullptr;
+    // both
     QLabel* folder_ = nullptr;
-    QLabel* libraryInfo_ = nullptr;
-    QLabel* title_ = nullptr;
-    QComboBox* soundtrack_ = nullptr;
-    QLabel* soundtrackInfo_ = nullptr;
-    Row selectRow_;
-    QGridLayout* stageGrid_ = nullptr;
-    QWidget* stageBox_ = nullptr;
-    QList<Row> rows_;
     QLabel* notes_ = nullptr;
     QLabel* status_ = nullptr;
     QPushButton* apply_ = nullptr;

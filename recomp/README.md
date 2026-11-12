@@ -321,6 +321,11 @@ for p in recomp/patches/xboxxberecomp-*.patch; do git -C external/XboxXBERecomp 
 - `0046-player-2-controller`: the controls file's `[ports] player2 = "<name>"`: a controller by that name takes port 1
   whenever it is plugged in (another one there moves to a free port), the others keep clear of port 1 while a name
   is set; read again with the rest of the file. The launcher's offline versus names player 2's controller with it.
+- `0047-file-and-sound-traces`: development switches for finding what a game plays: `XBE_FILE_TRACE=<part of an
+  Xbox path, upper case>` logs every read of such a file (`.MSX`: which bytes of which sound bank, mapped to streams
+  by the jukebox's `build/jukebox/read-trace.py`), `XBE_DSOUND_TRACE=1` logs the sound buffers made, filled and
+  played and the streams' formats and packets. How the jukebox found Armageddon's stage music and every game's menu
+  music (docs/JUKEBOX.md).
 
 `tools/py/lib_audit.py <game dir> <xbsdb symbols>` lists the XDK library
 functions the game calls that still run console code against host objects,

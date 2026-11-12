@@ -1,5 +1,5 @@
-// The jukebox (Jukebox.h): the music library, the plan, the transcoder into the games' sound banks, the cache and
-// the map file, and the preview player.
+// The jukebox (Jukebox.h): the music library, the music sets and the plan, the transcoder into the games' sound banks,
+// the cache and the map file, and the preview player.
 #include "Jukebox.h"
 
 #include "AppPaths.h"
@@ -15,6 +15,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QPointer>
+#include <QRandomGenerator>
 #include <QRegularExpression>
 #include <QSet>
 #include <QStandardPaths>
@@ -42,7 +43,9 @@ namespace {
 
 constexpr double kMaxSongSeconds = 600;  // a song longer than this is cut (the game loops what it gets)
 constexpr double kStingerSeconds = 40;   // a track shorter than this is no stage music (a fatality sting)
-constexpr char kCacheVersion[] = "v2";   // in the cache key: bump when the encoding changes
+constexpr double kMenuSeconds = 45;      // a menu theme shorter than this is an intro, not the menu's music
+constexpr char kCacheVersion[] = "v3";   // in the cache key: bump when the banks are made differently
+constexpr qint64 kCacheBudget = qint64(3) * 1024 * 1024 * 1024;  // the cache is trimmed to this, the oldest first
 
 QString lower(const QString& s) { return s.toLower(); }
 
@@ -65,9 +68,39 @@ QString titleFromFile(const QString& file) {
     return t;
 }
 
+// when the game came out, for the order of the soundtracks (a soundtrack.json's "year" first; others after these)
+double yearFor(const QString& id) {
+    static const QMap<QString, double> known = {
+        {QStringLiteral("mk1"), 1992},    {QStringLiteral("mk2"), 1993},  {QStringLiteral("mk3"), 1995},
+        {QStringLiteral("umk3"), 1995.5}, {QStringLiteral("mk4"), 1997},  {QStringLiteral("mkda"), 2002},
+        {QStringLiteral("mkd"), 2004},    {QStringLiteral("mka"), 2006},  {QStringLiteral("mkvsdc"), 2008},
+        {QStringLiteral("mk9"), 2011},    {QStringLiteral("mkx"), 2015},  {QStringLiteral("mk11"), 2019},
+        {QStringLiteral("mk1-2023"), 2023}};
+    return known.value(lower(id), 0);
+}
+
+// the game tabs' names
+QString shortTitleFor(const QString& id, const QString& title) {
+    static const QMap<QString, QString> known = {
+        {QStringLiteral("mk1"), QStringLiteral("MK (1992)")},     {QStringLiteral("mk2"), QStringLiteral("MK II")},
+        {QStringLiteral("mk3"), QStringLiteral("MK3")},           {QStringLiteral("umk3"), QStringLiteral("UMK3")},
+        {QStringLiteral("mk4"), QStringLiteral("MK4")},           {QStringLiteral("mkvsdc"), QStringLiteral("MK vs DC")},
+        {QStringLiteral("mk9"), QStringLiteral("MK (2011)")},     {QStringLiteral("mkx"), QStringLiteral("MKX")},
+        {QStringLiteral("mk11"), QStringLiteral("MK11")},         {QStringLiteral("mk1-2023"), QStringLiteral("MK1 (2023)")},
+        {QStringLiteral("mkda"), QStringLiteral("Deadly Alliance")}, {QStringLiteral("mkd"), QStringLiteral("Deception")},
+        {QStringLiteral("mka"), QStringLiteral("Armageddon")}};
+    const auto it = known.find(lower(id));
+    if (it != known.end()) return it.value();
+    QString t = title;
+    t.replace(QRegularExpression(QStringLiteral("(?i)^mortal kombat\\b")), QStringLiteral("MK"));
+    return t.size() > 18 ? t.left(17) + QChar(0x2026) : t;
+}
+
 void readSoundtrackJson(const QByteArray& json, Soundtrack& s, const QDir& dir) {
     const QJsonObject o = QJsonDocument::fromJson(json).object();
     if (o.contains(QStringLiteral("title"))) s.title = o.value(QStringLiteral("title")).toString();
+    if (o.contains(QStringLiteral("short"))) s.shortTitle = o.value(QStringLiteral("short")).toString();
+    if (o.contains(QStringLiteral("year"))) s.year = o.value(QStringLiteral("year")).toDouble();
     const QString select = o.value(QStringLiteral("select")).toString();
     QList<Track> listed;
     for (const QJsonValue& v : o.value(QStringLiteral("tracks")).toArray()) {
@@ -143,8 +176,23 @@ QList<Soundtrack> scanLibrary(const QString& folder) {
         QFile builtIn(QStringLiteral(":/soundtracks/%1.json").arg(s.id.toLower()));
         if (own.open(QIODevice::ReadOnly)) readSoundtrackJson(own.readAll(), s, dir);
         else if (builtIn.open(QIODevice::ReadOnly)) readSoundtrackJson(builtIn.readAll(), s, dir);
+        if (s.shortTitle.isEmpty()) s.shortTitle = shortTitleFor(s.id, s.title);
+        for (const char* name : {"cover.jpg", "cover.png", "cover.jpeg", "folder.jpg", "folder.png"}) {
+            const QString p = dir.filePath(QString::fromLatin1(name));
+            if (QFileInfo::exists(p)) {
+                s.cover = p;
+                break;
+            }
+        }
+        if (s.year <= 0) s.year = yearFor(s.id);
         out << s;
     }
+    // in the order the games came out (MK 1992, MK II, MK3, UMK3, MK4 ...), the ones of no known year after them
+    std::stable_sort(out.begin(), out.end(), [](const Soundtrack& a, const Soundtrack& b) {
+        const double ya = a.year > 0 ? a.year : 1e9, yb = b.year > 0 ? b.year : 1e9;
+        if (ya != yb) return ya < yb;
+        return a.title.compare(b.title, Qt::CaseInsensitive) < 0;
+    });
     return out;
 }
 
@@ -153,76 +201,6 @@ const Soundtrack* find(const QList<Soundtrack>& library, const QString& id) {
         if (s.id.compare(id, Qt::CaseInsensitive) == 0) return &s;
     return nullptr;
 }
-
-// --- the games' stages --------------------------------------------------------------------------------------
-
-namespace {
-
-QMap<QString, GameMusic> loadGameMusic() {
-    QMap<QString, GameMusic> out;
-    QFile f(QStringLiteral(":/data/jukebox.json"));
-    if (!f.open(QIODevice::ReadOnly)) return out;
-    const QJsonObject games = QJsonDocument::fromJson(f.readAll()).object().value(QStringLiteral("games")).toObject();
-    for (auto it = games.begin(); it != games.end(); ++it) {
-        const QJsonObject g = it.value().toObject();
-        GameMusic gm;
-        gm.game = it.key();
-        gm.selectBank = g.value(QStringLiteral("select_bank")).toString();
-        for (const QJsonValue& v : g.value(QStringLiteral("select_streams")).toArray()) gm.selectStreams << v.toInt();
-        for (const QJsonValue& v : g.value(QStringLiteral("stages")).toArray()) {
-            const QJsonObject o = v.toObject();
-            Stage s;
-            s.id = o.value(QStringLiteral("id")).toInt(-1);
-            s.name = o.value(QStringLiteral("name")).toString();
-            s.bank = o.value(QStringLiteral("bank")).toString();
-            for (const QJsonValue& st : o.value(QStringLiteral("streams")).toArray()) s.streams << st.toInt();
-            for (const QJsonValue& t : o.value(QStringLiteral("tags")).toArray()) s.tags << lower(t.toString());
-            gm.stages << s;
-        }
-        out.insert(gm.game, gm);
-    }
-    return out;
-}
-
-}  // namespace
-
-const GameMusic* gameMusic(const QString& gameId) {
-    static const QMap<QString, GameMusic> all = loadGameMusic();
-    auto it = all.find(gameId);
-    return it == all.end() ? nullptr : &it.value();
-}
-
-// --- the configuration --------------------------------------------------------------------------------------
-
-Config loadConfig(const QString& gameId) {
-    Config c;
-    const QString p = QStringLiteral("jukebox/%1/").arg(gameId);
-    c.soundtrack = cfg::get(p + QStringLiteral("soundtrack")).toString();
-    c.select = cfg::get(p + QStringLiteral("select"), QStringLiteral("auto")).toString();
-    if (const GameMusic* gm = gameMusic(gameId))
-        for (const Stage& s : gm->stages) {
-            const QString v = cfg::get(p + QStringLiteral("stage_%1").arg(s.id)).toString();
-            if (!v.isEmpty() && v != QLatin1String("auto")) c.stages.insert(s.id, v);
-        }
-    return c;
-}
-
-void saveConfig(const QString& gameId, const Config& c) {
-    const QString p = QStringLiteral("jukebox/%1/").arg(gameId);
-    cfg::set(p + QStringLiteral("soundtrack"), c.soundtrack);
-    cfg::set(p + QStringLiteral("select"), c.select);
-    if (const GameMusic* gm = gameMusic(gameId))
-        for (const Stage& s : gm->stages)
-            cfg::set(p + QStringLiteral("stage_%1").arg(s.id), c.stages.value(s.id, QStringLiteral("auto")));
-}
-
-QString mapFile(const QString& gameId) {
-    return QDir(paths::dataDir()).filePath(QStringLiteral("jukebox-%1.txt").arg(gameId));
-}
-
-// --- the plan -------------------------------------------------------------------------------------------------
-
-namespace {
 
 const Track* trackByChoice(const QString& choice, const QList<Soundtrack>& library, QString* soundtrackId) {
     const int slash = choice.indexOf(QLatin1Char('/'));
@@ -238,12 +216,99 @@ const Track* trackByChoice(const QString& choice, const QList<Soundtrack>& libra
     return nullptr;
 }
 
+QString choiceOf(const Soundtrack& s, const Track& t) { return s.id + QLatin1Char('/') + QFileInfo(t.file).fileName(); }
+
+// --- the games' stages and screens ------------------------------------------------------------------------------
+
+namespace {
+
+QList<int> streamsOf(const QJsonValue& v) {
+    if (v.isString() && v.toString() == QLatin1String("all")) return {-1};
+    QList<int> out;
+    for (const QJsonValue& s : v.toArray()) out << s.toInt();
+    return out;
+}
+
+Slot slotOf(const QJsonObject& o) {
+    Slot s;
+    s.name = o.value(QStringLiteral("name")).toString();
+    s.bank = o.value(QStringLiteral("bank")).toString();
+    s.streams = streamsOf(o.value(QStringLiteral("streams")));
+    for (const QJsonValue& t : o.value(QStringLiteral("tags")).toArray()) s.tags << lower(t.toString());
+    s.why = o.value(QStringLiteral("why")).toString();
+    return s;
+}
+
+QMap<QString, GameMusic> loadGameMusic() {
+    QMap<QString, GameMusic> out;
+    QFile f(QStringLiteral(":/data/jukebox.json"));
+    if (!f.open(QIODevice::ReadOnly)) return out;
+    const QJsonObject games = QJsonDocument::fromJson(f.readAll()).object().value(QStringLiteral("games")).toObject();
+    for (auto it = games.begin(); it != games.end(); ++it) {
+        const QJsonObject g = it.value().toObject();
+        GameMusic gm;
+        gm.game = it.key();
+        for (const QJsonValue& v : g.value(QStringLiteral("stages")).toArray()) {
+            const QJsonObject o = v.toObject();
+            Slot s = slotOf(o);
+            s.stage = o.value(QStringLiteral("id")).toInt(-1);
+            s.key = QStringLiteral("stage:%1").arg(s.stage);
+            gm.places << s;
+        }
+        for (const QJsonValue& v : g.value(QStringLiteral("screens")).toArray()) {
+            const QJsonObject o = v.toObject();
+            Slot s = slotOf(o);
+            s.screen = o.value(QStringLiteral("id")).toString();
+            s.key = QStringLiteral("screen:") + s.screen;
+            gm.places << s;
+        }
+        out.insert(gm.game, gm);
+    }
+    return out;
+}
+
+}  // namespace
+
+const Slot* GameMusic::slot(const QString& key) const {
+    for (const Slot& s : places)
+        if (s.key == key) return &s;
+    return nullptr;
+}
+
+const GameMusic* gameMusic(const QString& gameId) {
+    static const QMap<QString, GameMusic> all = loadGameMusic();
+    auto it = all.find(gameId);
+    return it == all.end() ? nullptr : &it.value();
+}
+
+const Pick* Plan::pick(const QString& slot) const {
+    for (const Pick& p : picks)
+        if (p.slot == slot) return &p;
+    return nullptr;
+}
+
+// --- the music sets: presets and shuffles ---------------------------------------------------------------------
+
+namespace {
+
 bool stageMaterial(const Track& t) {
     if (t.seconds > 0 && t.seconds < kStingerSeconds) return false;
     return t.kind == QLatin1String("stage") || t.kind == QLatin1String("other");
 }
 
-int score(const Stage& stage, const Track& track) {
+bool menuMaterial(const Track& t) {
+    return (t.kind == QLatin1String("menu") || t.kind == QLatin1String("theme")) && (t.seconds <= 0 || t.seconds >= kMenuSeconds);
+}
+
+// a soundtrack's main-menu music: its first long menu track, else its first long theme
+const Track* menuTrack(const Soundtrack& s) {
+    for (const char* kind : {"menu", "theme"})
+        for (const Track& t : s.tracks)
+            if (t.kind == QLatin1String(kind) && (t.seconds <= 0 || t.seconds >= kMenuSeconds)) return &t;
+    return nullptr;
+}
+
+int score(const Slot& stage, const Track& track) {
     int n = 0;
     const QString title = lower(track.title);
     const QString name = lower(stage.name);
@@ -255,142 +320,229 @@ int score(const Stage& stage, const Track& track) {
     return n;
 }
 
-// the soundtrack's tracks for the stages left on auto: the best keyword match each, every track once while they
-// last, then round the stage tracks again in their order
-QMap<int, const Track*> autoPicks(const GameMusic& gm, const QList<int>& autoStages, const Soundtrack& s) {
+// the soundtrack's tracks for the stages: the best keyword match each, every track once while they last, then round
+// the stage tracks again in their order
+QMap<QString, const Track*> stagePicks(const GameMusic& gm, const Soundtrack& s) {
     QList<const Track*> pool;
     for (const Track& t : s.tracks)
         if (stageMaterial(t)) pool << &t;
     if (pool.isEmpty())  // a soundtrack of themes only: anything long enough
         for (const Track& t : s.tracks)
             if (t.kind != QLatin1String("stinger") && (t.seconds <= 0 || t.seconds >= kStingerSeconds)) pool << &t;
-    QMap<int, const Track*> out;
+    QMap<QString, const Track*> out;
     if (pool.isEmpty()) return out;
     struct Cand {
-        int stage;
+        const Slot* stage;
         const Track* track;
         int score;
     };
     QList<Cand> cands;
-    for (int id : autoStages) {
-        const Stage* st = nullptr;
-        for (const Stage& x : gm.stages)
-            if (x.id == id) st = &x;
-        if (!st) continue;
+    QList<const Slot*> stages;
+    for (const Slot& st : gm.places) {
+        if (!st.isStage() || st.bank.isEmpty()) continue;
+        stages << &st;
         for (const Track* t : pool) {
-            const int sc = score(*st, *t);
-            if (sc > 0) cands.append({id, t, sc});
+            const int sc = score(st, *t);
+            if (sc > 0) cands.append({&st, t, sc});
         }
     }
     std::stable_sort(cands.begin(), cands.end(), [](const Cand& a, const Cand& b) { return a.score > b.score; });
     QSet<const Track*> used;
     for (const Cand& c : cands) {
-        if (out.contains(c.stage) || used.contains(c.track)) continue;
-        out.insert(c.stage, c.track);
+        if (out.contains(c.stage->key) || used.contains(c.track)) continue;
+        out.insert(c.stage->key, c.track);
         used.insert(c.track);
     }
-    // the rest: unused tracks first, in the soundtrack's order, then around again
-    QList<const Track*> rest;
+    // the rest: the unused tracks first, in the soundtrack's order, then the whole soundtrack round again (a
+    // soundtrack of 8 stage songs for a game of 20 stages: each song twice or three times, not the last one 12 times)
+    QList<const Track*> order;
     for (const Track* t : pool)
-        if (!used.contains(t)) rest << t;
+        if (!used.contains(t)) order << t;
     int k = 0;
-    for (int id : autoStages) {
-        if (out.contains(id)) continue;
-        const Track* t = rest.isEmpty() ? pool[k % pool.size()] : rest[k % rest.size()];
-        out.insert(id, t);
+    for (const Slot* st : stages) {
+        if (out.contains(st->key)) continue;
+        out.insert(st->key, k < order.size() ? order[k] : pool[(k - order.size()) % pool.size()]);
         k++;
+    }
+    return out;
+}
+
+using Entry = QPair<const Soundtrack*, const Track*>;
+
+// a shuffle: the stages draw from the soundtrack's (or every soundtrack's) stage music, each song once while they
+// last; the select screen gets the soundtrack's own select music (with every soundtrack, one of theirs), the main
+// menu a theme
+QMap<QString, QString> shuffleChoices(const GameMusic& gm, const QList<Soundtrack>& library, const QString& sid,
+                                      quint32 draw) {
+    QRandomGenerator rng(draw ^ quint32(qHash(gm.game)));
+    QList<Entry> stage, menu, select;
+    for (const Soundtrack& s : library) {
+        if (sid != QLatin1String("*") && s.id.compare(sid, Qt::CaseInsensitive) != 0) continue;
+        for (const Track& t : s.tracks) {
+            if (stageMaterial(t)) stage << Entry(&s, &t);
+            if (menuMaterial(t)) menu << Entry(&s, &t);
+        }
+        if (s.select >= 0) select << Entry(&s, &s.tracks[s.select]);
+    }
+    auto shuffled = [&rng](QList<Entry> v) {
+        for (qsizetype i = v.size() - 1; i > 0; --i) v.swapItemsAt(i, qsizetype(rng.bounded(quint32(i + 1))));
+        return v;
+    };
+    QMap<QString, QString> out;
+    const QList<Entry> deck = shuffled(stage);
+    int k = 0;
+    for (const Slot& s : gm.places) {
+        if (s.isStage()) {
+            if (deck.isEmpty() || s.bank.isEmpty()) continue;
+            const Entry e = deck[k++ % deck.size()];
+            out.insert(s.key, choiceOf(*e.first, *e.second));
+        } else if (s.screen == QLatin1String("select") && !select.isEmpty()) {
+            const Entry e = select[int(rng.bounded(quint32(select.size())))];
+            out.insert(s.key, choiceOf(*e.first, *e.second));
+        } else if (s.screen == QLatin1String("menu") && !menu.isEmpty()) {
+            const Entry e = menu[int(rng.bounded(quint32(menu.size())))];
+            out.insert(s.key, choiceOf(*e.first, *e.second));
+        }
     }
     return out;
 }
 
 }  // namespace
 
-QString describeChoice(const QString& choice, const QList<Soundtrack>& library) {
-    if (choice.isEmpty() || choice == QLatin1String("auto")) return QStringLiteral("Auto");
-    if (choice == QLatin1String("own")) return QStringLiteral("The game's own");
-    QString sid;
-    if (const Track* t = trackByChoice(choice, library, &sid)) {
-        const Soundtrack* s = find(library, sid);
-        return QStringLiteral("%1: %2").arg(s ? s->title : sid, t->title);
-    }
-    return QStringLiteral("%1 (missing)").arg(choice);
+int Config::playlistIndex() const {
+    if (!set.startsWith(QLatin1String("playlist:"))) return -1;
+    const int n = set.mid(9).toInt();
+    return n >= 1 && n <= kPlaylists ? n - 1 : -1;
 }
+
+QString Config::setSoundtrack() const {
+    if (set.startsWith(QLatin1String("preset:"))) return set.mid(7);
+    if (set.startsWith(QLatin1String("shuffle:"))) return set.mid(8);
+    return {};
+}
+
+QMap<QString, QString> presetChoices(const QString& gameId, const Soundtrack& s) {
+    QMap<QString, QString> out;
+    const GameMusic* gm = gameMusic(gameId);
+    if (!gm) return out;
+    const QMap<QString, const Track*> stages = stagePicks(*gm, s);
+    for (const Slot& slot : gm->places) {
+        const Track* t = nullptr;
+        if (slot.isStage()) t = stages.value(slot.key, nullptr);
+        else if (slot.screen == QLatin1String("select") && s.select >= 0) t = &s.tracks[s.select];
+        else if (slot.screen == QLatin1String("menu")) t = menuTrack(s);
+        if (t) out.insert(slot.key, choiceOf(s, *t));
+    }
+    return out;
+}
+
+QString describeSet(const QString& set, const QList<Soundtrack>& library) {
+    if (set.isEmpty() || set == QLatin1String("own")) return QStringLiteral("The game's own music");
+    if (set == QLatin1String("shuffle:*")) return QStringLiteral("Every soundtrack, shuffled");
+    if (set.startsWith(QLatin1String("playlist:"))) return QStringLiteral("My Playlist %1").arg(set.mid(9));
+    const bool shuffle = set.startsWith(QLatin1String("shuffle:"));
+    const QString sid = set.mid(shuffle ? 8 : 7);
+    const Soundtrack* s = find(library, sid);
+    return QStringLiteral("%1, %2").arg(s ? s->title : sid, shuffle ? QStringLiteral("shuffled") : QStringLiteral("preset"));
+}
+
+// --- the configuration --------------------------------------------------------------------------------------
+
+Config loadConfig(const QString& gameId) {
+    Config c;
+    const QString p = QStringLiteral("jukebox/%1/").arg(gameId);
+    const QString set = cfg::get(p + QStringLiteral("set")).toString();
+    if (!set.isEmpty()) {
+        c.set = set;
+        for (int i = 0; i < kPlaylists; i++) {
+            const QByteArray json = cfg::get(p + QStringLiteral("playlist%1").arg(i + 1)).toString().toUtf8();
+            const QJsonObject o = QJsonDocument::fromJson(json).object();
+            for (auto it = o.begin(); it != o.end(); ++it) c.playlists[i].insert(it.key(), it.value().toString());
+        }
+        c.shuffleDraw = cfg::get(p + QStringLiteral("shuffle_draw"), 1).toUInt();
+        return c;
+    }
+    // the first jukebox's settings (test 15): a soundtrack, with songs picked by hand for some stages or the select
+    // screen; those become My Playlist 1 (the soundtrack's preset with the hand picks over it)
+    const QString old = cfg::get(p + QStringLiteral("soundtrack")).toString();
+    QMap<QString, QString> hand;
+    const QString select = cfg::get(p + QStringLiteral("select")).toString();
+    if (!select.isEmpty() && select != QLatin1String("auto")) hand.insert(QStringLiteral("screen:select"), select);
+    if (const GameMusic* gm = gameMusic(gameId))
+        for (const Slot& s : gm->places) {
+            if (!s.isStage()) continue;
+            const QString v = cfg::get(p + QStringLiteral("stage_%1").arg(s.stage)).toString();
+            if (!v.isEmpty() && v != QLatin1String("auto")) hand.insert(s.key, v);
+        }
+    if (hand.isEmpty()) {
+        if (!old.isEmpty()) c.set = QStringLiteral("preset:") + old;
+        return c;
+    }
+    if (!old.isEmpty()) {
+        const QList<Soundtrack> library = scanLibrary(libraryFolder());
+        if (const Soundtrack* s = find(library, old)) c.playlists[0] = presetChoices(gameId, *s);
+    }
+    for (auto it = hand.cbegin(); it != hand.cend(); ++it) c.playlists[0].insert(it.key(), it.value());
+    c.set = QStringLiteral("playlist:1");
+    return c;
+}
+
+void saveConfig(const QString& gameId, const Config& c) {
+    const QString p = QStringLiteral("jukebox/%1/").arg(gameId);
+    cfg::set(p + QStringLiteral("set"), c.set);
+    for (int i = 0; i < kPlaylists; i++) {
+        QJsonObject o;
+        for (auto it = c.playlists[i].cbegin(); it != c.playlists[i].cend(); ++it) o.insert(it.key(), it.value());
+        cfg::set(p + QStringLiteral("playlist%1").arg(i + 1), QString::fromUtf8(QJsonDocument(o).toJson(QJsonDocument::Compact)));
+    }
+    cfg::set(p + QStringLiteral("shuffle_draw"), c.shuffleDraw);
+}
+
+QString mapFile(const QString& gameId) {
+    return QDir(paths::dataDir()).filePath(QStringLiteral("jukebox-%1.txt").arg(gameId));
+}
+
+// --- the plan -------------------------------------------------------------------------------------------------
 
 Plan resolve(const QString& gameId, const Config& config, const QList<Soundtrack>& library) {
     Plan plan;
     const GameMusic* gm = gameMusic(gameId);
     if (!gm) return plan;
-    const Soundtrack* chosen = config.soundtrack.isEmpty() ? nullptr : find(library, config.soundtrack);
-    if (!config.soundtrack.isEmpty() && !chosen)
-        plan.notes << QStringLiteral("The soundtrack \"%1\" is not in the music folder: the game's own music plays where nothing else is picked.").arg(config.soundtrack);
-
-    QList<int> autoStages;
-    for (const Stage& s : gm->stages) {
-        const QString choice = config.stages.value(s.id, QStringLiteral("auto"));
-        if (choice == QLatin1String("auto") && chosen) autoStages << s.id;
+    QMap<QString, QString> choices;
+    const QString sid = config.setSoundtrack();
+    const int list = config.playlistIndex();
+    if (!sid.isEmpty() && sid != QLatin1String("*") && !find(library, sid)) {
+        plan.notes << QStringLiteral("The soundtrack \"%1\" is not in the music folder: the game's own music plays.").arg(sid);
+    } else if (config.set.startsWith(QLatin1String("preset:"))) {
+        choices = presetChoices(gameId, *find(library, sid));
+    } else if (config.set.startsWith(QLatin1String("shuffle:"))) {
+        choices = shuffleChoices(*gm, library, sid, config.shuffleDraw);
+    } else if (list >= 0) {
+        choices = config.playlists[list];
     }
-    const QMap<int, const Track*> autos = chosen ? autoPicks(*gm, autoStages, *chosen) : QMap<int, const Track*>();
-
-    for (const Stage& s : gm->stages) {
+    for (const Slot& s : gm->places) {
         Pick p;
-        p.stage = s.id;
+        p.slot = s.key;
+        p.stage = s.stage;
+        p.screen = s.screen;
         p.bank = s.bank;
         p.streams = s.streams;
-        const QString choice = config.stages.value(s.id, QStringLiteral("auto"));
-        const Track* t = nullptr;
-        QString sid;
-        if (choice == QLatin1String("own")) {
-            t = nullptr;
-        } else if (choice == QLatin1String("auto")) {
-            t = autos.value(s.id, nullptr);
-            sid = chosen ? chosen->id : QString();
-        } else {
-            t = trackByChoice(choice, library, &sid);
-            if (!t) plan.notes << QStringLiteral("%1: the song \"%2\" is not in the music folder any more; the game's own plays.").arg(s.name, choice);
-        }
-        if (t && s.bank.isEmpty()) {
-            plan.notes << QStringLiteral("%1: its music cannot be changed yet (the bank it plays from is not known); the game's own plays.").arg(s.name);
-            t = nullptr;
-        }
-        if (t) {
-            p.soundtrack = sid;
-            p.file = t->file;
-            p.title = t->title;
-        }
-        plan.stages << p;
-    }
-
-    Pick sel;
-    sel.stage = -1;
-    sel.bank = gm->selectBank;
-    sel.streams = gm->selectStreams;
-    const Track* st = nullptr;
-    QString sid;
-    if (config.select == QLatin1String("own")) {
-        st = nullptr;
-    } else if (config.select == QLatin1String("auto")) {
-        if (chosen) {
-            if (chosen->select >= 0) {
-                st = &chosen->tracks[chosen->select];
-                sid = chosen->id;
+        const QString c = choices.value(s.key);
+        if (!c.isEmpty() && c != QLatin1String("own")) {
+            QString tsid;
+            const Track* t = trackByChoice(c, library, &tsid);
+            if (!t) {
+                plan.notes << QStringLiteral("%1: the song \"%2\" is not in the music folder any more; the game's own plays.").arg(s.name, c);
+            } else if (s.bank.isEmpty()) {
+                if (list >= 0) plan.notes << QStringLiteral("%1 keeps the game's own music: %2").arg(s.name, s.why);
             } else {
-                plan.notes << QStringLiteral("%1 has no select-screen track in your folder, so the game's own select music plays (pick one by hand if you like).").arg(chosen->title);
+                p.soundtrack = tsid;
+                p.file = t->file;
+                p.title = t->title;
             }
         }
-    } else {
-        st = trackByChoice(config.select, library, &sid);
-        if (!st) plan.notes << QStringLiteral("Select screen: the song \"%1\" is not in the music folder any more; the game's own plays.").arg(config.select);
+        plan.picks << p;
     }
-    if (st && (sel.bank.isEmpty() || sel.streams.isEmpty())) {
-        plan.notes << QStringLiteral("The select screen's music cannot be changed yet for this game (its stream is not known); the game's own plays.");
-        st = nullptr;
-    }
-    if (st) {
-        sel.soundtrack = sid;
-        sel.file = st->file;
-        sel.title = st->title;
-    }
-    plan.select = sel;
     return plan;
 }
 
@@ -672,9 +824,15 @@ struct BankEntry {
     int tag = 0, channels = 0, rate = 0;
 };
 
+// Version 1 (Deadly Alliance): 12-byte entries from 0x18, each sound a whole RIFF WAVE. Version 2 (Deception,
+// Armageddon): 24-byte entries from 0x34 (id, offset, size, RIFF header's place in the file header, 40, resident),
+// every sound's 40-byte RIFF header in the file header; the resident block (the sounds the game loads whole at boot,
+// offsets from its start) follows the file header on a 0x800 boundary, [0x14] its size; the streamed sounds after it
 struct Bank {
     int version = 0;
     QList<BankEntry> entries;
+    uint32_t headerEnd = 0;   // where the file header ends (version 2: on its 0x800 boundary)
+    uint32_t residentAt = 0;  // version 2: the resident block's start
 };
 
 bool readFormat(const QByteArray& d, BankEntry& e) {
@@ -690,6 +848,7 @@ bool parseBank(const QByteArray& d, Bank& b, QString* error) {
     b.entries.clear();
     if (b.version == 1) {
         const int n = int(u32(d, 4));
+        b.headerEnd = uint32_t(d.size());
         for (int i = 0; i < n && i < 1024; i++) {
             BankEntry e;
             e.index = i;
@@ -700,18 +859,26 @@ bool parseBank(const QByteArray& d, Bank& b, QString* error) {
             e.hdr = e.off;
             e.data = e.off + 0x30;
             e.dataSize = e.size > 0x30 ? e.size - 0x30 : 0;
-            if (!readFormat(d, e)) {
-                if (error) *error = QStringLiteral("stream %1 has no RIFF header").arg(e.id);
+            if (e.off + qsizetype(e.size) > d.size() || !readFormat(d, e)) {
+                if (error) *error = QStringLiteral("stream %1 is not a sound of the bank").arg(e.id);
                 return false;
             }
+            b.headerEnd = std::min(b.headerEnd, e.off);
             b.entries << e;
         }
         return true;
     }
     if (b.version == 2) {
         const int n = int(u32(d, 4)) - 1;
-        const uint32_t residentAt = u32(d, 0x14) ? 0x800 : 0;
-        for (int i = 0; i < n && i < 1024; i++) {
+        if (n < 0 || n > 4096 || 0x34 + 24 * qsizetype(n) > d.size()) {
+            if (error) *error = QStringLiteral("not a sound bank");
+            return false;
+        }
+        uint32_t end = 0x34 + 24 * uint32_t(n);
+        for (int i = 0; i < n; i++) end = std::max(end, u32(d, 0x34 + 24 * i + 12) + 40);
+        b.headerEnd = (end + 0x7FF) & ~0x7FFu;
+        b.residentAt = u32(d, 0x14) ? b.headerEnd : 0;
+        for (int i = 0; i < n; i++) {
             BankEntry e;
             e.index = i;
             const qsizetype at = 0x34 + 24 * i;
@@ -720,10 +887,10 @@ bool parseBank(const QByteArray& d, Bank& b, QString* error) {
             e.size = u32(d, at + 8);
             e.hdr = u32(d, at + 12);
             e.resident = u32(d, at + 20) != 0;
-            e.data = e.resident ? e.off + residentAt : e.off;
+            e.data = e.resident ? e.off + b.residentAt : e.off;
             e.dataSize = e.size;
-            if (!readFormat(d, e)) {
-                if (error) *error = QStringLiteral("stream %1 has no RIFF header").arg(e.id);
+            if (e.data + qsizetype(e.dataSize) > d.size() || !readFormat(d, e)) {
+                if (error) *error = QStringLiteral("stream %1 is not a sound of the bank").arg(e.id);
                 return false;
             }
             b.entries << e;
@@ -772,87 +939,101 @@ QList<QPair<int, double>> bankStreams(const QByteArray& bank) {
     return out;
 }
 
-bool replaceStreams(const QByteArray& bank, const QList<int>& streams, const QString& track, double maxSeconds,
-                    QByteArray& out, QString* error) {
+bool replaceStreamsMany(const QByteArray& bank, const QList<StreamSong>& songs, double maxSeconds, QByteArray& out,
+                        QString* error, QList<int>* streamedIds) {
     Bank b;
     if (!parseBank(bank, b, error)) return false;
-    QList<BankEntry*> targets;
-    for (int id : streams) {
-        BankEntry* found = nullptr;
-        for (BankEntry& e : b.entries)
-            if (e.id == id) found = &e;
-        if (!found || found->tag != 0x69) {
-            if (error) *error = QStringLiteral("stream %1 is not a music stream of the bank").arg(id);
-            return false;
+    QMap<int, int> songOf;  // entry index -> the song it gets
+    for (int si = 0; si < songs.size(); si++) {
+        for (int id : songs[si].streams) {
+            bool found = false;
+            for (const BankEntry& e : b.entries) {
+                if (id != -1 && e.id != id) continue;
+                if (e.tag != 0x69) {
+                    if (id == -1) continue;  // every music stream: a sound of another format stays
+                    break;
+                }
+                found = true;
+                if (songOf.contains(e.index) && songOf.value(e.index) != si) {
+                    if (error) *error = QStringLiteral("stream %1 is given two songs").arg(e.id);
+                    return false;
+                }
+                songOf.insert(e.index, si);
+            }
+            if (!found) {
+                if (error) *error = QStringLiteral("stream %1 is not a music stream of the bank").arg(id);
+                return false;
+            }
         }
-        targets << found;
     }
-    int rate = 0, channels = 0;
-    QVector<int16_t> pcm;
-    if (!decodeAudio(track, rate, channels, pcm, error, maxSeconds)) return false;
-    QMap<QPair<int, int>, QByteArray> encoded;  // (channels, rate) -> blocks
-    for (BankEntry* e : targets) {
-        const QPair<int, int> key(e->channels, e->rate);
-        if (encoded.contains(key)) continue;
-        const QVector<int16_t> conv = convertPcm(pcm, channels, rate, e->channels, e->rate);
-        encoded.insert(key, encodeXboxAdpcm(conv, e->channels));
+    // each song once per format its streams have
+    QMap<QPair<int, QPair<int, int>>, QByteArray> blocks;  // (song, (channels, rate)) -> ADPCM blocks
+    for (int si = 0; si < songs.size(); si++) {
+        QSet<QPair<int, int>> formats;
+        for (const BankEntry& e : b.entries)
+            if (songOf.value(e.index, -1) == si) formats.insert(qMakePair(e.channels, e.rate));
+        if (formats.isEmpty()) continue;
+        int rate = 0, channels = 0;
+        QVector<int16_t> pcm;
+        if (!decodeAudio(songs[si].file, rate, channels, pcm, error, maxSeconds)) return false;
+        for (const auto& f : formats)
+            blocks.insert(qMakePair(si, f), encodeXboxAdpcm(convertPcm(pcm, channels, rate, f.first, f.second), f.first));
     }
     const qsizetype align = 0x800;
-    qsizetype headerEnd = 0;
-    if (b.version == 1) {
-        headerEnd = bank.size();
-        for (const BankEntry& e : b.entries) headerEnd = std::min<qsizetype>(headerEnd, e.off);
-    } else {
-        headerEnd = 0x800;
-    }
-    out = bank.left(headerEnd);
+    out = bank.left(b.headerEnd);
     if (b.version == 2) {
-        // the resident block (the sounds kept in memory, their offsets from its start) laid out again in case one of
-        // them is replaced (Armageddon's select-screen music is one); its size at [0x14] follows
+        // the resident sounds that stay, laid out again in the resident block; one replaced becomes a streamed sound
+        // (the game has no room for a longer one: it would not load it at all)
         qsizetype rpos = 0;
-        bool any = false;
         for (BankEntry& e : b.entries) {
             if (!e.resident) continue;
-            any = true;
-            rpos = (rpos + 3) / 4 * 4;
-            QByteArray blob;
-            if (targets.contains(&e)) {
-                blob = encoded[qMakePair(e.channels, e.rate)];
-                const QByteArray h = xboxHeader(e.channels, e.rate, uint32_t(blob.size()), false);
-                std::memcpy(out.data() + e.hdr, h.constData(), size_t(h.size()));
-                e.size = uint32_t(blob.size());
-            } else {
-                blob = bank.mid(e.data, e.dataSize);
+            if (songOf.contains(e.index)) {
+                e.resident = false;
+                put32(out, 0x34 + 24 * e.index + 20, 0);
+                if (streamedIds) *streamedIds << e.id;
+                continue;
             }
-            out.append(QByteArray(int(0x800 + rpos - out.size()), '\0'));
-            out.append(blob);
+            rpos = (rpos + 3) / 4 * 4;
+            out.append(QByteArray(int(b.headerEnd + rpos - out.size()), '\0'));
+            out.append(bank.mid(e.data, e.dataSize));
             e.off = uint32_t(rpos);
-            rpos += blob.size();
+            rpos += e.dataSize;
         }
-        if (any) put32(out, 0x14, uint32_t(out.size() - 0x800));
+        const qsizetype rsize = rpos ? (rpos + 0x7FF) / 0x800 * 0x800 : 0;
+        out.append(QByteArray(int(b.headerEnd + rsize - out.size()), '\0'));
+        put32(out, 0x14, uint32_t(rsize));
     }
+    QMap<QPair<int, QPair<int, int>>, QPair<uint32_t, uint32_t>> placed;  // a song's blocks already in the file
     qsizetype pos = out.size();
     for (BankEntry& e : b.entries) {
         if (e.resident) continue;
-        pos = (pos + align - 1) / align * align;
-        out.append(QByteArray(int(pos - out.size()), '\0'));
-        const bool target = targets.contains(&e);
-        QByteArray blob;
-        if (target) {
-            const QByteArray& blocks = encoded[qMakePair(e.channels, e.rate)];
-            if (b.version == 1) {
-                blob = xboxHeader(e.channels, e.rate, uint32_t(blocks.size()), true) + blocks;
-            } else {
-                blob = blocks;
-                const QByteArray h = xboxHeader(e.channels, e.rate, uint32_t(blocks.size()), false);
+        const int si = songOf.value(e.index, -1);
+        if (si >= 0) {
+            const auto key = qMakePair(si, qMakePair(e.channels, e.rate));
+            const QByteArray& data = blocks[key];
+            if (b.version == 2) {
+                const QByteArray h = xboxHeader(e.channels, e.rate, uint32_t(data.size()), false);
                 std::memcpy(out.data() + e.hdr, h.constData(), size_t(h.size()));
             }
+            if (placed.contains(key)) {  // the streams of one song share one copy of it
+                e.off = placed[key].first;
+                e.size = placed[key].second;
+                continue;
+            }
+            pos = (pos + align - 1) / align * align;
+            out.append(QByteArray(int(pos - out.size()), '\0'));
+            const QByteArray blob = b.version == 1 ? xboxHeader(e.channels, e.rate, uint32_t(data.size()), true) + data : data;
+            e.off = uint32_t(pos);
             e.size = uint32_t(blob.size());
+            placed.insert(key, qMakePair(e.off, e.size));
+            out.append(blob);
         } else {
-            blob = bank.mid(e.off, e.size);
+            pos = (pos + align - 1) / align * align;
+            out.append(QByteArray(int(pos - out.size()), '\0'));
+            const QByteArray blob = b.version == 1 ? bank.mid(e.off, e.size) : bank.mid(e.data, e.dataSize);
+            e.off = uint32_t(pos);
+            out.append(blob);
         }
-        e.off = uint32_t(pos);
-        out.append(blob);
         pos = out.size();
     }
     for (const BankEntry& e : b.entries) {
@@ -864,20 +1045,36 @@ bool replaceStreams(const QByteArray& bank, const QList<int>& streams, const QSt
     return true;
 }
 
+QByteArray setStreamed(const QByteArray& mbx, const QList<int>& ids) {
+    // the descriptor's sounds: 36-byte records from [0x10], their count at [8]; +8 the id, +32 1 when streamed
+    QByteArray out = mbx;
+    const uint32_t at = u32(out, 0x10);
+    const int n = u16(out, 8);
+    for (int i = 0; i < n; i++) {
+        const qsizetype rec = at + 36 * qsizetype(i);
+        if (rec + 36 > out.size()) break;
+        if (ids.contains(int(u32(out, rec + 8) & 0xFFFF))) put32(out, rec + 32, 1);
+    }
+    return out;
+}
+
 // --- applying a plan ------------------------------------------------------------------------------------------
 
 namespace {
 
-QString cacheKey(const Pick& p, const QList<int>& streams) {
-    const QFileInfo f(p.file);
+QString cacheKey(const QString& bank, const QList<StreamSong>& songs) {
     QCryptographicHash h(QCryptographicHash::Sha1);
-    h.addData(QDir::toNativeSeparators(f.absoluteFilePath()).toLower().toUtf8());
-    h.addData(QByteArray::number(f.size()));
-    h.addData(QByteArray::number(f.lastModified().toSecsSinceEpoch()));
-    h.addData(p.bank.toLower().toUtf8());
-    QStringList ids;
-    for (int s : streams) ids << QString::number(s);
-    h.addData(ids.join(QLatin1Char(',')).toUtf8());
+    h.addData(bank.toLower().toUtf8());
+    for (const StreamSong& s : songs) {
+        const QFileInfo f(s.file);
+        h.addData(QDir::toNativeSeparators(f.absoluteFilePath()).toLower().toUtf8());
+        h.addData(QByteArray::number(f.size()));
+        h.addData(QByteArray::number(f.lastModified().toSecsSinceEpoch()));
+        QStringList ids;
+        for (int id : s.streams) ids << QString::number(id);
+        h.addData(ids.join(QLatin1Char(',')).toUtf8());
+        h.addData(QByteArrayLiteral("|"));
+    }
     h.addData(QByteArray::number(kMaxSongSeconds));
     h.addData(kCacheVersion);
     return QString::fromLatin1(h.result().toHex().left(16));
@@ -898,6 +1095,53 @@ bool writeWhole(const QString& path, const QByteArray& data, QString* error) {
     return true;
 }
 
+// the cache's folders the games' maps name now
+QSet<QString> folderInMaps() {
+    QSet<QString> out;
+    const QDir dir(paths::dataDir());
+    for (const QFileInfo& m : dir.entryInfoList({QStringLiteral("jukebox-*.txt")}, QDir::Files)) {
+        QFile f(m.absoluteFilePath());
+        if (!f.open(QIODevice::ReadOnly)) continue;
+        for (const QByteArray& raw : f.readAll().split('\n')) {
+            const QStringList w = QString::fromUtf8(raw).trimmed().split(QLatin1Char(' '), Qt::SkipEmptyParts);
+            if (w.size() < 3 || w[0].startsWith(QLatin1Char('#'))) continue;
+            const int from = w[0] == QLatin1String("arena") ? 3 : 2;
+            if (w.size() > from) out.insert(QDir::cleanPath(QDir::fromNativeSeparators(w.mid(from).join(QLatin1Char(' ')))).toLower());
+        }
+    }
+    return out;
+}
+
+// the cache kept under its budget: the folders no map names go, the longest unused first
+void trimCache(const QString& cacheTop) {
+    const QSet<QString> keep = folderInMaps();
+    struct Folder {
+        QString path;
+        qint64 bytes = 0;
+        QDateTime used;
+    };
+    QList<Folder> folders;
+    qint64 total = 0;
+    const QDir top(cacheTop);
+    for (const QFileInfo& game : top.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot))
+        for (const QFileInfo& bank : QDir(game.absoluteFilePath()).entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot))
+            for (const QFileInfo& copy : QDir(bank.absoluteFilePath()).entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot)) {
+                Folder f;
+                f.path = copy.absoluteFilePath();
+                for (const QFileInfo& file : QDir(f.path).entryInfoList(QDir::Files)) {
+                    f.bytes += file.size();
+                    if (!f.used.isValid() || file.lastModified() > f.used) f.used = file.lastModified();
+                }
+                total += f.bytes;
+                if (!keep.contains(QDir::cleanPath(f.path).toLower())) folders << f;
+            }
+    std::sort(folders.begin(), folders.end(), [](const Folder& a, const Folder& b) { return a.used < b.used; });
+    for (const Folder& f : folders) {
+        if (total <= kCacheBudget) break;
+        if (QDir(f.path).removeRecursively()) total -= f.bytes;  // one a game has open stays (Windows keeps it)
+    }
+}
+
 }  // namespace
 
 Applier::Applier(QObject* parent) : QObject(parent) {}
@@ -907,69 +1151,128 @@ bool Applier::apply(const QString& gameId, const Plan& plan) {
     if (running_) return false;
     running_ = true;
     const QString banksDir = QDir(cfg::gameFolder(gameId)).filePath(QStringLiteral("assets/sndsxbox"));
-    const QString cacheRoot = QDir(libraryFolder()).filePath(QStringLiteral("cache/%1").arg(gameId));
+    const QString cacheTop = QDir(libraryFolder()).filePath(QStringLiteral("cache"));
+    const QString cacheRoot = QDir(cacheTop).filePath(gameId);
     const QString map = mapFile(gameId);
     QPointer<Applier> self(this);
-    QThread* worker = QThread::create([self, gameId, plan, banksDir, cacheRoot, map] {
-        QList<Pick> picks = plan.stages;
-        picks << plan.select;
+    QThread* worker = QThread::create([self, gameId, plan, banksDir, cacheTop, cacheRoot, map] {
         QStringList mapLines;
         mapLines << QStringLiteral("# MK3D jukebox for %1, written by the launcher; the game reads it again when it changes").arg(gameId);
-        int total = 0;
-        for (const Pick& p : picks)
-            if (!p.file.isEmpty()) total++;
-        int done = 0;
         QString failure;
-        QMap<QString, QString> made;  // "<bank>/<key>" -> folder, so two stages sharing a song and a bank share a folder
-        for (const Pick& p : picks) {
+        // a bank is made once with every song that goes into it: stages and screens that share one bank each get
+        // their own streams of the one copy; picks that would give a stream two songs (stages whose music is the
+        // same bank: Deadly Alliance's shared tunes, Armageddon's jukebox bank, all of its streams) get a copy each
+        struct Job {
+            QString bank;
+            QList<StreamSong> songs;
+            QStringList titles;
+            QList<const Pick*> picks;
+            QSet<int> streams;
+            bool all = false;
+        };
+        QList<Job> jobs;
+        int total = 0;
+        for (const Pick& p : plan.picks) {
             if (p.file.isEmpty() || p.bank.isEmpty()) continue;
-            if (self) emit self->progress(done, total, p.stage < 0 ? QStringLiteral("select screen: %1").arg(p.title) : p.title);
+            QList<int> streams = p.streams;
+            if (streams.isEmpty()) {
+                QFile in(QDir(banksDir).filePath(p.bank + QStringLiteral(".msx")));
+                if (in.open(QIODevice::ReadOnly))
+                    for (const auto& [id, seconds] : bankStreams(in.readAll()))
+                        if (seconds >= 12) streams << id;
+            }
+            if (streams.isEmpty()) {
+                failure = QStringLiteral("%1 has no music stream to replace (is the game built?).").arg(p.bank);
+                break;
+            }
+            const bool all = streams.contains(-1);
+            Job* job = nullptr;
+            bool present = false;
+            for (Job& j : jobs) {
+                if (j.bank != p.bank) continue;
+                bool overlap = all || j.all;
+                for (int s : streams)
+                    if (j.streams.contains(s)) overlap = true;
+                for (const StreamSong& s : j.songs)  // the same song on the same streams: that copy serves
+                    if (s.file == p.file && s.streams == streams) present = true;
+                if (present || !overlap) {
+                    job = &j;
+                    break;
+                }
+            }
+            if (!job) {
+                jobs << Job{p.bank, {}, {}, {}, {}, false};
+                job = &jobs.last();
+            }
+            if (!present) {
+                job->songs << StreamSong{streams, p.file};
+                job->titles << p.title;
+                for (int s : streams) job->streams.insert(s);
+                job->all = job->all || all;
+                total++;
+            }
+            job->picks << &p;
+        }
+        int done = 0;
+        QSet<QString> lines;
+        for (const Job& j : jobs) {
+            if (!failure.isEmpty()) break;
+            if (self) {
+                QString what = j.titles.size() == 1 ? j.titles.first() : QStringLiteral("%1 songs for %2").arg(j.titles.size()).arg(j.bank);
+                emit self->progress(done, total, what);
+            }
             QString error;
-            const QString original = QDir(banksDir).filePath(p.bank + QStringLiteral(".msx"));
+            const QString original = QDir(banksDir).filePath(j.bank + QStringLiteral(".msx"));
             QFile in(original);
             if (!in.open(QIODevice::ReadOnly)) {
                 failure = QStringLiteral("The game's sound bank %1 is not there (is the game built?).").arg(QDir::toNativeSeparators(original));
                 break;
             }
             const QByteArray bank = in.readAll();
-            QList<int> streams = p.streams;
-            if (streams.isEmpty()) {
-                const GameMusic* gm = gameMusic(gameId);
-                const double minSeconds = 12;
-                for (const auto& [id, seconds] : bankStreams(bank))
-                    if (seconds >= minSeconds) streams << id;
-                (void)gm;
-            }
-            if (streams.isEmpty()) {
-                failure = QStringLiteral("%1 has no music stream to replace.").arg(p.bank);
-                break;
-            }
-            const QString key = cacheKey(p, streams);
-            const QString folder = QDir(cacheRoot).filePath(p.bank + QLatin1Char('/') + key);
-            const QString target = QDir(folder).filePath(p.bank + QStringLiteral(".msx"));
+            const QString key = cacheKey(j.bank, j.songs);
+            const QString folder = QDir(cacheRoot).filePath(j.bank + QLatin1Char('/') + key);
+            const QString target = QDir(folder).filePath(j.bank + QStringLiteral(".msx"));
+            const QString note = QDir(folder).filePath(QStringLiteral("track.txt"));
             if (!QFileInfo::exists(target)) {
                 QDir().mkpath(folder);
                 QByteArray out;
-                if (!replaceStreams(bank, streams, p.file, kMaxSongSeconds, out, &error)) {
-                    failure = QStringLiteral("%1: %2").arg(p.title, error);
+                QList<int> streamed;
+                if (!replaceStreamsMany(bank, j.songs, kMaxSongSeconds, out, &error, &streamed)) {
+                    failure = QStringLiteral("%1: %2").arg(j.titles.join(QStringLiteral(", ")), error);
+                    break;
+                }
+                // the descriptor goes with it (sounds made streamed say so there)
+                QFile mbxIn(QDir(banksDir).filePath(j.bank + QStringLiteral(".mbx")));
+                QByteArray mbx = mbxIn.open(QIODevice::ReadOnly) ? mbxIn.readAll() : QByteArray();
+                if (!streamed.isEmpty()) mbx = setStreamed(mbx, streamed);
+                if (!mbx.isEmpty() && !writeWhole(QDir(folder).filePath(j.bank + QStringLiteral(".mbx")), mbx, &error)) {
+                    failure = error;
                     break;
                 }
                 if (!writeWhole(target, out, &error)) {
                     failure = error;
                     break;
                 }
-                const QString mbx = QDir(banksDir).filePath(p.bank + QStringLiteral(".mbx"));
-                QFile::remove(QDir(folder).filePath(p.bank + QStringLiteral(".mbx")));
-                QFile::copy(mbx, QDir(folder).filePath(p.bank + QStringLiteral(".mbx")));
-                QFile note(QDir(folder).filePath(QStringLiteral("track.txt")));
-                if (note.open(QIODevice::WriteOnly | QIODevice::Truncate))
-                    note.write((QDir::toNativeSeparators(p.file) + QStringLiteral("\r\n") + p.title + QStringLiteral("\r\n")).toUtf8());
             }
-            made.insert(p.bank + QLatin1Char('/') + key, folder);
+            QFile n(note);  // written each time: its date is when the copy was last used (the cache trims by it)
+            if (n.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                QString text;
+                for (int i = 0; i < j.songs.size(); i++) {
+                    QStringList ids;
+                    for (int id : j.songs[i].streams) ids << (id < 0 ? QStringLiteral("all") : QString::number(id));
+                    text += QDir::toNativeSeparators(j.songs[i].file) + QStringLiteral("\r\n  ") + j.titles[i] +
+                            QStringLiteral(" (streams %1)\r\n").arg(ids.join(QLatin1Char(',')));
+                }
+                n.write(text.toUtf8());
+            }
             const QString nativeFolder = QDir::toNativeSeparators(folder);
-            if (p.stage < 0) mapLines << QStringLiteral("select %1 %2").arg(p.bank, nativeFolder);
-            else mapLines << QStringLiteral("arena %1 %2 %3").arg(p.stage).arg(p.bank, nativeFolder);
-            done++;
+            for (const Pick* p : j.picks) {
+                const QString line = p->stage >= 0 ? QStringLiteral("arena %1 %2 %3").arg(p->stage).arg(j.bank, nativeFolder)
+                                                   : QStringLiteral("select %1 %2").arg(j.bank, nativeFolder);
+                if (!lines.contains(line)) mapLines << line;
+                lines.insert(line);
+            }
+            done += j.songs.size();
         }
         bool ok = failure.isEmpty();
         QString message;
@@ -979,10 +1282,11 @@ bool Applier::apply(const QString& gameId, const Plan& plan) {
                 ok = false;
                 message = QStringLiteral("Could not write the jukebox map: %1").arg(why);
             } else {
-                message = total ? QStringLiteral("%1 song%2 ready. A stage plays its song from the next fight on; the select "
-                                                 "screen from the next time the game starts.")
+                message = total ? QStringLiteral("%1 song%2 ready. A stage plays its song from the next fight on, a menu "
+                                                 "from the next time it comes up.")
                                       .arg(total).arg(total == 1 ? QString() : QStringLiteral("s"))
                                 : QStringLiteral("The game plays its own music.");
+                trimCache(cacheTop);
             }
         } else {
             message = failure;
@@ -998,6 +1302,49 @@ bool Applier::apply(const QString& gameId, const Plan& plan) {
     connect(worker, &QThread::finished, worker, &QObject::deleteLater);
     worker->start();
     return true;
+}
+
+// --- the launcher's one applier ---------------------------------------------------------------------------------
+
+Service& Service::instance() {
+    static Service* s = new Service;
+    return *s;
+}
+
+Service::Service() {
+    connect(&applier_, &Applier::progress, this, [this](int done, int total, const QString& what) {
+        emit progress(current_, done, total, what);
+    });
+    connect(&applier_, &Applier::finished, this, [this](bool ok, const QString& message) {
+        const QString game = current_;
+        current_.clear();
+        emit finished(game, ok, message);
+        next();
+    });
+}
+
+void Service::apply(const QString& gameId) {
+    if (!queue_.contains(gameId)) queue_ << gameId;
+    if (!applier_.running()) next();
+}
+
+void Service::next() {
+    while (!queue_.isEmpty() && !applier_.running()) {
+        const QString game = queue_.takeFirst();
+        const Plan plan = resolve(game, loadConfig(game), scanLibrary(libraryFolder()));
+        current_ = game;
+        if (applier_.apply(game, plan)) return;
+        current_.clear();
+    }
+}
+
+void Service::gameStarting(const QString& gameId) {
+    Config c = loadConfig(gameId);
+    if (!c.set.startsWith(QLatin1String("shuffle:"))) return;
+    c.shuffleDraw = QRandomGenerator::global()->generate() | 1u;
+    saveConfig(gameId, c);
+    emit configChanged(gameId);
+    apply(gameId);
 }
 
 // --- the preview player -------------------------------------------------------------------------------------
@@ -1059,6 +1406,7 @@ Preview::~Preview() {
 }
 
 bool Preview::playing() const { return impl_->queued(); }
+QString Preview::file() const { return impl_->file; }
 
 void Preview::stop() {
     impl_->poll.stop();

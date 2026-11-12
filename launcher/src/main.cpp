@@ -20,17 +20,22 @@
 #include "WinUtil.h"
 
 #ifdef MK3D_JUKEBOX
-// --jukebox <game>: the plan from the saved settings, the banks made, the map written; what happened on stdout
-static int jukeboxCommand(const QString& game) {
+// --jukebox <game> [--jukebox-set <set>]: the plan from the saved settings (the set given first, when given), the banks
+// made, the map written; what happened on stdout
+static int jukeboxCommand(const QString& game, const QString& set) {
     const QList<jukebox::Soundtrack> library = jukebox::scanLibrary(jukebox::libraryFolder());
-    const jukebox::Config config = jukebox::loadConfig(game);
+    jukebox::Config config = jukebox::loadConfig(game);
+    if (!set.isEmpty()) {
+        config.set = set;
+        jukebox::saveConfig(game, config);
+    }
     const jukebox::Plan plan = jukebox::resolve(game, config, library);
     QTextStream out(stdout);
     out << "music folder " << QDir::toNativeSeparators(jukebox::libraryFolder()) << ": " << library.size() << " soundtracks\n";
-    out << "soundtrack " << (config.soundtrack.isEmpty() ? QStringLiteral("(the game's own)") : config.soundtrack) << "\n";
-    out << "select screen: " << (plan.select.file.isEmpty() ? QStringLiteral("the game's own") : plan.select.title) << "\n";
-    for (const jukebox::Pick& p : plan.stages)
-        out << "arena " << p.stage << " (" << p.bank << "): " << (p.file.isEmpty() ? QStringLiteral("the game's own") : p.soundtrack + ": " + p.title) << "\n";
+    out << "set " << config.set << ": " << jukebox::describeSet(config.set, library) << "\n";
+    for (const jukebox::Pick& p : plan.picks)
+        out << p.slot << " (" << (p.bank.isEmpty() ? QStringLiteral("no bank") : p.bank) << "): "
+            << (p.file.isEmpty() ? QStringLiteral("the game's own") : p.soundtrack + ": " + p.title) << "\n";
     for (const QString& n : plan.notes) out << "note: " << n << "\n";
     out.flush();
     jukebox::Applier applier;
@@ -138,13 +143,18 @@ int main(int argc, char* argv[]) {
                                         QStringLiteral("Development: prepare the jukebox's banks for this game from the saved "
                                                        "settings, print the plan, and exit."),
                                         QStringLiteral("game"));
+    const QCommandLineOption jukeboxSetOpt(QStringLiteral("jukebox-set"),
+                                           QStringLiteral("Development: with --jukebox, first set the game's music set (own, "
+                                                          "preset:<soundtrack>, shuffle:<soundtrack>, shuffle:*, playlist:<n>)."),
+                                           QStringLiteral("set"));
     const QCommandLineOption autoUpdateOpt(QStringLiteral("auto-update"),
                                            QStringLiteral("Development: install an update offered at once, without asking."));
     for (const auto* o : {&configOpt, &serverOpt, &fpOpt, &userOpt, &pwEnvOpt, &regOpt, &queueOpt, &gameOpt, &modeOpt,
                           &charOpt, &pageOpt, &acceptOpt, &cancelOpt, &localTestOpt, &extractOpt, &lobbyOpt, &lobbyNameOpt,
                           &lobbyMatchesOpt, &leaveLobbyOpt, &upnpProbeOpt, &rematchesOpt, &rematchChoiceOpt,
                           &leaveSeriesOpt, &soloOpt,
-                          &practiceOpt, &searchAgainOpt, &deathTrapsOpt, &updatedOpt, &autoUpdateOpt, &jukeboxOpt})
+                          &practiceOpt, &searchAgainOpt, &deathTrapsOpt, &updatedOpt, &autoUpdateOpt, &jukeboxOpt,
+                          &jukeboxSetOpt})
         cli.addOption(*o);
     cli.process(app);
 
@@ -168,7 +178,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 #ifdef MK3D_JUKEBOX
-    if (cli.isSet(jukeboxOpt)) return jukeboxCommand(cli.value(jukeboxOpt));
+    if (cli.isSet(jukeboxOpt)) return jukeboxCommand(cli.value(jukeboxOpt), cli.value(jukeboxSetOpt));
 #endif
     if (QSslSocket::availableBackends().contains(QStringLiteral("schannel")))
         QSslSocket::setActiveBackend(QStringLiteral("schannel"));

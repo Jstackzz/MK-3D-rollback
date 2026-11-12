@@ -1,12 +1,7 @@
 {
-  "_comment": "The jukebox's view of the three games (launcher/src/Jukebox.cpp): each stage's arena id as the game's own jukebox adapter reports it, the sound bank a fight there loads (the music is the bank's long streams; 'streams' names them where the long ones are not all music), and keywords for the automatic song picks. The select screen's music bank and stream per game. Found 2026-11-11 from the games' arena tables and from runs that log 'jukebox: bank X opened, arena N'.",
+  "_comment": "The jukebox's table (launcher Jukebox.cpp): each game's stages by the game's own arena id and its menu screens, with the sound bank their music is in and the streams of it (empty: every stream of 12 s or more; \"all\": every stream); a stage or screen with no bank keeps the game's own music. Made from mapping runs (tools/py/jukebox_map.py) and traces of what each game reads (XBE_FILE_TRACE).",
   "games": {
     "mkda": {
-      "select_bank": "shell",
-      "select_streams": [
-        27
-      ],
-      "min_stream_seconds": 12,
       "stages": [
         {
           "id": 0,
@@ -216,14 +211,27 @@
             "pit"
           ]
         }
+      ],
+      "screens": [
+        {
+          "id": "menu",
+          "name": "Main menu",
+          "bank": "shell",
+          "streams": [
+            1
+          ]
+        },
+        {
+          "id": "select",
+          "name": "Select screen",
+          "bank": "shell",
+          "streams": [
+            27
+          ]
+        }
       ]
     },
     "mkd": {
-      "select_bank": "shell_music",
-      "select_streams": [
-        2
-      ],
-      "min_stream_seconds": 12,
       "stages": [
         {
           "id": 0,
@@ -473,75 +481,98 @@
             "sea",
             "shang tsung",
             "water"
+          ],
+          "why": "its music is twelve short pieces the game strings together"
+        }
+      ],
+      "screens": [
+        {
+          "id": "menu",
+          "name": "Main menu",
+          "bank": "shell_music",
+          "streams": [
+            9,
+            10
+          ]
+        },
+        {
+          "id": "select",
+          "name": "Select screen",
+          "bank": "shell_music",
+          "streams": [
+            1,
+            2
           ]
         }
       ]
     },
     "mka": {
-      "select_bank": "shell_music",
-      "select_streams": [],
-      "min_stream_seconds": 12,
       "stages": [
         {
           "id": 0,
           "name": "Subway",
-          "bank": "",
+          "bank": "shell_jukebox",
           "tags": [
             "subway",
             "train",
             "street",
             "city"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 1,
           "name": "Tekunin Prison",
-          "bank": "",
+          "bank": "shell_jukebox",
           "tags": [
             "prison",
             "tekunin",
             "dungeon",
             "dark",
             "base"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 2,
           "name": "Armory",
-          "bank": "",
+          "bank": "shell_jukebox",
           "tags": [
             "armory",
             "weapon",
             "arsenal"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 3,
           "name": "Bell Tower",
-          "bank": "",
+          "bank": "shell_jukebox",
           "tags": [
             "bell tower",
             "tower",
             "rooftop",
             "bell"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 5,
           "name": "Goro's Lair",
-          "bank": "",
+          "bank": "shell_jukebox",
           "tags": [
             "goro",
             "lair",
             "cave",
             "moloch",
             "pit"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 6,
           "name": "Battle Arena",
-          "bank": "",
+          "bank": "shell_jukebox",
           "tags": [
             "arena",
             "battle",
@@ -549,72 +580,78 @@
             "drum",
             "kahn",
             "elder gods"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 7,
           "name": "Wastelands",
-          "bank": "",
+          "bank": "shell_jukebox",
           "tags": [
             "wastelands",
             "wasteland",
             "desert",
             "ruins",
             "sand"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 8,
           "name": "Reptile's Lair",
-          "bank": "",
+          "bank": "shell_jukebox",
           "tags": [
             "reptile",
             "lair",
             "snake",
             "cave",
             "jungle"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 9,
           "name": "Hell",
-          "bank": "",
+          "bank": "shell_jukebox",
           "tags": [
             "hell",
             "netherrealm",
             "fire",
             "lava",
             "apokolips"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 10,
           "name": "Lumber Mill",
-          "bank": "",
+          "bank": "shell_jukebox",
           "tags": [
             "lumber",
             "mill",
             "forest",
             "woods",
             "saw"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 11,
           "name": "Pyramid of Argus",
-          "bank": "",
+          "bank": "shell_jukebox",
           "tags": [
             "pyramid",
             "summit",
             "argus",
             "sky",
             "portal"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 12,
           "name": "Sky Temple",
-          "bank": "",
+          "bank": "shell_jukebox",
           "tags": [
             "sky temple",
             "temple",
@@ -622,36 +659,39 @@
             "jinsei",
             "raiden",
             "lung hai"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 13,
           "name": "Falling Cliffs",
-          "bank": "",
+          "bank": "shell_jukebox",
           "tags": [
             "cliffs",
             "falling",
             "pit",
             "bridge",
             "kollapsing"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 14,
           "name": "Hell's Foundry",
-          "bank": "",
+          "bank": "shell_jukebox",
           "tags": [
             "hell",
             "foundry",
             "fire",
             "lava",
             "netherrealm"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 15,
           "name": "Nethership Interior",
-          "bank": "",
+          "bank": "shell_jukebox",
           "tags": [
             "nethership",
             "ship",
@@ -659,12 +699,13 @@
             "sea",
             "netherrealm",
             "warship"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 16,
           "name": "Meteor Storm",
-          "bank": "",
+          "bank": "shell_jukebox",
           "tags": [
             "meteor",
             "storm",
@@ -672,71 +713,77 @@
             "space",
             "station",
             "rain"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 17,
           "name": "Fire Well",
-          "bank": "",
+          "bank": "shell_jukebox",
           "tags": [
             "fire",
             "well",
             "lava",
             "fire well",
             "shrine"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 18,
           "name": "Soul Chamber",
-          "bank": "",
+          "bank": "shell_jukebox",
           "tags": [
             "soul chamber",
             "chamber",
             "soul",
             "flesh pits"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 19,
           "name": "Evil Tower",
-          "bank": "",
+          "bank": "shell_jukebox",
           "tags": [
             "tower",
             "evil",
             "evil tower",
             "portal",
             "kahn"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 20,
           "name": "Outworld Spire",
-          "bank": "",
+          "bank": "shell_jukebox",
           "tags": [
             "spire",
             "outworld",
             "tower",
             "throne",
             "inner spire"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 26,
           "name": "Botan Jungle",
-          "bank": "",
+          "bank": "shell_jukebox",
           "tags": [
             "jungle",
             "kuatan jungle",
             "forest",
             "living forest",
             "woods"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 27,
           "name": "Arctika",
-          "bank": "",
+          "bank": "shell_jukebox",
           "tags": [
             "arctika",
             "ice",
@@ -744,72 +791,78 @@
             "lin kuei",
             "temple",
             "mountain"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 28,
           "name": "Lin Kuei Palace",
-          "bank": "",
+          "bank": "shell_jukebox",
           "tags": [
             "lin kuei",
             "palace",
             "ice",
             "temple",
             "fortress"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 30,
           "name": "Netherrealm Cliffs",
-          "bank": "",
+          "bank": "shell_jukebox",
           "tags": [
             "netherrealm",
             "cliffs",
             "hell",
             "fire",
             "lava"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 31,
           "name": "Shinnok's Spire",
-          "bank": "",
+          "bank": "shell_jukebox",
           "tags": [
             "spire",
             "shinnok",
             "netherrealm",
             "tower",
             "throne"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 32,
           "name": "Shinnok's Throne Room",
-          "bank": "",
+          "bank": "shell_jukebox",
           "tags": [
             "throne",
             "shinnok",
             "netherrealm",
             "palace",
             "hall"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 33,
           "name": "Reiko's War Room",
-          "bank": "",
+          "bank": "shell_jukebox",
           "tags": [
             "war room",
             "reiko",
             "map",
             "base",
             "special forces"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 34,
           "name": "Shao Kahn's Throne Room",
-          "bank": "",
+          "bank": "shell_jukebox",
           "tags": [
             "throne",
             "shao kahn",
@@ -817,24 +870,26 @@
             "palace",
             "great hall",
             "kuatan"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 37,
           "name": "Shao Kahn's Balcony",
-          "bank": "",
+          "bank": "shell_jukebox",
           "tags": [
             "balcony",
             "shao kahn",
             "kahn",
             "coliseum",
             "arena"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 38,
           "name": "Scorpion's Lair",
-          "bank": "",
+          "bank": "shell_jukebox",
           "tags": [
             "scorpion",
             "lair",
@@ -842,58 +897,80 @@
             "fire",
             "netherrealm",
             "pit"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 39,
           "name": "Edenian Ruins",
-          "bank": "",
+          "bank": "shell_jukebox",
           "tags": [
             "ruins",
             "edenia",
             "edenian",
             "temple",
             "garden"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 40,
           "name": "Krimson Forest",
-          "bank": "",
+          "bank": "shell_jukebox",
           "tags": [
             "forest",
             "krimson",
             "living forest",
             "woods",
             "dead woods"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 41,
           "name": "Red Dragon Caverns",
-          "bank": "",
+          "bank": "shell_jukebox",
           "tags": [
             "cavern",
             "cave",
             "red dragon",
             "lair",
             "mines"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 42,
           "name": "Chamber of Daegon",
-          "bank": "",
+          "bank": "shell_jukebox",
           "tags": [
             "chamber",
             "daegon",
             "red dragon",
             "temple",
             "cave"
-          ]
+          ],
+          "streams": "all"
         }
       ],
-      "_select_note": "shell_music stream 5 is the select screen's music, but it is a resident sound: replacing it with the resident block rebuilt left the select screen silent (the .mbx must describe residents too), so it stays the game's own for now"
+      "screens": [
+        {
+          "id": "menu",
+          "name": "Main menu",
+          "bank": "shell",
+          "streams": [
+            25
+          ]
+        },
+        {
+          "id": "select",
+          "name": "Select screen",
+          "bank": "shell_music",
+          "streams": [
+            5
+          ]
+        }
+      ]
     }
   }
 }

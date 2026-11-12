@@ -213,6 +213,9 @@ bool GameProcess::start(const QString& exe, QString* error, bool netMode) {
     env.insert(QStringLiteral("XBE_CONTROLS"), QDir::toNativeSeparators(controls::file()));  // read again when it changes
     // the jukebox's map (Jukebox.h): which sound banks to open instead of the game's own; read again when it changes
     env.insert(QStringLiteral("MK3D_JUKEBOX"), QDir::toNativeSeparators(jukebox::mapFile(gameId_)));
+#ifdef MK3D_JUKEBOX
+    jukebox::Service::instance().gameStarting(gameId_);  // a shuffle draws new songs for this time
+#endif
     for (auto it = extraEnv_.cbegin(); it != extraEnv_.cend(); ++it) env.insert(it.key(), it.value());
 
     proc_ = new QProcess(this);

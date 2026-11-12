@@ -1,0 +1,100 @@
+diff --git a/runtime/kernel/files.cpp b/runtime/kernel/files.cpp
+index 4191f74..5aa068a 100644
+--- a/runtime/kernel/files.cpp
++++ b/runtime/kernel/files.cpp
+@@ -3,6 +3,7 @@
+ #include <cctype>
+ #include <chrono>
+ #include <cstdio>
++#include <cstdlib>
+ #include <filesystem>
+ #include <fstream>
+ #include <map>
+@@ -535,6 +536,15 @@ static uint32_t Transfer(const Args& a, bool write, uint32_t pages) {
+     ResetEvent(*f);
+     std::lock_guard<std::mutex> lock(f->io);
+     uint64_t pos = Offset(*f, off);
++    // XBE_FILE_TRACE=<part of an Xbox path, upper case>: every read of such a file is logged (which bytes of a sound
++    // bank a game streams, for one)
++    static const char* const trace = std::getenv("XBE_FILE_TRACE");
++    if (trace && !write) {
++        std::string up = f->xbox;
++        for (char& c : up) c = char(std::toupper(static_cast<unsigned char>(c)));
++        if (up.find(trace) != std::string::npos)
++            LOGR("file: read %s at %llu, %u bytes", f->xbox.c_str(), static_cast<unsigned long long>(pos), len);
++    }
+     if (f->fp) Seek(f->fp, pos);
+     uint32_t n = 0;
+     while (n < len) {
+diff --git a/runtime/xdk/dsound.cpp b/runtime/xdk/dsound.cpp
+index 5baf4db..08e2790 100644
+--- a/runtime/xdk/dsound.cpp
++++ b/runtime/xdk/dsound.cpp
+@@ -1,4 +1,5 @@
+ // DirectSound (XDK 4831 and 5849) on a host software mixer. Buffers and streams are read from guest memory as they play.
++#include <cstdlib>
+ #include <algorithm>
+ #include <atomic>
+ #include <chrono>
+@@ -909,6 +910,9 @@ Voice* Find(uint32_t obj) {
+     return it == g_voices.end() ? nullptr : &it->second;
+ }
+ 
++// XBE_DSOUND_TRACE: buffers made, filled and played, streams' formats and packets, in the log
++static const bool g_trace = std::getenv("XBE_DSOUND_TRACE") != nullptr;
++
+ uint32_t NewBuffer(uint32_t desc, uint32_t out) {
+     std::lock_guard<std::recursive_mutex> lock(g_lock);
+     Start();
+@@ -921,6 +925,9 @@ uint32_t NewBuffer(uint32_t desc, uint32_t out) {
+     uint32_t flags = R32(desc + 4), bytes = R32(desc + 8);  // DSBUFFERDESC: size, flags, bytes, format, mix bins
+     ReadFormat(v, R32(desc + 12));
+     SetBins(v, R32(desc + 16));
++    if (g_trace)
++        LOGR("dsound: buffer %08X made: %u bytes, tag %X, %u Hz, %u ch, flags %X", obj, bytes, v.tag, v.rate, v.channels,
++             flags);
+     v.is3d = flags & 0x10;  // DSBCAPS_CTRL3D
+     v.headroom = DefaultHeadroom(flags);
+     if (bytes) {
+@@ -1187,6 +1194,7 @@ BUFFER(Release, 1) {
+ }
+ BUFFER_READ(Unlock, 5) { return 0; }
+ BUFFER(SetBufferData, 3) {
++    if (g_trace) LOGR("dsound: buffer %08X data %08X, %u bytes", v.obj, a[1], a[2]);
+     if (a[1] == v.data && a[2] == v.bytes) return 0;
+     // the library frees its own memory, and makes it again for a size with no data
+     if (v.owned && v.owned != a[1]) {
+@@ -1203,6 +1211,9 @@ BUFFER(SetBufferData, 3) {
+     return 0;
+ }
+ BUFFER(Play, 4) {
++    if (g_trace)
++        LOGR("dsound: buffer %08X plays: flags %X, %u bytes from %u, tag %X, %u Hz, %u ch", v.obj, a[3], v.play_len,
++             v.play_start, v.tag, v.rate, v.channels);
+     v.has_gain = false;  // a new sound does not ramp from the last one's levels
+     if (a[3] & 2) v.pos = 0;
+     // a notification at the position play starts from counts as passed, as the voice's first frame reaches it: a
+@@ -1215,6 +1226,7 @@ BUFFER(Play, 4) {
+     return 0;
+ }
+ BUFFER(Stop, 1) {
++    if (g_trace) LOGR("dsound: buffer %08X stops", v.obj);
+     if (v.playing) NotifyStop(v);
+     v.playing = false;
+     return 0;
+@@ -1409,6 +1421,7 @@ STREAM(AddRef, 1) { return uint32_t(++v.refs); }
+ STREAM(SetFormat, 2) {
+     FlushStream(v);
+     ReadFormat(v, a[1]);
++    if (g_trace) LOGR("dsound: stream %08X format: tag %X, %u Hz, %u ch", v.obj, v.tag, v.rate, v.channels);
+     v.freq = 0;  // the XDK sets the pitch back to the new format's own rate
+     ForgetBlocks(v);
+     return 0;
+@@ -1439,6 +1452,7 @@ STREAM(Process, 3) {
+     Packet pk{R32(in), R32(in + 4), R32(in + 8), R32(in + 12), R32(in + 16)};
+     if (pk.completed_ptr) W32(pk.completed_ptr, 0);
+     if (pk.status_ptr) W32(pk.status_ptr, kPacketPending);
++    if (g_trace) LOGR("dsound: stream %08X packet %08X, %u bytes", v.obj, pk.data, pk.size);
+     v.packets.push_back(pk);
+     if (!v.active) v.has_gain = false;  // after going quiet a stream starts its levels fresh
+     v.active = true;

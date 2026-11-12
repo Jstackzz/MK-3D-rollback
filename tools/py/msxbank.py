@@ -13,10 +13,14 @@ of 4 bytes per channel holding 8 nibbles each; a block plays its header sample a
 nibble is the next block's header sample, encoded again). The runtime's decoder (xdk/dsound.cpp) does the same.
   version 1 (Deadly Alliance): [0x04] stream count, [0x10] file size, 12-byte entries from 0x18 (id, offset, size);
     each stream is a complete RIFF WAVE (a 20-byte fmt chunk and a data chunk) at its offset
-  version 2 (Deception, Armageddon): [0x04] stream count plus one, [0x14] the resident block's size (the small sounds
-    kept in memory, right after the header), [0x20] file size, 24-byte entries from 0x34 (id, data offset, data size,
-    offset of the stream's 40-byte RIFF/fmt header inside the file header, 40, resident flag: its data offset counts
-    from the resident block's start); the data holds the blocks alone
+  version 2 (Deception, Armageddon): [0x04] stream count plus one, [0x14] the resident block's size (the sounds the
+    game loads whole at boot), [0x20] file size, 24-byte entries from 0x34 (id, data offset, data size, offset of the
+    stream's 40-byte RIFF/fmt header inside the file header, 40, resident flag: its data offset counts from the
+    resident block's start); the file header (the table and every sound's RIFF header) ends on a 0x800 boundary, the
+    resident block follows it (0x800 in small banks, 0x1800 in a fighter's), the streamed data after; the data holds
+    the blocks alone. A resident sound cannot grow (the game does not load a bigger one at all): the launcher makes a
+    replaced one a streamed sound (out of the resident block, its flag cleared, and marked streamed in the .mbx: 36-byte
+    sound records from [0x10], +8 the id, +32 1 when streamed); this tool only replaces streamed ones in place
 The .mbx (the bank's descriptors) is not changed: a replaced stream keeps its format (rate, channels) and gets its
 new length in the table. The launcher does the same in C++ (launcher/src/Jukebox.cpp); this is the reference and the
 quick way to try a bank by hand.
@@ -49,7 +53,7 @@ def read_table(d):
         return ver, ents
     if ver == 2:
         n = struct.unpack_from('<I', d, 4)[0] - 1
-        resident_at = 0x800 if struct.unpack_from('<I', d, 0x14)[0] else 0
+        resident_at = header_end(d) if struct.unpack_from('<I', d, 0x14)[0] else 0
         for i in range(n):
             id_, off, size, hdr, hdr_len, res = struct.unpack_from('<IIIIII', d, 0x34 + 24 * i)
             data = off + resident_at if res else off
@@ -57,6 +61,15 @@ def read_table(d):
                          'data': data, 'data_size': size})
         return ver, ents
     raise SystemExit(f'unknown msx version {ver}')
+
+
+def header_end(d):
+    """version 2: where the file header ends (the table and every sound's RIFF header), on its 0x800 boundary"""
+    n = struct.unpack_from('<I', d, 4)[0] - 1
+    end = 0x34 + 24 * n
+    for i in range(n):
+        end = max(end, struct.unpack_from('<I', d, 0x34 + 24 * i + 12)[0] + 40)
+    return (end + 0x7FF) // 0x800 * 0x800
 
 
 def wave_format(d, off):
@@ -241,7 +254,8 @@ def cmd_replace(path, ids, track, out, seconds=None):
     else:
         # the header stays; the resident block (the sounds kept in memory, offsets from its start) is laid out again
         # in case one of them is replaced, and its size at [0x14] follows
-        outd = bytearray(d[:0x800])
+        hdr_end = header_end(d)
+        outd = bytearray(d[:hdr_end])
         rpos = 0
         for e in ents:
             if not e['resident']:
@@ -254,12 +268,12 @@ def cmd_replace(path, ids, track, out, seconds=None):
                 e['size'] = len(blob)
             else:
                 blob = d[e['data']:e['data'] + e['data_size']]
-            outd += b'\0' * (0x800 + rpos - len(outd))
+            outd += b'\0' * (hdr_end + rpos - len(outd))
             outd += blob
             e['off'] = rpos
             rpos += len(blob)
         if any(e['resident'] for e in ents):
-            struct.pack_into('<I', outd, 0x14, len(outd) - 0x800)
+            struct.pack_into('<I', outd, 0x14, len(outd) - hdr_end)
     pos = len(outd)
     for e in ents:
         if e['resident']:
