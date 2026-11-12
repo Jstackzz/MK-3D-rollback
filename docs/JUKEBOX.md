@@ -32,10 +32,12 @@ the substitute for the arena the fight loads (each game's `jukebox.cpp` reads it
 `jukebox: bank X opened, arena N` for every bank a fight loads, which is how the arena-to-bank tables in
 `launcher/data/jukebox.json` were made (`tools/py/jukebox_map.py <game> --write` reads the mapping runs' logs;
 Deception's arena ids are its own numbering: 0 Beetle Lair, 19 Slaughterhouse ...). Deception's select screen plays
-`shell_music` stream 2, Armageddon's stream 5 of its `shell_music`, a resident sound (the resident block is rebuilt
-when one is replaced). Armageddon's fights open `shell_jukebox` (108 streams) with the arena's `bg_` bank: which
-jukebox stream each arena plays comes from `tools/py/jukebox_mka_match.py` over audio dumps of a fight per arena.
-Deception's Yin Yang Island (twelve short pieces) keeps its own music.
+`shell_music` stream 2, and its Yin Yang Island (twelve short pieces) keeps its own music. Armageddon keeps all of its
+own music for now: its fights open `shell_jukebox` (108 streams) with the arena's `bg_` bank, but audio dumps of a fight
+on each of its 34 arenas (`tools/py/jukebox_mka_match.py`) matched none of those streams, so no arena has a bank in
+`jukebox.json`; its select screen plays stream 5 of `shell_music`, a resident sound, and a replaced resident (the
+block rebuilt) played nothing in the game, so that replacement is off too (`select_streams` empty). The launcher's page
+says so for each.
 
 The soundtrack folders downloaded on 2026-11-11 carry a `soundtrack.json` (`tools/py/make_soundtracks.py` writes
 them, and copies into `launcher/data/soundtracks`, compiled in): each track's kind (stage, select, menu, stinger,
