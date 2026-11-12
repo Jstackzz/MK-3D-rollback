@@ -1,12 +1,13 @@
 {
  "id": "umk3",
  "title": "Ultimate Mortal Kombat 3 (arcade)",
+ "year": 1995.5,
  "select": "11 - Ultimate Mortal Kombat 3 Arcade Music - Player Select.m4a",
  "tracks": [
   {
    "file": "01 - Ultimate Mortal Kombat 3 Arcade Music - Animality.m4a",
    "title": "Animality",
-   "seconds": 32.0,
+   "seconds": 32.1,
    "kind": "stinger",
    "tags": [
     "animality"
@@ -15,7 +16,7 @@
   {
    "file": "02 - Ultimate Mortal Kombat 3 Arcade Music - The Bank⧸Jade's Desert⧸The Cave.m4a",
    "title": "The Bank/Jade's Desert/The Cave",
-   "seconds": 138.0,
+   "seconds": 138.3,
    "kind": "stage",
    "tags": [
     "bank",
@@ -29,7 +30,7 @@
   {
    "file": "03 - Ultimate Mortal Kombat 3 Arcade Music - The Bridge.m4a",
    "title": "The Bridge",
-   "seconds": 123.0,
+   "seconds": 123.1,
    "kind": "stage",
    "tags": [
     "bridge",
@@ -39,7 +40,7 @@
   {
    "file": "04 - Ultimate Mortal Kombat 3 Arcade Music -  Choose Your Destiny.m4a",
    "title": "Choose Your Destiny",
-   "seconds": 19.0,
+   "seconds": 19.2,
    "kind": "menu",
    "tags": [
     "choose",
@@ -50,7 +51,7 @@
   {
    "file": "05 - Ultimate Mortal Kombat 3 Arcade Music - The Church.m4a",
    "title": "The Church",
-   "seconds": 113.0,
+   "seconds": 113.3,
    "kind": "stage",
    "tags": [
     "church",
@@ -60,7 +61,7 @@
   {
    "file": "06 - Ultimate Mortal Kombat 3 Arcade Music - Ending.m4a",
    "title": "Ending",
-   "seconds": 67.0,
+   "seconds": 67.2,
    "kind": "theme",
    "tags": [
     "ending"
@@ -69,7 +70,7 @@
   {
    "file": "07 - Ultimate Mortal Kombat 3 Arcade Music - Friendship.m4a",
    "title": "Friendship",
-   "seconds": 9.0,
+   "seconds": 9.1,
    "kind": "stinger",
    "tags": [
     "friendship"
@@ -78,7 +79,7 @@
   {
    "file": "08 - Ultimate Mortal Kombat 3 Arcade Music - Menu.m4a",
    "title": "Menu",
-   "seconds": 43.0,
+   "seconds": 43.1,
    "kind": "menu",
    "tags": [
     "menu"
@@ -87,7 +88,7 @@
   {
    "file": "09 - Ultimate Mortal Kombat 3 Arcade Music - The Graveyard.m4a",
    "title": "The Graveyard",
-   "seconds": 119.0,
+   "seconds": 119.1,
    "kind": "stage",
    "tags": [
     "graveyard",
@@ -97,7 +98,7 @@
   {
    "file": "10 - Ultimate Mortal Kombat 3 Arcade Music - The Lost Portal.m4a",
    "title": "The Lost Portal",
-   "seconds": 100.0,
+   "seconds": 100.1,
    "kind": "stage",
    "tags": [
     "lost",
@@ -109,7 +110,7 @@
   {
    "file": "11 - Ultimate Mortal Kombat 3 Arcade Music - Player Select.m4a",
    "title": "Player Select",
-   "seconds": 47.0,
+   "seconds": 47.2,
    "kind": "select",
    "tags": [
     "player",
@@ -119,7 +120,7 @@
   {
    "file": "12 - Ultimate Mortal Kombat 3 Arcade Music - The Pit 3⧸Scorpions Lair⧸The Balcony.m4a",
    "title": "The Pit 3/Scorpions Lair/The Balcony",
-   "seconds": 119.0,
+   "seconds": 119.2,
    "kind": "stage",
    "tags": [
     "balcony",
@@ -133,7 +134,7 @@
   {
    "file": "13 - Ultimate Mortal Kombat 3 Arcade Music - The Rooftop⧸The Belltower.m4a",
    "title": "The Rooftop/The Belltower",
-   "seconds": 109.0,
+   "seconds": 109.1,
    "kind": "stage",
    "tags": [
     "bell tower",
@@ -145,7 +146,7 @@
   {
    "file": "14 - Ultimate Mortal Kombat 3 Arcade Music - The Soul Chamber.m4a",
    "title": "The Soul Chamber",
-   "seconds": 135.0,
+   "seconds": 135.1,
    "kind": "stage",
    "tags": [
     "chamber",
@@ -156,7 +157,7 @@
   {
    "file": "15 - Ultimate Mortal Kombat 3 Arcade Music - The Streets.m4a",
    "title": "The Streets",
-   "seconds": 143.0,
+   "seconds": 143.3,
    "kind": "stage",
    "tags": [
     "city",
@@ -167,7 +168,7 @@
   {
    "file": "16 - Ultimate Mortal Kombat 3 Arcade Music - The Subway⧸The Waterfront.m4a",
    "title": "The Subway/The Waterfront",
-   "seconds": 116.0,
+   "seconds": 116.1,
    "kind": "stage",
    "tags": [
     "ship",
@@ -178,7 +179,7 @@
   {
    "file": "17 - Ultimate Mortal Kombat 3 Arcade Music - Title Theme.m4a",
    "title": "Title Theme",
-   "seconds": 61.0,
+   "seconds": 61.1,
    "kind": "menu",
    "tags": [
     "theme",

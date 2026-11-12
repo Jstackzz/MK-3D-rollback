@@ -1,0 +1,633 @@
+{
+ "id": "mkd",
+ "title": "Mortal Kombat: Deception",
+ "year": 2004,
+ "select": "03 - Mortal Kombat Deception OST： Character Selection.m4a",
+ "tracks": [
+  {
+   "file": "01 - Mortal Kombat Deception OST： Main Menu.m4a",
+   "title": "Main Menu",
+   "seconds": 57.1,
+   "kind": "menu",
+   "tags": [
+    "main",
+    "menu"
+   ]
+  },
+  {
+   "file": "02 - Mortal Kombat Deception OST： Attract Mode.m4a",
+   "title": "Attract Mode",
+   "seconds": 83.2,
+   "kind": "menu",
+   "tags": [
+    "attract",
+    "mode"
+   ]
+  },
+  {
+   "file": "03 - Mortal Kombat Deception OST： Character Selection.m4a",
+   "title": "Character Selection",
+   "seconds": 75.5,
+   "kind": "select",
+   "tags": [
+    "character",
+    "selection"
+   ]
+  },
+  {
+   "file": "04 - Mortal Kombat Deception OST： Biography Ending.m4a",
+   "title": "Biography Ending",
+   "seconds": 66.9,
+   "kind": "theme",
+   "tags": [
+    "biography",
+    "ending"
+   ]
+  },
+  {
+   "file": "05 - Mortal Kombat Deception OST： Dragon Slayer.m4a",
+   "title": "Dragon Slayer",
+   "seconds": 138.4,
+   "kind": "stage",
+   "tags": [
+    "dragon",
+    "onaga",
+    "slayer",
+    "temple",
+    "throne"
+   ]
+  },
+  {
+   "file": "06 - Mortal Kombat Deception OST： The Krypt.m4a",
+   "title": "The Krypt",
+   "seconds": 167.5,
+   "kind": "theme",
+   "tags": [
+    "krypt"
+   ]
+  },
+  {
+   "file": "07 - Mortal Kombat Deception OST： The Krypt (Alternate Version).m4a",
+   "title": "The Krypt (Alternate Version)",
+   "seconds": 126.3,
+   "kind": "theme",
+   "tags": [
+    "alternate",
+    "krypt",
+    "version"
+   ]
+  },
+  {
+   "file": "08 - Mortal Kombat Deception OST： Chess Kombat： The Dead Pool.m4a",
+   "title": "Chess Kombat: The Dead Pool",
+   "seconds": 79.8,
+   "kind": "variant",
+   "tags": [
+    "chess",
+    "dead",
+    "pool"
+   ]
+  },
+  {
+   "file": "09 - Mortal Kombat Deception OST： Chess Kombat： Courtyard.m4a",
+   "title": "Chess Kombat: Courtyard",
+   "seconds": 74.1,
+   "kind": "variant",
+   "tags": [
+    "chess",
+    "courtyard"
+   ]
+  },
+  {
+   "file": "10 - Mortal Kombat Deception OST： Chess Kombat： The Portal.m4a",
+   "title": "Chess Kombat: The Portal",
+   "seconds": 101.4,
+   "kind": "variant",
+   "tags": [
+    "chess",
+    "portal"
+   ]
+  },
+  {
+   "file": "11 - Mortal Kombat Deception OST： Chess Kombat： Living Forest.m4a",
+   "title": "Chess Kombat: Living Forest",
+   "seconds": 93.2,
+   "kind": "variant",
+   "tags": [
+    "chess",
+    "forest",
+    "living"
+   ]
+  },
+  {
+   "file": "12 - Mortal Kombat Deception OST： Chess Kombat： The Pit.m4a",
+   "title": "Chess Kombat: The Pit",
+   "seconds": 68.3,
+   "kind": "variant",
+   "tags": [
+    "chess",
+    "pit"
+   ]
+  },
+  {
+   "file": "13 - Mortal Kombat Deception OST： Chess Kombat： You Win.m4a",
+   "title": "Chess Kombat: You Win",
+   "seconds": 71.0,
+   "kind": "stinger",
+   "tags": [
+    "chess",
+    "win",
+    "you"
+   ]
+  },
+  {
+   "file": "14 - Mortal Kombat Deception OST： Puzzle Kombat： Puzzled.m4a",
+   "title": "Puzzle Kombat: Puzzled",
+   "seconds": 85.2,
+   "kind": "theme",
+   "tags": [
+    "puzzle",
+    "puzzled"
+   ]
+  },
+  {
+   "file": "15 - Mortal Kombat Deception OST： Puzzle Kombat： Tiles of Death and Whimsy.m4a",
+   "title": "Puzzle Kombat: Tiles of Death and Whimsy",
+   "seconds": 102.7,
+   "kind": "theme",
+   "tags": [
+    "death",
+    "puzzle",
+    "tiles",
+    "whimsy"
+   ]
+  },
+  {
+   "file": "16 - Mortal Kombat Deception OST： Puzzle Kombat： Kombo Krusher.m4a",
+   "title": "Puzzle Kombat: Kombo Krusher",
+   "seconds": 198.3,
+   "kind": "theme",
+   "tags": [
+    "kombo",
+    "krusher",
+    "puzzle"
+   ]
+  },
+  {
+   "file": "17 - Mortal Kombat Deception OST： Puzzle Kombat： Snake Food.m4a",
+   "title": "Puzzle Kombat: Snake Food",
+   "seconds": 98.4,
+   "kind": "theme",
+   "tags": [
+    "food",
+    "puzzle",
+    "snake"
+   ]
+  },
+  {
+   "file": "18 - Mortal Kombat Deception OST： The Beginning.m4a",
+   "title": "The Beginning",
+   "seconds": 110.3,
+   "kind": "theme",
+   "tags": [
+    "beginning"
+   ]
+  },
+  {
+   "file": "19 - Mortal Kombat Deception OST： Education.m4a",
+   "title": "Education",
+   "seconds": 61.9,
+   "kind": "theme",
+   "tags": [
+    "education"
+   ]
+  },
+  {
+   "file": "20 - Mortal Kombat Deception OST： Konquest： The Village.m4a",
+   "title": "Konquest: The Village",
+   "seconds": 245.2,
+   "kind": "theme",
+   "tags": [
+    "konquest",
+    "village"
+   ]
+  },
+  {
+   "file": "21 - Mortal Kombat Deception OST： Konquest： Earthrealm.m4a",
+   "title": "Konquest: Earthrealm",
+   "seconds": 258.7,
+   "kind": "theme",
+   "tags": [
+    "earthrealm",
+    "konquest"
+   ]
+  },
+  {
+   "file": "22 - Mortal Kombat Deception OST： Konquest： The Nexus.m4a",
+   "title": "Konquest: The Nexus",
+   "seconds": 114.8,
+   "kind": "theme",
+   "tags": [
+    "konquest",
+    "nexus"
+   ]
+  },
+  {
+   "file": "23 - Mortal Kombat Deception OST： Konquest： Battle.m4a",
+   "title": "Konquest: Battle",
+   "seconds": 184.6,
+   "kind": "theme",
+   "tags": [
+    "battle",
+    "konquest"
+   ]
+  },
+  {
+   "file": "24 - Mortal Kombat Deception OST： Konquest： Netherrealm.m4a",
+   "title": "Konquest: Netherrealm",
+   "seconds": 183.0,
+   "kind": "theme",
+   "tags": [
+    "konquest",
+    "netherrealm"
+   ]
+  },
+  {
+   "file": "25 - Mortal Kombat Deception OST： Konquest： Chaosrealm.m4a",
+   "title": "Konquest: Chaosrealm",
+   "seconds": 243.3,
+   "kind": "theme",
+   "tags": [
+    "chaosrealm",
+    "konquest"
+   ]
+  },
+  {
+   "file": "26 - Mortal Kombat Deception OST： Konquest： Outworld.m4a",
+   "title": "Konquest: Outworld",
+   "seconds": 231.4,
+   "kind": "theme",
+   "tags": [
+    "konquest",
+    "outworld"
+   ]
+  },
+  {
+   "file": "27 - Mortal Kombat Deception OST： Konquest： Orderrealm.m4a",
+   "title": "Konquest: Orderrealm",
+   "seconds": 252.4,
+   "kind": "theme",
+   "tags": [
+    "konquest",
+    "orderrealm"
+   ]
+  },
+  {
+   "file": "28 - Mortal Kombat Deception OST： Konquest： Edenia.m4a",
+   "title": "Konquest: Edenia",
+   "seconds": 263.5,
+   "kind": "theme",
+   "tags": [
+    "edenia",
+    "konquest"
+   ]
+  },
+  {
+   "file": "29 - Mortal Kombat Deception OST： Konquest： The Betrayal.m4a",
+   "title": "Konquest: The Betrayal",
+   "seconds": 171.6,
+   "kind": "theme",
+   "tags": [
+    "betrayal",
+    "konquest"
+   ]
+  },
+  {
+   "file": "30 - Mortal Kombat Deception OST： Dark Prison⧸Hell's Foundry.m4a",
+   "title": "Dark Prison/Hell's Foundry",
+   "seconds": 162.1,
+   "kind": "stage",
+   "tags": [
+    "dark",
+    "dark prison",
+    "fire",
+    "foundry",
+    "hell",
+    "hell's",
+    "prison",
+    "tekunin"
+   ]
+  },
+  {
+   "file": "31 - Mortal Kombat Deception OST： The Courtyard.m4a",
+   "title": "The Courtyard",
+   "seconds": 166.6,
+   "kind": "stage",
+   "tags": [
+    "academy",
+    "courtyard",
+    "wu shi"
+   ]
+  },
+  {
+   "file": "32 - Mortal Kombat Deception OST： The Dead Pool.m4a",
+   "title": "The Dead Pool",
+   "seconds": 118.0,
+   "kind": "stage",
+   "tags": [
+    "acid",
+    "bath",
+    "dead",
+    "dead pool",
+    "pool"
+   ]
+  },
+  {
+   "file": "33 - Mortal Kombat Deception OST： The Portal.m4a",
+   "title": "The Portal",
+   "seconds": 80.1,
+   "kind": "stage",
+   "tags": [
+    "nexus",
+    "portal",
+    "tower"
+   ]
+  },
+  {
+   "file": "34 - Mortal Kombat Deception OST： Living Forest.m4a",
+   "title": "Living Forest",
+   "seconds": 93.2,
+   "kind": "stage",
+   "tags": [
+    "forest",
+    "jungle",
+    "living",
+    "living forest",
+    "woods"
+   ]
+  },
+  {
+   "file": "35 - Mortal Kombat Deception OST： Dragon Mountain.m4a",
+   "title": "Dragon Mountain",
+   "seconds": 185.9,
+   "kind": "stage",
+   "tags": [
+    "cliffs",
+    "dragon",
+    "dragon mountain",
+    "mountain",
+    "sky"
+   ]
+  },
+  {
+   "file": "36 - Mortal Kombat Deception OST： Chamber of Artifacts (Red Dragon).m4a",
+   "title": "Chamber of Artifacts (Red Dragon)",
+   "seconds": 230.6,
+   "kind": "stage",
+   "tags": [
+    "artifacts",
+    "cave",
+    "caverns",
+    "chamber",
+    "daegon",
+    "dragon",
+    "red",
+    "red dragon"
+   ]
+  },
+  {
+   "file": "37 - Mortal Kombat Deception OST： Lower Mines⧸The Pit.m4a",
+   "title": "Lower Mines/The Pit",
+   "seconds": 191.5,
+   "kind": "stage",
+   "tags": [
+    "cave",
+    "lair",
+    "lower",
+    "mines",
+    "pit"
+   ]
+  },
+  {
+   "file": "38 - Mortal Kombat Deception OST： Kuatan Palace⧸The Nexus.m4a",
+   "title": "Kuatan Palace/The Nexus",
+   "seconds": 130.6,
+   "kind": "stage",
+   "tags": [
+    "kahn",
+    "kuatan",
+    "nexus",
+    "palace",
+    "throne"
+   ]
+  },
+  {
+   "file": "39 - Mortal Kombat Deception OST： Falling Cliffs.m4a",
+   "title": "Falling Cliffs",
+   "seconds": 252.5,
+   "kind": "stage",
+   "tags": [
+    "bridge",
+    "cliffs",
+    "falling",
+    "falling cliffs",
+    "pit"
+   ]
+  },
+  {
+   "file": "40 - Mortal Kombat Deception OST： Yin Yang Island (Earthrealm).m4a",
+   "title": "Yin Yang Island (Earthrealm)",
+   "seconds": 64.8,
+   "kind": "stage",
+   "tags": [
+    "beach",
+    "earthrealm",
+    "island",
+    "yang",
+    "yin",
+    "yin yang"
+   ]
+  },
+  {
+   "file": "41 - Mortal Kombat Deception OST： Yin Yang Island (Outworld).m4a",
+   "title": "Yin Yang Island (Outworld)",
+   "seconds": 54.5,
+   "kind": "stage",
+   "tags": [
+    "beach",
+    "island",
+    "outworld",
+    "yang",
+    "yin",
+    "yin yang"
+   ]
+  },
+  {
+   "file": "42 - Mortal Kombat Deception OST： Liu Kang's Tomb⧸Golden Desert..m4a",
+   "title": "Liu Kang's Tomb/Golden Desert",
+   "seconds": 140.4,
+   "kind": "stage",
+   "tags": [
+    "desert",
+    "golden",
+    "kang's",
+    "liu",
+    "liu kang",
+    "pyramid",
+    "ruins",
+    "tomb"
+   ]
+  },
+  {
+   "file": "43 - Mortal Kombat Deception OST： Slaughterhouse Jive.m4a",
+   "title": "Slaughterhouse Jive",
+   "seconds": 138.3,
+   "kind": "stage",
+   "tags": [
+    "factory",
+    "foundry",
+    "jive",
+    "meat",
+    "slaughterhouse"
+   ]
+  },
+  {
+   "file": "44 - Mortal Kombat Deception OST： Sky Temple.m4a",
+   "title": "Sky Temple",
+   "seconds": 129.7,
+   "kind": "stage",
+   "tags": [
+    "sky",
+    "sky temple",
+    "temple"
+   ]
+  },
+  {
+   "file": "45 - Mortal Kombat Deception OST： Beetle Lair⧸Nethership Interior.m4a",
+   "title": "Beetle Lair/Nethership Interior",
+   "seconds": 115.8,
+   "kind": "stage",
+   "tags": [
+    "beetle",
+    "hive",
+    "interior",
+    "lair",
+    "nethership",
+    "ship"
+   ]
+  },
+  {
+   "file": "46 - Mortal Kombat Deception OST： Dragon King's Temple (The Dragon Has Left The Building).m4a",
+   "title": "Dragon King's Temple (The Dragon Has Left The Building)",
+   "seconds": 151.8,
+   "kind": "stage",
+   "tags": [
+    "building",
+    "dragon",
+    "dragon king",
+    "has",
+    "king's",
+    "left",
+    "onaga",
+    "temple",
+    "throne"
+   ]
+  },
+  {
+   "file": "47 - Mortal Kombat Deception OST： Chaos Clergy (Havik's Training).m4a",
+   "title": "Chaos Clergy (Havik's Training)",
+   "seconds": 105.8,
+   "kind": "theme",
+   "tags": [
+    "chaos",
+    "clergy",
+    "havik's",
+    "training"
+   ]
+  },
+  {
+   "file": "48 - Mortal Kombat Deception OST： Deceptive Beauty (Mileena's Training).m4a",
+   "title": "Deceptive Beauty (Mileena's Training)",
+   "seconds": 105.3,
+   "kind": "theme",
+   "tags": [
+    "beauty",
+    "deceptive",
+    "mileena's",
+    "training"
+   ]
+  },
+  {
+   "file": "49 - Mortal Kombat Deception OST： Demon Huntress (Ashrah's Training).m4a",
+   "title": "Demon Huntress (Ashrah's Training)",
+   "seconds": 115.5,
+   "kind": "theme",
+   "tags": [
+    "ashrah's",
+    "demon",
+    "huntress",
+    "training"
+   ]
+  },
+  {
+   "file": "50 - Mortal Kombat Deception OST： The Dojo.m4a",
+   "title": "The Dojo",
+   "seconds": 134.3,
+   "kind": "theme",
+   "tags": [
+    "dojo"
+   ]
+  },
+  {
+   "file": "51 - Mortal Kombat Deception OST： Master's Guidance (Sub Zero's Training).m4a",
+   "title": "Master's Guidance (Sub Zero's Training)",
+   "seconds": 113.0,
+   "kind": "theme",
+   "tags": [
+    "guidance",
+    "master's",
+    "sub",
+    "training",
+    "zero's"
+   ]
+  },
+  {
+   "file": "52 - Mortal Kombat Deception OST： Mystical Energies (Ermac's Training).m4a",
+   "title": "Mystical Energies (Ermac's Training)",
+   "seconds": 137.9,
+   "kind": "theme",
+   "tags": [
+    "energies",
+    "ermac's",
+    "mystical",
+    "training"
+   ]
+  },
+  {
+   "file": "53 - Mortal Kombat Deception OST： Sweat and Bruises (Sindel's Training).m4a",
+   "title": "Sweat and Bruises (Sindel's Training)",
+   "seconds": 114.2,
+   "kind": "theme",
+   "tags": [
+    "bruises",
+    "sindel's",
+    "sweat",
+    "training"
+   ]
+  },
+  {
+   "file": "54 - Mortal Kombat Deception OST： Under The Influence (Bo' Rai Cho's Training).m4a",
+   "title": "Under The Influence (Bo' Rai Cho's Training)",
+   "seconds": 111.0,
+   "kind": "theme",
+   "tags": [
+    "bo'",
+    "cho's",
+    "influence",
+    "rai",
+    "training",
+    "under"
+   ]
+  }
+ ]
+}

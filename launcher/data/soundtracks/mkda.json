@@ -1,0 +1,257 @@
+{
+ "id": "mkda",
+ "title": "Mortal Kombat: Deadly Alliance",
+ "year": 2002,
+ "select": "02 - Mortal Kombat Deadly Alliance OST Music - Character Select.m4a",
+ "tracks": [
+  {
+   "file": "01 - Mortal Kombat Deadly Alliance Music - Main Menu.m4a",
+   "title": "Main Menu",
+   "seconds": 177.3,
+   "kind": "menu",
+   "tags": [
+    "main",
+    "menu"
+   ]
+  },
+  {
+   "file": "02 - Mortal Kombat Deadly Alliance OST Music - Character Select.m4a",
+   "title": "Character Select",
+   "seconds": 104.7,
+   "kind": "select",
+   "tags": [
+    "character",
+    "select"
+   ]
+  },
+  {
+   "file": "03 - Mortal Kombat Deadly Alliance OST Music - Acid Bath l Portal.m4a",
+   "title": "Acid Bath / Portal",
+   "seconds": 144.2,
+   "kind": "stage",
+   "tags": [
+    "acid",
+    "acid bath",
+    "bath",
+    "dead pool",
+    "nexus",
+    "pool",
+    "portal"
+   ]
+  },
+  {
+   "file": "04 - Mortal Kombat Deadly Alliance OST Music - Dragon Fly l Drum Arena l Palace Grounds.m4a",
+   "title": "Dragon Fly / Drum Arena / Palace Grounds",
+   "seconds": 162.2,
+   "kind": "stage",
+   "tags": [
+    "arena",
+    "dragon",
+    "dragonfly",
+    "drum",
+    "drum arena",
+    "fly",
+    "grounds",
+    "palace",
+    "palace grounds",
+    "sky"
+   ]
+  },
+  {
+   "file": "05 - Mortal Kombat Deadly Alliance OST Music - House of Pekara.m4a",
+   "title": "House of Pekara",
+   "seconds": 174.6,
+   "kind": "stage",
+   "tags": [
+    "church",
+    "house",
+    "monastery",
+    "pekara",
+    "shrine",
+    "temple"
+   ]
+  },
+  {
+   "file": "06 - Mortal Kombat Deadly Alliance OST Music - Kuatan Palace.m4a",
+   "title": "Kuatan Palace",
+   "seconds": 215.6,
+   "kind": "stage",
+   "tags": [
+    "kahn",
+    "kuatan",
+    "palace",
+    "throne"
+   ]
+  },
+  {
+   "file": "07 - Mortal Kombat Deadly Alliance OST Music - Lin Kuei Temple.m4a",
+   "title": "Lin Kuei Temple",
+   "seconds": 200.7,
+   "kind": "stage",
+   "tags": [
+    "arctika",
+    "ice",
+    "kuei",
+    "lin",
+    "lin kuei",
+    "palace",
+    "temple"
+   ]
+  },
+  {
+   "file": "08 - Mortal Kombat Deadly Alliance OST Music - Lost Tomb.m4a",
+   "title": "Lost Tomb",
+   "seconds": 160.4,
+   "kind": "stage",
+   "tags": [
+    "graveyard",
+    "krypt",
+    "lost",
+    "tomb",
+    "vault"
+   ]
+  },
+  {
+   "file": "09 - Mortal Kombat Deadly Alliance OST Music - Lung Hai Temple l Sarna Ruins.m4a",
+   "title": "Lung Hai Temple / Sarna Ruins",
+   "seconds": 175.1,
+   "kind": "stage",
+   "tags": [
+    "desert",
+    "hai",
+    "lung",
+    "lung hai",
+    "ruins",
+    "sarna",
+    "sky temple",
+    "temple"
+   ]
+  },
+  {
+   "file": "10 - Mortal Kombat Deadly Alliance OST Music - Lava Shrine.m4a",
+   "title": "Lava Shrine",
+   "seconds": 177.6,
+   "kind": "stage",
+   "tags": [
+    "fire",
+    "fire well",
+    "foundry",
+    "hell",
+    "lava",
+    "shrine"
+   ]
+  },
+  {
+   "file": "11 - Mortal Kombat Deadly Alliance OST Music - Shang Tsung's Palace l Nethership.m4a",
+   "title": "Shang Tsung's Palace / Nethership",
+   "seconds": 186.1,
+   "kind": "stage",
+   "tags": [
+    "nethership",
+    "palace",
+    "shang",
+    "shang tsung",
+    "ship",
+    "throne",
+    "tsung's"
+   ]
+  },
+  {
+   "file": "12 - Mortal Kombat Deadly Alliance OST Music - Quan Chi's Fortress.m4a",
+   "title": "Quan Chi's Fortress",
+   "seconds": 179.1,
+   "kind": "stage",
+   "tags": [
+    "chi's",
+    "fortress",
+    "netherrealm",
+    "quan",
+    "quan chi",
+    "tower"
+   ]
+  },
+  {
+   "file": "13 - Mortal Kombat Deadly Alliance Music OST - Wu shi Academy.m4a",
+   "title": "Wu shi Academy",
+   "seconds": 170.1,
+   "kind": "stage",
+   "tags": [
+    "academy",
+    "courtyard",
+    "shi",
+    "wu",
+    "wu shi"
+   ]
+  },
+  {
+   "file": "14 - Mortal Kombat Deadly Alliance OST Music - Moloch's Lair.m4a",
+   "title": "Moloch's Lair",
+   "seconds": 188.7,
+   "kind": "stage",
+   "tags": [
+    "cave",
+    "goro",
+    "lair",
+    "moloch",
+    "moloch's",
+    "pit"
+   ]
+  },
+  {
+   "file": "15 - Mortal Kombat Deadly Alliance OST Music - Konquest Stage.m4a",
+   "title": "Konquest Stage",
+   "seconds": 157.5,
+   "kind": "theme",
+   "tags": [
+    "konquest"
+   ]
+  },
+  {
+   "file": "16 - Mortal Kombat Deadly Alliance OST Music - Kontent Stage.m4a",
+   "title": "Kontent Stage",
+   "seconds": 122.3,
+   "kind": "theme",
+   "tags": [
+    "kontent"
+   ]
+  },
+  {
+   "file": "17 - Mortal Kombat Deadly Alliance OST Music - Monk Travels.m4a",
+   "title": "Monk Travels",
+   "seconds": 100.4,
+   "kind": "theme",
+   "tags": [
+    "monk",
+    "travels"
+   ]
+  },
+  {
+   "file": "18 - Mortal Kombat Deadly Alliance OST Music - Monk Travels II.m4a",
+   "title": "Monk Travels II",
+   "seconds": 97.8,
+   "kind": "theme",
+   "tags": [
+    "monk",
+    "travels"
+   ]
+  },
+  {
+   "file": "19 - Mortal Kombat Deadly Alliance OST Music - The Krypt.m4a",
+   "title": "The Krypt",
+   "seconds": 120.9,
+   "kind": "theme",
+   "tags": [
+    "krypt"
+   ]
+  },
+  {
+   "file": "20 - Mortal Kombat Deadly Alliance OST Music - Credits.m4a",
+   "title": "Credits",
+   "seconds": 101.6,
+   "kind": "theme",
+   "tags": [
+    "credits"
+   ]
+  }
+ ]
+}

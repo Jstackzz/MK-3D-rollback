@@ -1,12 +1,13 @@
 {
  "id": "mk2",
  "title": "Mortal Kombat II (arcade)",
+ "year": 1993,
  "select": "03 - Mortal Kombat 2 Arcade OST - Original Music Soundtrack - Character select.m4a",
  "tracks": [
   {
    "file": "01 - Mortal Kombat 2 Arcade OST - Original Music Soundtrack - Prologue.m4a",
    "title": "Prologue",
-   "seconds": 38.0,
+   "seconds": 38.1,
    "kind": "menu",
    "tags": [
     "prologue"
@@ -15,7 +16,7 @@
   {
    "file": "02 - Mortal Kombat 2 Arcade OST - Original Music Soundtrack - Intro Story.m4a",
    "title": "Intro Story",
-   "seconds": 63.0,
+   "seconds": 63.1,
    "kind": "menu",
    "tags": [
     "intro",
@@ -25,7 +26,7 @@
   {
    "file": "03 - Mortal Kombat 2 Arcade OST - Original Music Soundtrack - Character select.m4a",
    "title": "Character select",
-   "seconds": 51.0,
+   "seconds": 51.1,
    "kind": "select",
    "tags": [
     "character",
@@ -35,7 +36,7 @@
   {
    "file": "04 - Mortal Kombat 2 Arcade OST - Original Music Soundtrack - Dead Pool.m4a",
    "title": "Dead Pool",
-   "seconds": 103.0,
+   "seconds": 103.1,
    "kind": "stage",
    "tags": [
     "acid",
@@ -48,7 +49,7 @@
   {
    "file": "05 - Mortal Kombat 2 Arcade OST - Original Music Soundtrack - Kombat Tomb.m4a",
    "title": "Kombat Tomb",
-   "seconds": 103.0,
+   "seconds": 103.1,
    "kind": "stage",
    "tags": [
     "krypt",
@@ -58,7 +59,7 @@
   {
    "file": "06 - Mortal Kombat 2 Arcade OST - Original Music Soundtrack - The Tower.m4a",
    "title": "The Tower",
-   "seconds": 91.0,
+   "seconds": 91.1,
    "kind": "stage",
    "tags": [
     "evil tower",
@@ -69,7 +70,7 @@
   {
    "file": "07 - Mortal Kombat 2 Arcade OST - Original Music Soundtrack - Living Forest.m4a",
    "title": "Living Forest",
-   "seconds": 119.0,
+   "seconds": 119.1,
    "kind": "stage",
    "tags": [
     "forest",
@@ -80,7 +81,7 @@
   {
    "file": "08 - Mortal Kombat 2 Arcade OST - Original Music Soundtrack - The Armory.m4a",
    "title": "The Armory",
-   "seconds": 109.0,
+   "seconds": 109.1,
    "kind": "stage",
    "tags": [
     "armory",
@@ -90,7 +91,7 @@
   {
    "file": "09 - Mortal Kombat 2 Arcade OST - Original Music Soundtrack - The Portal⧸Khan's Arena.m4a",
    "title": "The Portal/Khan's Arena",
-   "seconds": 98.0,
+   "seconds": 98.1,
    "kind": "stage",
    "tags": [
     "arena",
@@ -103,7 +104,7 @@
   {
    "file": "10 - Mortal Kombat 2 Arcade OST - Original Music Soundtrack - Goro's Lair.m4a",
    "title": "Goro's Lair",
-   "seconds": 55.0,
+   "seconds": 55.1,
    "kind": "stage",
    "tags": [
     "cave",
@@ -116,7 +117,7 @@
   {
    "file": "11 - Mortal Kombat 2 Arcade OST - Original Music Soundtrack - Kontinue.m4a",
    "title": "Kontinue",
-   "seconds": 48.0,
+   "seconds": 48.1,
    "kind": "menu",
    "tags": [
     "kontinue"
@@ -125,7 +126,7 @@
   {
    "file": "12 - Mortal Kombat 2 Arcade OST - Original Music Soundtrack - Babality.m4a",
    "title": "Babality",
-   "seconds": 4.0,
+   "seconds": 4.1,
    "kind": "stinger",
    "tags": [
     "babality"
@@ -134,7 +135,7 @@
   {
    "file": "13 - Mortal Kombat 2 Arcade OST - Original Music Soundtrack - Friendship.m4a",
    "title": "Friendship",
-   "seconds": 4.0,
+   "seconds": 4.1,
    "kind": "stinger",
    "tags": [
     "friendship"
@@ -143,7 +144,7 @@
   {
    "file": "14 - Mortal Kombat 2 Arcade OST - Original Music Soundtrack - Shang Tsung's Rainbow.m4a",
    "title": "Shang Tsung's Rainbow",
-   "seconds": 4.0,
+   "seconds": 4.1,
    "kind": "stinger",
    "tags": [
     "rainbow",
@@ -154,7 +155,7 @@
   {
    "file": "15 - Mortal Kombat 2 Arcade OST - Original Music Soundtrack - Fatality.m4a",
    "title": "Fatality",
-   "seconds": 9.0,
+   "seconds": 9.1,
    "kind": "stinger",
    "tags": [
     "fatality"
@@ -163,7 +164,7 @@
   {
    "file": "16 - Mortal Kombat 2 Arcade OST - Original Music Soundtrack - Battle Plan.m4a",
    "title": "Battle Plan",
-   "seconds": 50.0,
+   "seconds": 50.1,
    "kind": "menu",
    "tags": [
     "battle",
@@ -173,7 +174,7 @@
   {
    "file": "17 - Mortal Kombat 2 Arcade OST - Original Music Soundtrack - Wasteland⧸The Pit II.m4a",
    "title": "Wasteland/The Pit II",
-   "seconds": 111.0,
+   "seconds": 111.1,
    "kind": "stage",
    "tags": [
     "desert",

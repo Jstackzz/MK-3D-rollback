@@ -63,10 +63,13 @@ streams it like any other music.
 A shuffle is drawn again each time the launcher starts the game (`jukebox::Service::gameStarting`); the map follows a
 moment later, and until then the last draw plays.
 
-The soundtrack folders downloaded on 2026-11-11 carry a `soundtrack.json` (`tools/py/make_soundtracks.py` writes
-them, and copies into `launcher/data/soundtracks`, compiled in): each track's kind (stage, select, menu, stinger,
-theme, variant), keywords for the picks, and the select-screen track. A folder without one is read from its file
-names.
+The soundtrack folders downloaded on 2026-11-11 (the arcade games, MK4, MK vs DC and the NetherRealm games) and
+2026-11-12 (Deadly Alliance and Deception whole; Armageddon's 70-minute "extended" videos cut to their first 6
+minutes, and the player's own file for its select screen, a `local` line in its `downloaded.txt`) carry a
+`soundtrack.json` (`tools/py/make_soundtracks.py` writes them, and copies into `launcher/data/soundtracks`, compiled
+in): each track's kind (stage, select, menu, stinger, theme, variant), keywords for the picks, its length (from the
+file), the select-screen track and the year the game came out (the page's order). A folder without one is read from
+its file names.
 
 Verified 2026-11-12 in all three games with launcher-made banks, by audio dumps and a test tone where a stage's own
 sounds drown the comparison: Deadly Alliance's main menu, select screen, Acid Bath and Palace Grounds; Deception's

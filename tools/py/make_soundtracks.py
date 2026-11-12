@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""The jukebox's soundtrack.json for the ten soundtracks downloaded on 2026-11-11 (tools/py/msxbank.py's companion):
+"""The jukebox's soundtrack.json for the soundtracks downloaded on 2026-11-11 and 2026-11-12 (the three 3D games'),
+(tools/py/msxbank.py's companion):
 each folder under the music library gets a file naming the soundtrack, its select-screen track and each track's kind
 (stage, select, menu, stinger, theme, variant) and keywords, which the launcher's automatic song-per-stage picks use.
 Also writes a copy of each into launcher/data/soundtracks (compiled into the launcher: a folder without its own file
@@ -10,6 +11,7 @@ but with one of these names gets the built-in one).
 import json
 import os
 import re
+import subprocess
 import sys
 
 ROOT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.environ.get('USERPROFILE', ''), 'Music', 'MK3D Jukebox')
@@ -25,7 +27,8 @@ def tags_of(title):
     return sorted({w for w in re.split(r'[ /]+', t) if w and w not in STOP and not w.isdigit()})
 
 
-# per soundtrack: the title, the select-screen track's index (None: the playlist has none), the track kinds by index
+# per soundtrack: the title, the year the game came out (the launcher's order), the select-screen track's index (None:
+# the playlist has none), the track kinds by index
 META = {
     'mk1': dict(title='Mortal Kombat (1992 arcade)', select=1, stage=[3, 4, 5, 6, 7, 9], stinger=[2, 10], theme=[8]),
     'mk2': dict(title='Mortal Kombat II (arcade)', select=3, stage=[4, 5, 6, 7, 8, 9, 10, 17], menu=[1, 2, 11, 16],
@@ -46,7 +49,17 @@ META = {
                  theme=list(range(1, 29)) + [37, 38, 39, 40]),
     'mk1-2023': dict(title='Mortal Kombat 1 (2023)', select=1, stage=[5, 7, 11, 13, 15, 18, 21, 24, 27, 29],
                      theme=[1, 2, 3, 4, 6, 8, 9, 10, 12, 14, 16, 17, 19, 20, 22, 23, 25, 26, 28, 30, 31]),
+    # the 3D games (2026-11-12): Deadly Alliance and Deception whole, Armageddon's 70-minute "extended" videos cut to
+    # their first 6 minutes; Armageddon's select-screen music is the user's own file (22, a "local" line)
+    'mkda': dict(title='Mortal Kombat: Deadly Alliance', select=2, menu=[1], stage=list(range(3, 15)),
+                 theme=[15, 16, 17, 18, 19, 20]),
+    'mkd': dict(title='Mortal Kombat: Deception', select=3, menu=[1, 2], stage=[5] + list(range(30, 47)),
+                variant=[8, 9, 10, 11, 12], stinger=[13], theme=[4, 6, 7] + list(range(14, 30)) + list(range(47, 55))),
+    'mka': dict(title='Mortal Kombat: Armageddon', select=22, menu=[1], stage=list(range(3, 15)) + [16, 17, 18, 19, 20, 21],
+                theme=[2, 15]),
 }
+YEAR = {'mk1': 1992, 'mk2': 1993, 'mk3': 1995, 'umk3': 1995.5, 'mk4': 1997, 'mkda': 2002, 'mkd': 2004, 'mka': 2006,
+        'mkvsdc': 2008, 'mk9': 2011, 'mkx': 2015, 'mk11': 2019, 'mk1-2023': 2023}
 
 # keywords a title alone does not give: what the stage looks like, and the MK3D stages it suits
 EXTRA = {
@@ -96,6 +109,34 @@ EXTRA = {
     ('mk1-2023', 15): ['living forest', 'forest'], ('mk1-2023', 18): ['sun do', 'city', 'street', 'market'],
     ('mk1-2023', 21): ['treasure', 'chamber', 'tomb', 'krypt'], ('mk1-2023', 24): ['fire temple', 'temple', 'fire', 'lava', 'shrine'],
     ('mk1-2023', 27): ['pyramid', 'ruins', 'desert'], ('mk1-2023', 29): ['pyramid', 'summit', 'portal', 'sky'],
+    ('mkda', 3): ['acid bath', 'dead pool', 'acid', 'pool', 'portal', 'nexus'],
+    ('mkda', 4): ['dragonfly', 'drum arena', 'drum', 'arena', 'palace grounds', 'sky'],
+    ('mkda', 5): ['house', 'pekara', 'church', 'temple', 'shrine', 'monastery'],
+    ('mkda', 6): ['kuatan', 'palace', 'throne', 'kahn'], ('mkda', 7): ['lin kuei', 'temple', 'ice', 'palace', 'arctika'],
+    ('mkda', 8): ['tomb', 'krypt', 'graveyard', 'vault'], ('mkda', 9): ['lung hai', 'temple', 'sarna', 'ruins', 'desert', 'sky temple'],
+    ('mkda', 10): ['lava', 'shrine', 'fire', 'fire well', 'hell', 'foundry'],
+    ('mkda', 11): ['shang tsung', 'palace', 'nethership', 'ship', 'throne'], ('mkda', 12): ['quan chi', 'fortress', 'netherrealm', 'tower'],
+    ('mkda', 13): ['wu shi', 'academy', 'courtyard'], ('mkda', 14): ['moloch', 'lair', 'goro', 'cave', 'pit'],
+    ('mkd', 5): ['dragon', 'onaga', 'throne', 'temple'],
+    ('mkd', 30): ['prison', 'dark prison', 'hell', 'foundry', 'fire', 'tekunin'], ('mkd', 31): ['courtyard', 'wu shi', 'academy'],
+    ('mkd', 32): ['dead pool', 'acid', 'bath', 'pool'], ('mkd', 33): ['portal', 'nexus', 'tower'],
+    ('mkd', 34): ['living forest', 'forest', 'woods', 'jungle'], ('mkd', 35): ['dragon mountain', 'mountain', 'cliffs', 'sky'],
+    ('mkd', 36): ['chamber', 'artifacts', 'red dragon', 'cave', 'daegon', 'caverns'],
+    ('mkd', 37): ['mines', 'pit', 'cave', 'lair'], ('mkd', 38): ['kuatan', 'palace', 'nexus', 'throne', 'kahn'],
+    ('mkd', 39): ['falling cliffs', 'cliffs', 'bridge', 'pit'], ('mkd', 40): ['yin yang', 'island', 'beach'],
+    ('mkd', 41): ['yin yang', 'island', 'beach', 'outworld'],
+    ('mkd', 42): ['tomb', 'liu kang', 'desert', 'golden', 'ruins', 'pyramid'],
+    ('mkd', 43): ['slaughterhouse', 'meat', 'factory', 'foundry'], ('mkd', 44): ['sky temple', 'temple', 'sky'],
+    ('mkd', 45): ['beetle', 'lair', 'hive', 'nethership', 'ship'], ('mkd', 46): ['dragon king', 'temple', 'onaga', 'throne'],
+    ('mka', 3): ['fire well', 'fire', 'well', 'lava', 'shrine'], ('mka', 4): ['hell', 'netherrealm', 'fire', 'lava'],
+    ('mka', 5): ['meteor', 'storm', 'sky', 'space'], ('mka', 6): ['armory', 'weapon'],
+    ('mka', 7): ['vault', 'krypt', 'tomb', 'chamber'], ('mka', 8): ['prison', 'tekunin', 'dark prison'],
+    ('mka', 9): ['evil tower', 'tower', 'portal'], ('mka', 10): ['goro', 'lair', 'moloch', 'cave'],
+    ('mka', 11): ['pyramid', 'argus', 'summit', 'sky'], ('mka', 12): ['subway', 'train', 'city'],
+    ('mka', 13): ['lumber', 'mill', 'forest', 'woods'], ('mka', 14): ['bell tower', 'tower', 'rooftop'],
+    ('mka', 16): ['warship', 'ship', 'nethership', 'tekunin'], ('mka', 17): ['jungle', 'botan', 'forest', 'living forest'],
+    ('mka', 18): ['kahn', 'fortress', 'lin kuei', 'palace', 'throne'], ('mka', 19): ['edenia', 'edenian', 'ruins', 'garden'],
+    ('mka', 20): ['spire', 'outworld', 'tower', 'throne'], ('mka', 21): ['arctika', 'ice', 'snow', 'lin kuei', 'mountain'],
 }
 
 PREFIXES = [
@@ -107,7 +148,7 @@ PREFIXES = [
 SUFFIXES = [
     r'(?i)\s*[-|]\s*(mortal kombat x ost|mk 11 ost|mortal kombat 11 ost|mk iii \(arcade\) ost extended|mortal kombat iii \(arcade\) ost extended)\s*$',
     r'(?i)\s*-\s*(wilbert roget, ii|casey edwards|nathan grigg|joel corelitz|dan negovan|dean grinsfelder|dan forden|stephanie economou|super square).*$',
-    r'(?i)\s*\|\s*watertower\s*$', r'(?i)\s*- stage$',
+    r'(?i)\s*\|\s*watertower\s*$', r'(?i)\s*- stage$', r'(?i)\s*mortal kombat armageddon music extended\s*$',
 ]
 
 
@@ -117,8 +158,18 @@ def clean_title(title):
         t = re.sub(p, '', t)
     for s in SUFFIXES:
         t = re.sub(s, '', t)
-    t = t.replace(' - Stage ', ' ').replace('Screen Music)', 'screen)')
-    return t.strip(' -|')
+    t = t.replace(' - Stage ', ' ').replace('Screen Music)', 'screen)').replace(' l ', ' / ')
+    return t.strip(' -|.')
+
+
+def file_seconds(path):
+    """the file's own length (a video's length can be more than what was downloaded of it)"""
+    try:
+        r = subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', path],
+                           capture_output=True, text=True, timeout=60)
+        return round(float(r.stdout.strip()), 1)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return 0.0
 
 
 def main():
@@ -147,10 +198,10 @@ def main():
                 kind = 'select'
             t = clean_title(title)
             tags = tags_of(t) + EXTRA.get((sid, idx), [])
-            tracks[idx] = dict(file=name, title=t, seconds=float(secs) if secs not in ('NA', '') else 0.0, kind=kind,
-                               tags=sorted(set(tags)))
+            seconds = file_seconds(os.path.join(folder, name)) or (float(secs) if secs not in ('NA', '') else 0.0)
+            tracks[idx] = dict(file=name, title=t, seconds=seconds, kind=kind, tags=sorted(set(tags)))
         select = tracks[m['select']]['file'] if m['select'] and m['select'] in tracks else ''
-        out = dict(id=sid, title=m['title'], select=select, tracks=[tracks[i] for i in sorted(tracks)])
+        out = dict(id=sid, title=m['title'], year=YEAR[sid], select=select, tracks=[tracks[i] for i in sorted(tracks)])
         text = json.dumps(out, indent=1, ensure_ascii=False)
         open(os.path.join(folder, 'soundtrack.json'), 'w', encoding='utf-8').write(text)
         open(os.path.join(OUT, sid + '.json'), 'w', encoding='utf-8').write(text)

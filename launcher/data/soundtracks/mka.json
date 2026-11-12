@@ -1,0 +1,275 @@
+{
+ "id": "mka",
+ "title": "Mortal Kombat: Armageddon",
+ "year": 2006,
+ "select": "22 - Character Select.mp3",
+ "tracks": [
+  {
+   "file": "01 - Main Menu Mortal Kombat Armageddon Music Extended.m4a",
+   "title": "Main Menu",
+   "seconds": 360.0,
+   "kind": "menu",
+   "tags": [
+    "main",
+    "menu"
+   ]
+  },
+  {
+   "file": "02 - Kreate a Fighter Mortal Kombat Armageddon Music Extended.m4a",
+   "title": "Kreate a Fighter",
+   "seconds": 360.0,
+   "kind": "theme",
+   "tags": [
+    "fighter",
+    "kreate"
+   ]
+  },
+  {
+   "file": "03 - The Firewell Mortal Kombat Armageddon Music Extended.m4a",
+   "title": "The Firewell",
+   "seconds": 360.0,
+   "kind": "stage",
+   "tags": [
+    "fire",
+    "fire well",
+    "firewell",
+    "lava",
+    "shrine",
+    "well"
+   ]
+  },
+  {
+   "file": "04 - Hell Mortal Kombat Armageddon Music Extended.m4a",
+   "title": "Hell",
+   "seconds": 360.0,
+   "kind": "stage",
+   "tags": [
+    "fire",
+    "hell",
+    "lava",
+    "netherrealm"
+   ]
+  },
+  {
+   "file": "05 - Meteor Storm Mortal Kombat Armageddon Music Extended.m4a",
+   "title": "Meteor Storm",
+   "seconds": 360.0,
+   "kind": "stage",
+   "tags": [
+    "meteor",
+    "sky",
+    "space",
+    "storm"
+   ]
+  },
+  {
+   "file": "06 - The Armory Mortal Kombat Armageddon Music Extended.m4a",
+   "title": "The Armory",
+   "seconds": 360.0,
+   "kind": "stage",
+   "tags": [
+    "armory",
+    "weapon"
+   ]
+  },
+  {
+   "file": "07 - The Vault Mortal Kombat Armageddon Music Extended.m4a",
+   "title": "The Vault",
+   "seconds": 360.0,
+   "kind": "stage",
+   "tags": [
+    "chamber",
+    "krypt",
+    "tomb",
+    "vault"
+   ]
+  },
+  {
+   "file": "08 - Tekunin Prison Mortal Kombat Armageddon Music Extended.m4a",
+   "title": "Tekunin Prison",
+   "seconds": 360.0,
+   "kind": "stage",
+   "tags": [
+    "dark prison",
+    "prison",
+    "tekunin"
+   ]
+  },
+  {
+   "file": "09 - The Evil Tower Mortal Kombat Armageddon Music Extended.m4a",
+   "title": "The Evil Tower",
+   "seconds": 360.0,
+   "kind": "stage",
+   "tags": [
+    "evil",
+    "evil tower",
+    "portal",
+    "tower"
+   ]
+  },
+  {
+   "file": "10 - Goro's Lair Mortal Kombat Armageddon Music Extended.m4a",
+   "title": "Goro's Lair",
+   "seconds": 360.0,
+   "kind": "stage",
+   "tags": [
+    "cave",
+    "goro",
+    "goro's",
+    "lair",
+    "moloch"
+   ]
+  },
+  {
+   "file": "11 - Pyramid of Argus Mortal Kombat Armageddon Music Extended.m4a",
+   "title": "Pyramid of Argus",
+   "seconds": 360.0,
+   "kind": "stage",
+   "tags": [
+    "argus",
+    "pyramid",
+    "sky",
+    "summit"
+   ]
+  },
+  {
+   "file": "12 - Subway Mortal Kombat Armageddon Music Extended.m4a",
+   "title": "Subway",
+   "seconds": 360.0,
+   "kind": "stage",
+   "tags": [
+    "city",
+    "subway",
+    "train"
+   ]
+  },
+  {
+   "file": "13 - The Lumbermill Mortal Kombat Armageddon Music Extended.m4a",
+   "title": "The Lumbermill",
+   "seconds": 360.0,
+   "kind": "stage",
+   "tags": [
+    "forest",
+    "lumber",
+    "lumbermill",
+    "mill",
+    "woods"
+   ]
+  },
+  {
+   "file": "14 - The Belltower Mortal Kombat Armageddon Music Extended.m4a",
+   "title": "The Belltower",
+   "seconds": 360.0,
+   "kind": "stage",
+   "tags": [
+    "bell tower",
+    "belltower",
+    "rooftop",
+    "tower"
+   ]
+  },
+  {
+   "file": "15 - Character Select Mortal Kombat Armageddon Music Extended.m4a",
+   "title": "Character Select",
+   "seconds": 360.0,
+   "kind": "theme",
+   "tags": [
+    "character",
+    "select"
+   ]
+  },
+  {
+   "file": "16 - Konquest Tekunin Warship Mortal Kombat Armageddon Music Extended.m4a",
+   "title": "Konquest Tekunin Warship",
+   "seconds": 360.0,
+   "kind": "stage",
+   "tags": [
+    "konquest",
+    "nethership",
+    "ship",
+    "tekunin",
+    "warship"
+   ]
+  },
+  {
+   "file": "17 - Konquest Botan Jungle Mortal Kombat Armageddon Music Extended.m4a",
+   "title": "Konquest Botan Jungle",
+   "seconds": 360.0,
+   "kind": "stage",
+   "tags": [
+    "botan",
+    "forest",
+    "jungle",
+    "konquest",
+    "living forest"
+   ]
+  },
+  {
+   "file": "18 - Konquest Shao Kahn's Fortress & Lin Kuei Palace Mortal Kombat Armageddon Music Extended.m4a",
+   "title": "Konquest Shao Kahn's Fortress & Lin Kuei Palace",
+   "seconds": 360.0,
+   "kind": "stage",
+   "tags": [
+    "fortress",
+    "kahn",
+    "kahn's",
+    "konquest",
+    "kuei",
+    "lin",
+    "lin kuei",
+    "palace",
+    "shao",
+    "throne"
+   ]
+  },
+  {
+   "file": "19 - Konquest Edenia Mortal Kombat Armageddon Music Extended.m4a",
+   "title": "Konquest Edenia",
+   "seconds": 360.0,
+   "kind": "stage",
+   "tags": [
+    "edenia",
+    "edenian",
+    "garden",
+    "konquest",
+    "ruins"
+   ]
+  },
+  {
+   "file": "20 - Outworld Spire Mortal Kombat Armageddon Music Extended.m4a",
+   "title": "Outworld Spire",
+   "seconds": 360.0,
+   "kind": "stage",
+   "tags": [
+    "outworld",
+    "spire",
+    "throne",
+    "tower"
+   ]
+  },
+  {
+   "file": "21 - Konquest Arctika Mortal Kombat Armageddon Music Extended.m4a",
+   "title": "Konquest Arctika",
+   "seconds": 360.0,
+   "kind": "stage",
+   "tags": [
+    "arctika",
+    "ice",
+    "konquest",
+    "lin kuei",
+    "mountain",
+    "snow"
+   ]
+  },
+  {
+   "file": "22 - Character Select.mp3",
+   "title": "Character Select",
+   "seconds": 66.0,
+   "kind": "select",
+   "tags": [
+    "character",
+    "select"
+   ]
+  }
+ ]
+}

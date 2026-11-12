@@ -1,12 +1,13 @@
 {
  "id": "mk1",
  "title": "Mortal Kombat (1992 arcade)",
+ "year": 1992,
  "select": "01 - Mortal Kombat 1 Arcade - OST Music Soundtrack - In The Beginning - Character Select.m4a",
  "tracks": [
   {
    "file": "01 - Mortal Kombat 1 Arcade - OST Music Soundtrack - In The Beginning - Character Select.m4a",
    "title": "In The Beginning - Character Select",
-   "seconds": 53.0,
+   "seconds": 53.1,
    "kind": "select",
    "tags": [
     "beginning",
@@ -18,7 +19,7 @@
   {
    "file": "02 - Mortal Kombat 1 Arcade OST - Original Music Soundtrack - Battle Plan.m4a",
    "title": "Battle Plan",
-   "seconds": 11.0,
+   "seconds": 11.1,
    "kind": "stinger",
    "tags": [
     "battle",
@@ -28,7 +29,7 @@
   {
    "file": "03 - Mortal Kombat 1 Arcade OST - Original Music Soundtrack - The Courtyard.m4a",
    "title": "The Courtyard",
-   "seconds": 72.0,
+   "seconds": 72.1,
    "kind": "stage",
    "tags": [
     "academy",
@@ -40,7 +41,7 @@
   {
    "file": "04 - Mortal Kombat 1 Arcade OST - Original Music Soundtrack - The Temple Gate (Palace Gates).m4a",
    "title": "The Temple Gate (Palace Gates)",
-   "seconds": 62.0,
+   "seconds": 62.1,
    "kind": "stage",
    "tags": [
     "gate",
@@ -53,7 +54,7 @@
   {
    "file": "05 - Mortal Kombat 1 Arcade OST - Original Music Soundtrack - The Bridge (The Pit).m4a",
    "title": "The Bridge (The Pit)",
-   "seconds": 61.0,
+   "seconds": 61.1,
    "kind": "stage",
    "tags": [
     "bridge",
@@ -64,7 +65,7 @@
   {
    "file": "06 - Mortal Kombat 1 Arcade OST - Original Music Soundtrack - Throne Room.m4a",
    "title": "Throne Room",
-   "seconds": 101.0,
+   "seconds": 101.1,
    "kind": "stage",
    "tags": [
     "kahn",
@@ -77,7 +78,7 @@
   {
    "file": "07 - Mortal Kombat 1 Arcade OST - Original Music Soundtrack - Goro's Lair.m4a",
    "title": "Goro's Lair",
-   "seconds": 121.0,
+   "seconds": 121.1,
    "kind": "stage",
    "tags": [
     "cave",
@@ -90,7 +91,7 @@
   {
    "file": "08 - Mortal Kombat 1 Arcade OST - Original Music Soundtrack - Victory and Ending.m4a",
    "title": "Victory and Ending",
-   "seconds": 79.0,
+   "seconds": 79.1,
    "kind": "theme",
    "tags": [
     "ending",
@@ -112,7 +113,7 @@
   {
    "file": "10 - Mortal Kombat 1 Arcade - OST Music Soundtrack - Fatality.m4a",
    "title": "Fatality",
-   "seconds": 7.0,
+   "seconds": 7.1,
    "kind": "stinger",
    "tags": [
     "fatality"

@@ -1,12 +1,13 @@
 {
  "id": "mk1-2023",
  "title": "Mortal Kombat 1 (2023)",
+ "year": 2023,
  "select": "01 - Mortal Kombat 1 Soundtrack ｜ A New Era (Mortal Kombat 1 Main Theme) - Wilbert Roget, II ｜ .m4a",
  "tracks": [
   {
    "file": "01 - Mortal Kombat 1 Soundtrack ｜ A New Era (Mortal Kombat 1 Main Theme) - Wilbert Roget, II ｜ .m4a",
    "title": "A New Era (Mortal Kombat 1 Main Theme)",
-   "seconds": 296.0,
+   "seconds": 296.1,
    "kind": "select",
    "tags": [
     "era",
@@ -37,7 +38,7 @@
   {
    "file": "04 - Mortal Kombat 1 Soundtrack ｜ Fengjian - Wilbert Roget, II ｜ WaterTower.m4a",
    "title": "Fengjian",
-   "seconds": 83.0,
+   "seconds": 82.8,
    "kind": "theme",
    "tags": [
     "fengjian"
@@ -46,7 +47,7 @@
   {
    "file": "05 - Mortal Kombat 1 Soundtrack ｜ Cage Mansion - Stage - Casey Edwards ｜ WaterTower.m4a",
    "title": "Cage Mansion",
-   "seconds": 290.0,
+   "seconds": 289.7,
    "kind": "stage",
    "tags": [
     "cage",
@@ -58,7 +59,7 @@
   {
    "file": "06 - Mortal Kombat 1 Soundtrack ｜ 'Katara Vala', In Theaters Now - Wilbert Roget, II ｜ WaterTow.m4a",
    "title": "'Katara Vala', In Theaters Now",
-   "seconds": 205.0,
+   "seconds": 205.5,
    "kind": "theme",
    "tags": [
     "'katara",
@@ -71,7 +72,7 @@
   {
    "file": "07 - Mortal Kombat 1 Soundtrack ｜ Wu Shi Academy - Stage - Nathan Grigg ｜ WaterTower.m4a",
    "title": "Wu Shi Academy",
-   "seconds": 312.0,
+   "seconds": 312.2,
    "kind": "stage",
    "tags": [
     "academy",
@@ -84,7 +85,7 @@
   {
    "file": "08 - Mortal Kombat 1 Soundtrack ｜ Liu Kang's Champions - Wilbert Roget, II ｜ WaterTower.m4a",
    "title": "Liu Kang's Champions",
-   "seconds": 204.0,
+   "seconds": 203.8,
    "kind": "theme",
    "tags": [
     "champions",
@@ -95,7 +96,7 @@
   {
    "file": "09 - Mortal Kombat 1 Soundtrack ｜ Outworld Parade - Wilbert Roget, II ｜ WaterTower.m4a",
    "title": "Outworld Parade",
-   "seconds": 134.0,
+   "seconds": 133.8,
    "kind": "theme",
    "tags": [
     "outworld",
@@ -105,7 +106,7 @@
   {
    "file": "10 - Mortal Kombat 1 Soundtrack ｜ Feast of Jerrod (feat. Andrijana Janevska) - Wilbert Roget, I.m4a",
    "title": "Feast of Jerrod (feat. Andrijana Janevska)",
-   "seconds": 126.0,
+   "seconds": 126.5,
    "kind": "theme",
    "tags": [
     "andrijana",
@@ -117,7 +118,7 @@
   {
    "file": "11 - Mortal Kombat 1 Soundtrack ｜ The Great Hall - Stage - Joel Corelitz ｜ WaterTower.m4a",
    "title": "The Great Hall",
-   "seconds": 307.0,
+   "seconds": 306.6,
    "kind": "stage",
    "tags": [
     "great",
@@ -131,7 +132,7 @@
   {
    "file": "12 - Mortal Kombat 1 Soundtrack ｜ Defender of the Tarkatans - Wilbert Roget, II ｜ WaterTower.m4a",
    "title": "Defender of the Tarkatans",
-   "seconds": 189.0,
+   "seconds": 188.8,
    "kind": "theme",
    "tags": [
     "defender",
@@ -141,7 +142,7 @@
   {
    "file": "13 - Mortal Kombat 1 Soundtrack ｜ The Flesh Pits - Stage - Nathan Grigg ｜ WaterTower.m4a",
    "title": "The Flesh Pits",
-   "seconds": 327.0,
+   "seconds": 327.1,
    "kind": "stage",
    "tags": [
     "flesh",
@@ -154,7 +155,7 @@
   {
    "file": "14 - Mortal Kombat 1 Soundtrack ｜ Through the Living Forest - Wilbert Roget, II ｜ WaterTower.m4a",
    "title": "Through the Living Forest",
-   "seconds": 245.0,
+   "seconds": 244.9,
    "kind": "theme",
    "tags": [
     "forest",
@@ -165,7 +166,7 @@
   {
    "file": "15 - Mortal Kombat 1 Soundtrack ｜ The Living Forest - Dan Negovan ｜ WaterTower.m4a",
    "title": "The Living Forest",
-   "seconds": 310.0,
+   "seconds": 310.2,
    "kind": "stage",
    "tags": [
     "forest",
@@ -186,7 +187,7 @@
   {
    "file": "17 - Mortal Kombat 1 Soundtrack ｜ Reptile's Run - Wilbert Roget, II ｜ WaterTower.m4a",
    "title": "Reptile's Run",
-   "seconds": 109.0,
+   "seconds": 109.4,
    "kind": "theme",
    "tags": [
     "reptile's",
@@ -196,7 +197,7 @@
   {
    "file": "18 - Mortal Kombat 1 Soundtrack ｜ Sun Do - Stage - Dean Grinsfelder ｜ WaterTower.m4a",
    "title": "Sun Do",
-   "seconds": 324.0,
+   "seconds": 324.4,
    "kind": "stage",
    "tags": [
     "city",
@@ -220,7 +221,7 @@
   {
    "file": "20 - Mortal Kombat 1 Soundtrack ｜ The Lin Kuei - Wilbert Roget, II ｜ WaterTower.m4a",
    "title": "The Lin Kuei",
-   "seconds": 248.0,
+   "seconds": 248.4,
    "kind": "theme",
    "tags": [
     "kuei",
@@ -230,7 +231,7 @@
   {
    "file": "21 - Mortal Kombat 1 Soundtrack ｜ Treasure Chamber - Stage - Dan Forden ｜ WaterTower.m4a",
    "title": "Treasure Chamber",
-   "seconds": 312.0,
+   "seconds": 311.5,
    "kind": "stage",
    "tags": [
     "chamber",
@@ -242,7 +243,7 @@
   {
    "file": "22 - Mortal Kombat 1 Soundtrack ｜ Sentinel of the Hourglass - Wilbert Roget, II ｜ WaterTower.m4a",
    "title": "Sentinel of the Hourglass",
-   "seconds": 206.0,
+   "seconds": 206.4,
    "kind": "theme",
    "tags": [
     "hourglass",
@@ -252,7 +253,7 @@
   {
    "file": "23 - Mortal Kombat 1 Soundtrack ｜ Dark Doubles - Wilbert Roget, II ｜ WaterTower.m4a",
    "title": "Dark Doubles",
-   "seconds": 202.0,
+   "seconds": 201.6,
    "kind": "theme",
    "tags": [
     "dark",
@@ -262,7 +263,7 @@
   {
    "file": "24 - Mortal Kombat 1 Soundtrack ｜ The Fire Temple - Stage (feat. Ari Mason) - Stephanie Economo.m4a",
    "title": "The Fire Temple (feat. Ari Mason)",
-   "seconds": 310.0,
+   "seconds": 310.4,
    "kind": "stage",
    "tags": [
     "ari",
@@ -277,7 +278,7 @@
   {
    "file": "25 - Mortal Kombat 1 Soundtrack ｜ Reunion - Wilbert Roget, II ｜ WaterTower.m4a",
    "title": "Reunion",
-   "seconds": 134.0,
+   "seconds": 134.4,
    "kind": "theme",
    "tags": [
     "reunion"
@@ -286,7 +287,7 @@
   {
    "file": "26 - Mortal Kombat 1 Soundtrack ｜ Summon the Titans - Wilbert Roget, II ｜ WaterTower.m4a",
    "title": "Summon the Titans",
-   "seconds": 193.0,
+   "seconds": 193.4,
    "kind": "theme",
    "tags": [
     "summon",
@@ -296,7 +297,7 @@
   {
    "file": "27 - Mortal Kombat 1 Soundtrack ｜ The Pyramid - Stage - Wilbert Roget, II ｜ WaterTower.m4a",
    "title": "The Pyramid",
-   "seconds": 229.0,
+   "seconds": 229.4,
    "kind": "stage",
    "tags": [
     "desert",
@@ -307,7 +308,7 @@
   {
    "file": "28 - Mortal Kombat 1 Soundtrack ｜ Timeline Faceoff - Wilbert Roget, II ｜ WaterTower.m4a",
    "title": "Timeline Faceoff",
-   "seconds": 107.0,
+   "seconds": 106.8,
    "kind": "theme",
    "tags": [
     "faceoff",
@@ -329,7 +330,7 @@
   {
    "file": "30 - Mortal Kombat 1 Soundtrack ｜ The Realms in Balance - Wilbert Roget, II ｜ WaterTower.m4a",
    "title": "The Realms in Balance",
-   "seconds": 112.0,
+   "seconds": 112.1,
    "kind": "theme",
    "tags": [
     "balance",
@@ -340,7 +341,7 @@
   {
    "file": "31 - Mortal Kombat 1 Soundtrack ｜ Second Chance - Super Square & Wilbert Roget, II ｜ WaterTower.m4a",
    "title": "Second Chance",
-   "seconds": 219.0,
+   "seconds": 219.3,
    "kind": "theme",
    "tags": [
     "chance",

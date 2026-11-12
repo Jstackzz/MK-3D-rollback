@@ -1,12 +1,13 @@
 {
  "id": "mkx",
  "title": "Mortal Kombat X",
+ "year": 2015,
  "select": "71 - 01. Mortal Kombat X Main Theme - MORTAL KOMBAT X OST.m4a",
  "tracks": [
   {
    "file": "01 - 71. Jinsei Chamber (Medley Ver.) - MORTAL KOMBAT X OST.m4a",
    "title": "Jinsei Chamber (Medley Ver.)",
-   "seconds": 182.0,
+   "seconds": 182.4,
    "kind": "stage",
    "tags": [
     "chamber",
@@ -18,7 +19,7 @@
   {
    "file": "02 - 70. Sky Temple (Medley Ver.) - MORTAL KOMBAT X OST.m4a",
    "title": "Sky Temple (Medley Ver.)",
-   "seconds": 224.0,
+   "seconds": 224.4,
    "kind": "stage",
    "tags": [
     "dragonfly",
@@ -42,7 +43,7 @@
   {
    "file": "04 - 68. Quan Chi's Fortress (Medley Ver.) - MORTAL KOMBAT X OST.m4a",
    "title": "Quan Chi's Fortress (Medley Ver.)",
-   "seconds": 242.0,
+   "seconds": 242.1,
    "kind": "stage",
    "tags": [
     "chi's",
@@ -55,7 +56,7 @@
   {
    "file": "05 - 67. Krossroads (Medley Ver.) - MORTAL KOMBAT X OST.m4a",
    "title": "Krossroads (Medley Ver.)",
-   "seconds": 225.0,
+   "seconds": 224.9,
    "kind": "stage",
    "tags": [
     "crossroads",
@@ -67,7 +68,7 @@
   {
    "file": "06 - 66. The Kove (Medley Ver.) - MORTAL KOMBAT X OST.m4a",
    "title": "The Kove (Medley Ver.)",
-   "seconds": 196.0,
+   "seconds": 195.7,
    "kind": "stage",
    "tags": [
     "cove",
@@ -80,7 +81,7 @@
   {
    "file": "07 - 65. Kuatan Jungle (Medley Ver.) - MORTAL KOMBAT X OST.m4a",
    "title": "Kuatan Jungle (Medley Ver.)",
-   "seconds": 194.0,
+   "seconds": 193.8,
    "kind": "stage",
    "tags": [
     "forest",
@@ -91,7 +92,7 @@
   {
    "file": "08 - 64. Emperor's Courtyard (Medley Ver.) - MORTAL KOMBAT X OST.m4a",
    "title": "Emperor's Courtyard (Medley Ver.)",
-   "seconds": 256.0,
+   "seconds": 255.9,
    "kind": "stage",
    "tags": [
     "courtyard",
@@ -117,7 +118,7 @@
   {
    "file": "10 - 62. Outworld Marketplace (Medley Ver.) - MORTAL KOMBAT X OST.m4a",
    "title": "Outworld Marketplace (Medley Ver.)",
-   "seconds": 199.0,
+   "seconds": 198.5,
    "kind": "stage",
    "tags": [
     "market",
@@ -129,7 +130,7 @@
   {
    "file": "11 - 61. Dead Woods (Medley Ver.) - MORTAL KOMBAT X OST.m4a",
    "title": "Dead Woods (Medley Ver.)",
-   "seconds": 182.0,
+   "seconds": 181.7,
    "kind": "stage",
    "tags": [
     "dead",
@@ -142,7 +143,7 @@
   {
    "file": "12 - 60. Destroyed City (Medley Ver.) - MORTAL KOMBAT X OST.m4a",
    "title": "Destroyed City (Medley Ver.)",
-   "seconds": 212.0,
+   "seconds": 212.1,
    "kind": "stage",
    "tags": [
     "city",
@@ -154,7 +155,7 @@
   {
    "file": "13 - 59. Results - MORTAL KOMBAT X OST.m4a",
    "title": "Results",
-   "seconds": 132.0,
+   "seconds": 132.1,
    "kind": "menu",
    "tags": [
     "results"
@@ -163,7 +164,7 @@
   {
    "file": "14 - 58. Jinsei Chamber - Round 3 - MORTAL KOMBAT X OST.m4a",
    "title": "Jinsei Chamber - Round 3",
-   "seconds": 111.0,
+   "seconds": 110.7,
    "kind": "variant",
    "tags": [
     "chamber",
@@ -173,7 +174,7 @@
   {
    "file": "15 - 57. Jinsei Chamber - Round 2 - MORTAL KOMBAT X OST.m4a",
    "title": "Jinsei Chamber - Round 2",
-   "seconds": 94.0,
+   "seconds": 93.7,
    "kind": "variant",
    "tags": [
     "chamber",
@@ -183,7 +184,7 @@
   {
    "file": "16 - 56. Jinsei Chamber - Round 1 - MORTAL KOMBAT X OST.m4a",
    "title": "Jinsei Chamber - Round 1",
-   "seconds": 124.0,
+   "seconds": 123.8,
    "kind": "variant",
    "tags": [
     "chamber",
@@ -203,7 +204,7 @@
   {
    "file": "18 - 54. Sky Temple - Round 2 - MORTAL KOMBAT X OST.m4a",
    "title": "Sky Temple - Round 2",
-   "seconds": 93.0,
+   "seconds": 93.3,
    "kind": "variant",
    "tags": [
     "sky",
@@ -213,7 +214,7 @@
   {
    "file": "19 - 53. Sky Temple - Round 1 - MORTAL KOMBAT X OST.m4a",
    "title": "Sky Temple - Round 1",
-   "seconds": 153.0,
+   "seconds": 153.1,
    "kind": "variant",
    "tags": [
     "sky",
@@ -223,7 +224,7 @@
   {
    "file": "20 - 52. Holding off the Army - MORTAL KOMBAT X OST.m4a",
    "title": "Holding off the Army",
-   "seconds": 154.0,
+   "seconds": 154.3,
    "kind": "theme",
    "tags": [
     "army",
@@ -234,7 +235,7 @@
   {
    "file": "21 - 51. Refugee Kamp - Round 3 - MORTAL KOMBAT X OST.m4a",
    "title": "Refugee Kamp - Round 3",
-   "seconds": 108.0,
+   "seconds": 108.3,
    "kind": "variant",
    "tags": [
     "kamp",
@@ -254,7 +255,7 @@
   {
    "file": "23 - 49. Refugee Kamp - Round 1 - MORTAL KOMBAT X OST.m4a",
    "title": "Refugee Kamp - Round 1",
-   "seconds": 124.0,
+   "seconds": 124.2,
    "kind": "variant",
    "tags": [
     "kamp",
@@ -264,7 +265,7 @@
   {
    "file": "24 - 48. The Bounds of Friendship - MORTAL KOMBAT X OST.m4a",
    "title": "The Bounds of Friendship",
-   "seconds": 44.0,
+   "seconds": 43.6,
    "kind": "stinger",
    "tags": [
     "bounds",
@@ -274,7 +275,7 @@
   {
    "file": "25 - 47. Quan Chi's Fortress - Round 3 - MORTAL KOMBAT X OST.m4a",
    "title": "Quan Chi's Fortress - Round 3",
-   "seconds": 118.0,
+   "seconds": 117.5,
    "kind": "variant",
    "tags": [
     "chi's",
@@ -285,7 +286,7 @@
   {
    "file": "26 - 46. Quan Chi's Fortress - Round 2 - MORTAL KOMBAT X OST.m4a",
    "title": "Quan Chi's Fortress - Round 2",
-   "seconds": 190.0,
+   "seconds": 189.9,
    "kind": "variant",
    "tags": [
     "chi's",
@@ -296,7 +297,7 @@
   {
    "file": "27 - 45. Quan Chi's Fortress - Round 1 - MORTAL KOMBAT X OST.m4a",
    "title": "Quan Chi's Fortress - Round 1",
-   "seconds": 126.0,
+   "seconds": 126.1,
    "kind": "variant",
    "tags": [
     "chi's",
@@ -307,7 +308,7 @@
   {
    "file": "28 - 44. It's Good to Be Back - MORTAL KOMBAT X OST.m4a",
    "title": "It's Good to Be Back",
-   "seconds": 54.0,
+   "seconds": 53.7,
    "kind": "stinger",
    "tags": [
     "back",
@@ -320,7 +321,7 @@
   {
    "file": "29 - 43. Krossroads - Round 3 - MORTAL KOMBAT X OST.m4a",
    "title": "Krossroads - Round 3",
-   "seconds": 141.0,
+   "seconds": 141.3,
    "kind": "variant",
    "tags": [
     "krossroads"
@@ -329,7 +330,7 @@
   {
    "file": "30 - 42. Krossroads - Round 2 - MORTAL KOMBAT X OST.m4a",
    "title": "Krossroads - Round 2",
-   "seconds": 103.0,
+   "seconds": 103.4,
    "kind": "variant",
    "tags": [
     "krossroads"
@@ -338,7 +339,7 @@
   {
    "file": "31 - 41. Krossroads - Round 1 - MORTAL KOMBAT X OST.m4a",
    "title": "Krossroads - Round 1",
-   "seconds": 150.0,
+   "seconds": 149.6,
    "kind": "variant",
    "tags": [
     "krossroads"
@@ -347,7 +348,7 @@
   {
    "file": "32 - 40. Back in the Saddle - MORTAL KOMBAT X OST.m4a",
    "title": "Back in the Saddle",
-   "seconds": 117.0,
+   "seconds": 117.3,
    "kind": "theme",
    "tags": [
     "back",
@@ -358,7 +359,7 @@
   {
    "file": "33 - 39. The Krypt - Shao Khan's Tomb - MORTAL KOMBAT X OST.m4a",
    "title": "The Krypt - Shao Khan's Tomb",
-   "seconds": 190.0,
+   "seconds": 190.1,
    "kind": "theme",
    "tags": [
     "khan's",
@@ -370,7 +371,7 @@
   {
    "file": "34 - 38. The Krypt - Spider Tunnels - MORTAL KOMBAT X OST.m4a",
    "title": "The Krypt - Spider Tunnels",
-   "seconds": 193.0,
+   "seconds": 193.4,
    "kind": "theme",
    "tags": [
     "krypt",
@@ -381,7 +382,7 @@
   {
    "file": "35 - 37. The Krypt - Dead Woods Cemetery - MORTAL KOMBAT X OST.m4a",
    "title": "The Krypt - Dead Woods Cemetery",
-   "seconds": 230.0,
+   "seconds": 229.6,
    "kind": "theme",
    "tags": [
     "cemetery",
@@ -393,7 +394,7 @@
   {
    "file": "36 - 36. Test Your Might - Success - MORTAL KOMBAT X OST.m4a",
    "title": "Test Your Might - Success",
-   "seconds": 7.0,
+   "seconds": 7.1,
    "kind": "stinger",
    "tags": [
     "might",
@@ -405,7 +406,7 @@
   {
    "file": "37 - 35. Test Your Might - Fail - MORTAL KOMBAT X OST.m4a",
    "title": "Test Your Might - Fail",
-   "seconds": 7.0,
+   "seconds": 6.6,
    "kind": "stinger",
    "tags": [
     "fail",
@@ -417,7 +418,7 @@
   {
    "file": "38 - 34. Test Your Might - MORTAL KOMBAT X OST.m4a",
    "title": "Test Your Might",
-   "seconds": 39.0,
+   "seconds": 38.9,
    "kind": "stinger",
    "tags": [
     "might",
@@ -428,7 +429,7 @@
   {
    "file": "39 - 33. Tower - MORTAL KOMBAT X OST.m4a",
    "title": "Tower",
-   "seconds": 12.0,
+   "seconds": 11.7,
    "kind": "stinger",
    "tags": [
     "tower"
@@ -437,7 +438,7 @@
   {
    "file": "40 - 32. Fatality - MORTAL KOMBAT X OST.m4a",
    "title": "Fatality",
-   "seconds": 22.0,
+   "seconds": 22.1,
    "kind": "stinger",
    "tags": [
     "fatality"
@@ -446,7 +447,7 @@
   {
    "file": "41 - 31. Brutality - MORTAL KOMBAT X OST.m4a",
    "title": "Brutality",
-   "seconds": 7.0,
+   "seconds": 6.8,
    "kind": "stinger",
    "tags": [
     "brutality"
@@ -455,7 +456,7 @@
   {
    "file": "42 - 30. The Kove - Round 3 - MORTAL KOMBAT X OST.m4a",
    "title": "The Kove - Round 3",
-   "seconds": 122.0,
+   "seconds": 122.2,
    "kind": "variant",
    "tags": [
     "kove"
@@ -464,7 +465,7 @@
   {
    "file": "43 - 29. The Kove - Round 2 - MORTAL KOMBAT X OST.m4a",
    "title": "The Kove - Round 2",
-   "seconds": 100.0,
+   "seconds": 99.8,
    "kind": "variant",
    "tags": [
     "kove"
@@ -473,7 +474,7 @@
   {
    "file": "44 - 28. The Kove - Round 1 - MORTAL KOMBAT X OST.m4a",
    "title": "The Kove - Round 1",
-   "seconds": 129.0,
+   "seconds": 128.6,
    "kind": "variant",
    "tags": [
     "kove"
@@ -482,7 +483,7 @@
   {
    "file": "45 - 27. Kamouflaged - MORTAL KOMBAT X OST.m4a",
    "title": "Kamouflaged",
-   "seconds": 89.0,
+   "seconds": 88.6,
    "kind": "theme",
    "tags": [
     "kamouflaged"
@@ -491,7 +492,7 @@
   {
    "file": "46 - 26. Krushed Rebellion - MORTAL KOMBAT X OST.m4a",
    "title": "Krushed Rebellion",
-   "seconds": 215.0,
+   "seconds": 214.7,
    "kind": "theme",
    "tags": [
     "krushed",
@@ -511,7 +512,7 @@
   {
    "file": "48 - 24. Kuatan Jungle - Round 2 - MORTAL KOMBAT X OST.m4a",
    "title": "Kuatan Jungle - Round 2",
-   "seconds": 104.0,
+   "seconds": 103.8,
    "kind": "variant",
    "tags": [
     "jungle",
@@ -521,7 +522,7 @@
   {
    "file": "49 - 23. Kuatan Jungle - Round 1 - MORTAL KOMBAT X OST.m4a",
    "title": "Kuatan Jungle - Round 1",
-   "seconds": 138.0,
+   "seconds": 137.5,
    "kind": "variant",
    "tags": [
     "jungle",
@@ -531,7 +532,7 @@
   {
    "file": "50 - 22. Finish Him! - MORTAL KOMBAT X OST.m4a",
    "title": "Finish Him!",
-   "seconds": 33.0,
+   "seconds": 32.8,
    "kind": "stinger",
    "tags": [
     "finish",
@@ -541,7 +542,7 @@
   {
    "file": "51 - 21. Brutal Beatdown - MORTAL KOMBAT X OST.m4a",
    "title": "Brutal Beatdown",
-   "seconds": 68.0,
+   "seconds": 68.3,
    "kind": "theme",
    "tags": [
     "beatdown",
@@ -551,7 +552,7 @@
   {
    "file": "52 - 20. Emperor's Courtyard - Round 3 - MORTAL KOMBAT X OST.m4a",
    "title": "Emperor's Courtyard - Round 3",
-   "seconds": 130.0,
+   "seconds": 130.3,
    "kind": "variant",
    "tags": [
     "courtyard",
@@ -561,7 +562,7 @@
   {
    "file": "53 - 19. Emperor's Courtyard - Round 2 - MORTAL KOMBAT X OST.m4a",
    "title": "Emperor's Courtyard - Round 2",
-   "seconds": 105.0,
+   "seconds": 104.6,
    "kind": "variant",
    "tags": [
     "courtyard",
@@ -571,7 +572,7 @@
   {
    "file": "54 - 18. Emperor's Courtyard - Round 1 - MORTAL KOMBAT X OST.m4a",
    "title": "Emperor's Courtyard - Round 1",
-   "seconds": 142.0,
+   "seconds": 142.2,
    "kind": "variant",
    "tags": [
     "courtyard",
@@ -581,7 +582,7 @@
   {
    "file": "55 - 17. Target Practice - MORTAL KOMBAT X OST.m4a",
    "title": "Target Practice",
-   "seconds": 63.0,
+   "seconds": 63.1,
    "kind": "stinger",
    "tags": [
     "practice",
@@ -591,7 +592,7 @@
   {
    "file": "56 - 16. Lin Kuei Temple - Round 3 - MORTAL KOMBAT X OST.m4a",
    "title": "Lin Kuei Temple - Round 3",
-   "seconds": 118.0,
+   "seconds": 118.2,
    "kind": "variant",
    "tags": [
     "kuei",
@@ -602,7 +603,7 @@
   {
    "file": "57 - 15. Lin Kuei Temple - Round 2 - MORTAL KOMBAT X OST.m4a",
    "title": "Lin Kuei Temple - Round 2",
-   "seconds": 106.0,
+   "seconds": 105.5,
    "kind": "variant",
    "tags": [
     "kuei",
@@ -624,7 +625,7 @@
   {
    "file": "59 - 13. Outworld Marketplace - Round 3 - MORTAL KOMBAT X OST.m4a",
    "title": "Outworld Marketplace - Round 3",
-   "seconds": 115.0,
+   "seconds": 114.9,
    "kind": "variant",
    "tags": [
     "marketplace",
@@ -644,7 +645,7 @@
   {
    "file": "61 - 11. Outworld Marketplace - Round 1 - MORTAL KOMBAT X OST.m4a",
    "title": "Outworld Marketplace - Round 1",
-   "seconds": 138.0,
+   "seconds": 137.9,
    "kind": "variant",
    "tags": [
     "marketplace",
@@ -664,7 +665,7 @@
   {
    "file": "63 - 09. Dead Woods - Round 3 - MORTAL KOMBAT X OST.m4a",
    "title": "Dead Woods - Round 3",
-   "seconds": 103.0,
+   "seconds": 103.2,
    "kind": "variant",
    "tags": [
     "dead",
@@ -674,7 +675,7 @@
   {
    "file": "64 - 08. Dead Woods - Round 2 - MORTAL KOMBAT X OST.m4a",
    "title": "Dead Woods - Round 2",
-   "seconds": 86.0,
+   "seconds": 85.7,
    "kind": "variant",
    "tags": [
     "dead",
@@ -684,7 +685,7 @@
   {
    "file": "65 - 07. Dead Woods - Round 1 - MORTAL KOMBAT X OST.m4a",
    "title": "Dead Woods - Round 1",
-   "seconds": 123.0,
+   "seconds": 122.5,
    "kind": "variant",
    "tags": [
     "dead",
@@ -694,7 +695,7 @@
   {
    "file": "66 - 06. Shinnok's Legions ~ Among Friends - MORTAL KOMBAT X OST.m4a",
    "title": "Shinnok's Legions ~ Among Friends",
-   "seconds": 231.0,
+   "seconds": 231.4,
    "kind": "theme",
    "tags": [
     "among",
@@ -716,7 +717,7 @@
   {
    "file": "68 - 04. Destroyed City - Round 2 - MORTAL KOMBAT X OST.m4a",
    "title": "Destroyed City - Round 2",
-   "seconds": 109.0,
+   "seconds": 108.7,
    "kind": "variant",
    "tags": [
     "city",
@@ -726,7 +727,7 @@
   {
    "file": "69 - 03. Destroyed City - Round 1 - MORTAL KOMBAT X OST.m4a",
    "title": "Destroyed City - Round 1",
-   "seconds": 151.0,
+   "seconds": 150.9,
    "kind": "variant",
    "tags": [
     "city",
@@ -736,7 +737,7 @@
   {
    "file": "70 - 02. Helicopter Fight - MORTAL KOMBAT X OST.m4a",
    "title": "Helicopter Fight",
-   "seconds": 136.0,
+   "seconds": 135.8,
    "kind": "theme",
    "tags": [
     "fight",
@@ -746,7 +747,7 @@
   {
    "file": "71 - 01. Mortal Kombat X Main Theme - MORTAL KOMBAT X OST.m4a",
    "title": "MORTAL KOMBAT X OST",
-   "seconds": 186.0,
+   "seconds": 186.2,
    "kind": "select",
    "tags": [
     "x"
