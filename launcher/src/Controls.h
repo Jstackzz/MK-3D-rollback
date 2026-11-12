@@ -5,6 +5,7 @@
 
 #include <QList>
 #include <QString>
+#include <QStringList>
 
 #include <array>
 
@@ -37,7 +38,10 @@ struct Map {
     bool keyboard = true;                      // the keyboard plays as player 1
     std::array<QList<int>, Count> keys;        // Windows virtual keys, at most kKeysPerButton each
     QList<int> presses;                        // per sources() entry: the control it presses, -1 nothing
+    QString player2;                           // the controller on port 1 by its name (offline versus); empty: the second plugged in
 };
+// the controllers plugged in now, by name as the games see them (SDL), for the player 2 choice
+QStringList connectedControllers();
 Map defaults();
 QString file();  // controls.toml beside the launcher's settings file
 Map load();      // the file's controls over the defaults

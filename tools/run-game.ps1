@@ -10,6 +10,7 @@ param(
     [string]$Exe = 'MKD.exe',
     [ValidateSet('debug', 'release')][string]$Config = 'debug',
     [int]$Seconds = 30,
+    [switch]$Minimized,  # the game's window starts minimized (runs on a PC someone uses)
     [string]$Shots = '',  # seconds, comma separated
     [string]$Env = '',  # KEY=VALUE pairs separated by ';' (-File cannot pass a hashtable)
     [string]$Tag = '',
@@ -60,7 +61,11 @@ function Snap([System.Diagnostics.Process]$p, [string]$name) {
 foreach ($kv in ($Env | ForEach-Object { $_ -split ';' })) { if ($kv -match '^([^=]+)=(.*)$') { Set-Item -Path "env:$($Matches[1])" -Value $Matches[2] } }
 if (-not $env:SDL_ASSERT) { $env:SDL_ASSERT = 'always_ignore' }
 $before = @(Get-ChildItem (Join-Path $dir 'logs') -Filter '*.log' -ErrorAction SilentlyContinue | ForEach-Object FullName)
-$p = Start-Process -FilePath (Join-Path $dir $Exe) -WorkingDirectory $dir -PassThru
+if ($Minimized) {
+    $p = Start-Process -FilePath (Join-Path $dir $Exe) -WorkingDirectory $dir -PassThru -WindowStyle Minimized
+} else {
+    $p = Start-Process -FilePath (Join-Path $dir $Exe) -WorkingDirectory $dir -PassThru
+}
 $t0 = Get-Date
 "started $Exe pid $($p.Id)"
 $label = if ($Tag) { "$Game-$Tag" } else { "$Game-$($t0.ToString('HHmmss'))" }

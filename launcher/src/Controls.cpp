@@ -1,5 +1,7 @@
 #include "Controls.h"
 
+#include <SDL3/SDL.h>
+
 #include <QDir>
 #include <QFile>
 #include <QKeyEvent>
@@ -212,6 +214,19 @@ Map defaults() {
 
 QString file() { return QDir(paths::dataDir()).filePath(QStringLiteral("controls.toml")); }
 
+QStringList connectedControllers() {
+    QStringList out;
+    if (!SDL_WasInit(SDL_INIT_GAMEPAD) && !SDL_Init(SDL_INIT_GAMEPAD)) return out;
+    int count = 0;
+    SDL_JoystickID* ids = SDL_GetGamepads(&count);
+    for (int i = 0; ids && i < count; i++) {
+        const char* name = SDL_GetGamepadNameForID(ids[i]);
+        if (name && *name && !out.contains(QString::fromUtf8(name))) out << QString::fromUtf8(name);
+    }
+    SDL_free(ids);
+    return out;
+}
+
 Map load() {
     Map m = defaults();
     QFile f(file());
@@ -240,6 +255,11 @@ Map load() {
             for (const QString& name : strings(value)) {
                 const int vk = keyFromName(name);
                 if (vk && !m.keys[c].contains(vk) && m.keys[c].size() < kKeysPerButton) m.keys[c] << vk;
+            }
+        } else if (section == QLatin1String("ports")) {
+            if (key == QLatin1String("player2")) {
+                const QStringList v = strings(value);
+                m.player2 = v.isEmpty() ? QString() : v.first();
             }
         } else if (section == QLatin1String("buttons")) {
             const int i = sourceFromId(key);
@@ -270,6 +290,11 @@ bool save(const Map& m, QString* error) {
     const QList<Source>& all = sources();
     for (int i = 0; i < all.size(); ++i)
         text += QStringLiteral("%1 = \"%2\"\n").arg(all[i].id, controlId(i < m.presses.size() ? m.presses[i] : -1));
+    text += QStringLiteral("\n# Player 2's controller (the offline versus) by its name; \"\" the second one plugged in. While a\n"
+                           "# name is here, every other controller keeps clear of player 2's port.\n[ports]\n");
+    QString name = m.player2;
+    name.replace(QLatin1Char('\\'), QStringLiteral("\\\\")).replace(QLatin1Char('"'), QStringLiteral("\\\""));
+    text += QStringLiteral("player2 = \"%1\"\n").arg(name);
 
     // whole or not at all: a game reading it at that moment holds up the swap for an instant
     QString why;

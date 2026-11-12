@@ -1,0 +1,122 @@
+{
+ "id": "mk1",
+ "title": "Mortal Kombat (1992 arcade)",
+ "select": "01 - Mortal Kombat 1 Arcade - OST Music Soundtrack - In The Beginning - Character Select.m4a",
+ "tracks": [
+  {
+   "file": "01 - Mortal Kombat 1 Arcade - OST Music Soundtrack - In The Beginning - Character Select.m4a",
+   "title": "In The Beginning - Character Select",
+   "seconds": 53.0,
+   "kind": "select",
+   "tags": [
+    "beginning",
+    "character",
+    "in",
+    "select"
+   ]
+  },
+  {
+   "file": "02 - Mortal Kombat 1 Arcade OST - Original Music Soundtrack - Battle Plan.m4a",
+   "title": "Battle Plan",
+   "seconds": 11.0,
+   "kind": "stinger",
+   "tags": [
+    "battle",
+    "plan"
+   ]
+  },
+  {
+   "file": "03 - Mortal Kombat 1 Arcade OST - Original Music Soundtrack - The Courtyard.m4a",
+   "title": "The Courtyard",
+   "seconds": 72.0,
+   "kind": "stage",
+   "tags": [
+    "academy",
+    "courtyard",
+    "palace grounds",
+    "wu shi"
+   ]
+  },
+  {
+   "file": "04 - Mortal Kombat 1 Arcade OST - Original Music Soundtrack - The Temple Gate (Palace Gates).m4a",
+   "title": "The Temple Gate (Palace Gates)",
+   "seconds": 62.0,
+   "kind": "stage",
+   "tags": [
+    "gate",
+    "gates",
+    "grounds",
+    "palace",
+    "temple"
+   ]
+  },
+  {
+   "file": "05 - Mortal Kombat 1 Arcade OST - Original Music Soundtrack - The Bridge (The Pit).m4a",
+   "title": "The Bridge (The Pit)",
+   "seconds": 61.0,
+   "kind": "stage",
+   "tags": [
+    "bridge",
+    "cliffs",
+    "pit"
+   ]
+  },
+  {
+   "file": "06 - Mortal Kombat 1 Arcade OST - Original Music Soundtrack - Throne Room.m4a",
+   "title": "Throne Room",
+   "seconds": 101.0,
+   "kind": "stage",
+   "tags": [
+    "kahn",
+    "palace",
+    "room",
+    "shang tsung",
+    "throne"
+   ]
+  },
+  {
+   "file": "07 - Mortal Kombat 1 Arcade OST - Original Music Soundtrack - Goro's Lair.m4a",
+   "title": "Goro's Lair",
+   "seconds": 121.0,
+   "kind": "stage",
+   "tags": [
+    "cave",
+    "goro",
+    "goro's",
+    "lair",
+    "moloch"
+   ]
+  },
+  {
+   "file": "08 - Mortal Kombat 1 Arcade OST - Original Music Soundtrack - Victory and Ending.m4a",
+   "title": "Victory and Ending",
+   "seconds": 79.0,
+   "kind": "theme",
+   "tags": [
+    "ending",
+    "victory"
+   ]
+  },
+  {
+   "file": "09 - Mortal Kombat 1 Arcade OST - Original Music Soundtrack - The Cavern (Warrior Shrine).m4a",
+   "title": "The Cavern (Warrior Shrine)",
+   "seconds": 59.0,
+   "kind": "stage",
+   "tags": [
+    "cave",
+    "cavern",
+    "shrine",
+    "warrior"
+   ]
+  },
+  {
+   "file": "10 - Mortal Kombat 1 Arcade - OST Music Soundtrack - Fatality.m4a",
+   "title": "Fatality",
+   "seconds": 7.0,
+   "kind": "stinger",
+   "tags": [
+    "fatality"
+   ]
+  }
+ ]
+}

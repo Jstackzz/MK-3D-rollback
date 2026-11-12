@@ -9,6 +9,7 @@
 //                                index; every character, costume and arena is unlocked when either is given, or with
 //                                MKA_UNLOCK_ALL=1 (a launcher match always)
 //   MKA_AUTOPILOT_HOLD=1         stop at character select
+//   MK3D_VERSUS=1                            to the versus select screen, everything unlocked, both players pick
 //   MK3D_TRAINING=1              to practice's select screen, every character, costume and arena unlocked (the created
 //                                fighter as the profile has it); the player picks there (the launcher's practice: its
 //                                own button, or while a search waits)
@@ -84,6 +85,10 @@ bool g_wait_for_request = false;
 // MK3D_TRAINING=1, the launcher's practice while a search waits: to practice's select screen, where the player picks
 // both fighters with their own controller as in the game's own practice
 const bool g_training = std::getenv("MK3D_TRAINING") != nullptr;
+// MK3D_VERSUS=1, the launcher's offline versus: to the versus select screen with every character, costume and arena
+// unlocked, where the two players pick with their own controllers (player 2's is the one the launcher names, else the
+// second one plugged in)
+const bool g_versus = std::getenv("MK3D_VERSUS") != nullptr;
 const bool g_hold_at_select = std::getenv("MKA_AUTOPILOT_HOLD") != nullptr;
 uint32_t g_track_seed = 0;  // Motor Kombat: the launcher's seed and stage for the track
 std::string g_track_stage;
@@ -171,6 +176,7 @@ bool Selects(int action) {
 const bool g_loaded = [] {
     const char* s = std::getenv("MKA_AUTOPILOT");
     if (!s && g_training) s = "practice";
+    if (!s && g_versus) s = "versus";
     if (!s) return false;
     g_req.action = ActionFor(s);
     if (g_req.action < 0) {
@@ -672,7 +678,7 @@ void Apply(int port, input::Pad& pad) {
                 }
                 ResetPlayerPicks();
                 if (g_req.unlock_all) Unlock();
-                if (g_training) UnlockForPractice();
+                if (g_training || g_versus) UnlockForPractice();
                 g_base_actions = MenuActions();
                 Enter(Phase::Choose);
             }
@@ -710,8 +716,9 @@ void Apply(int port, input::Pad& pad) {
             }
             return;
         case Phase::Select: {
-            if (g_training) {  // the player's own picks from here
-                LOGR("autopilot: practice's select screen, the player picks");
+            if (g_training || g_versus) {  // the players' own picks from here
+                LOGR("autopilot: %s select screen, the player%s pick%s", g_versus ? "the versus" : "practice's",
+                     g_versus ? "s" : "", g_versus ? "" : "s");
                 Enter(Phase::Done);
                 return;
             }

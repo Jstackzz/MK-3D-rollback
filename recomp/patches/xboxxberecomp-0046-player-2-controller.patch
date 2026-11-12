@@ -1,0 +1,128 @@
+diff --git a/runtime/core/input.cpp b/runtime/core/input.cpp
+index 83406d0..dde1051 100644
+--- a/runtime/core/input.cpp
++++ b/runtime/core/input.cpp
+@@ -39,7 +39,9 @@ namespace input {
+ 
+ namespace {
+ 
+-// a controller takes the lowest free port when it is plugged in and keeps it until it is unplugged
++// a controller takes the lowest free port when it is plugged in and keeps it until it is unplugged; a controller the
++// controls file names as player 2's ([ports] player2) takes port 1 whenever it is plugged in, and the others keep
++// clear of that port
+ std::mutex g_lock;
+ bool g_sdl = false;
+ SDL_Gamepad* g_pads[4] = {};
+@@ -92,6 +94,7 @@ struct Controls {
+     bool keyboard = true;
+     std::vector<int> keys[kControls];  // Windows virtual keys
+     int presses[kSourceCount];         // the control each controller button presses, -1 nothing
++    std::string player2;               // the controller on port 1 by its name ([ports] player2), empty: plug-in order
+ };
+ 
+ // arrows or WASD move (the d-pad), J I K L are the face buttons X Y A B (the four attacks of a fighting game's
+@@ -124,6 +127,7 @@ std::filesystem::file_time_type g_controls_time{};
+ bool g_controls_read = false;  // the file's controls hold, not the defaults
+ Controls g_controls = Defaults();
+ std::chrono::steady_clock::time_point g_controls_checked{};
++void PlacePadsAgain();
+ 
+ bool SameText(std::string_view a, std::string_view b) {
+     return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](char x, char y) {
+@@ -231,6 +235,8 @@ Read ReadControls(const std::filesystem::path& file, Controls& c) {
+             }
+         }
+ #endif
++    if (const toml::table* ports = t["ports"].as_table())
++        c.player2 = (*ports)["player2"].value_or(std::string());
+     if (const toml::table* buttons = t["buttons"].as_table())
+         for (const auto& [source_name, value] : *buttons) {
+             const int source = SourceFromName(source_name.str());
+@@ -296,8 +302,10 @@ void WatchControls() {
+         case Read::Ok: break;
+     }
+     g_controls_time = time;
++    const bool player2_changed = c.player2 != g_controls.player2;
+     g_controls = std::move(c);
+     g_controls_read = true;
++    if (player2_changed) PlacePadsAgain();
+     LOGR("input: controls from %s%s", Utf8(g_controls_file).c_str(), g_controls.keyboard ? "" : ", keyboard off");
+ }
+ 
+@@ -311,14 +319,71 @@ void Press(Pad& p, int control, uint8_t v) {
+     }
+ }
+ 
++bool IsPlayer2(SDL_Gamepad* pad) {
++    if (!pad || g_controls.player2.empty()) return false;
++    const char* name = SDL_GetGamepadName(pad);
++    return name && SameText(name, g_controls.player2);
++}
++
++// the port a controller takes: player 2's named controller port 1; the rest the lowest free port, skipping port 1
++// while a player 2 controller is named (it stays free for that one)
++int PortFor(SDL_Gamepad* pad) {
++    if (IsPlayer2(pad)) {
++        if (!g_pads[1] || IsPlayer2(g_pads[1])) return g_pads[1] ? -1 : 1;
++        // another controller sits on port 1: it moves to the lowest free port
++        for (int i = 0; i < 4; i++)
++            if (i != 1 && !g_pads[i]) {
++                g_pads[i] = g_pads[1];
++                g_pads[1] = nullptr;
++                LOGI("input: controller moved to port %d for player 2's", i + 1);
++                return 1;
++            }
++        return -1;
++    }
++    for (int i = 0; i < 4; i++) {
++        if (i == 1 && !g_controls.player2.empty()) continue;
++        if (!g_pads[i]) return i;
++    }
++    return g_pads[1] || !g_controls.player2.empty() ? -1 : 1;
++}
++
+ void AddPad(SDL_JoystickID id) {
+     for (SDL_Gamepad* pad : g_pads)
+         if (pad && SDL_GetGamepadID(pad) == id) return;
+-    SDL_Gamepad** slot = std::find(std::begin(g_pads), std::end(g_pads), nullptr);
+-    if (slot == std::end(g_pads)) return;
+-    *slot = SDL_OpenGamepad(id);
+-    const char* name = *slot ? SDL_GetGamepadName(*slot) : SDL_GetError();
+-    LOGI("input: controller %d %s: %s", int(slot - g_pads) + 1, *slot ? "plugged in" : "failed to open", name ? name : "");
++    SDL_Gamepad* pad = SDL_OpenGamepad(id);
++    if (!pad) {
++        LOGI("input: a controller failed to open: %s", SDL_GetError());
++        return;
++    }
++    const int port = PortFor(pad);
++    if (port < 0) {
++        LOGI("input: no port free for %s", SDL_GetGamepadName(pad));
++        SDL_CloseGamepad(pad);
++        return;
++    }
++    g_pads[port] = pad;
++    const char* name = SDL_GetGamepadName(pad);
++    LOGI("input: controller %d plugged in: %s%s", port + 1, name ? name : "", IsPlayer2(pad) ? " (player 2's)" : "");
++}
++
++// the controls file named another player 2 controller: the pads take their ports again by the rule
++void PlacePadsAgain() {
++    SDL_Gamepad* pads[4];
++    std::copy(std::begin(g_pads), std::end(g_pads), pads);
++    std::fill(std::begin(g_pads), std::end(g_pads), nullptr);
++    // player 2's first, so it gets port 1
++    for (int pass = 0; pass < 2; pass++)
++        for (SDL_Gamepad* pad : pads) {
++            if (!pad || (pass == 0) != IsPlayer2(pad)) continue;
++            const int port = PortFor(pad);
++            if (port < 0) {
++                LOGI("input: no port free for %s", SDL_GetGamepadName(pad));
++                SDL_CloseGamepad(pad);
++                continue;
++            }
++            g_pads[port] = pad;
++            LOGI("input: controller %d: %s%s", port + 1, SDL_GetGamepadName(pad), IsPlayer2(pad) ? " (player 2's)" : "");
++        }
+ }
+ 
+ void RemovePad(SDL_JoystickID id) {

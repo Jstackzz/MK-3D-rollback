@@ -1,0 +1,53 @@
+diff --git a/runtime/kernel/kernel.h b/runtime/kernel/kernel.h
+index 3c3cae3..31d11bd 100644
+--- a/runtime/kernel/kernel.h
++++ b/runtime/kernel/kernel.h
+@@ -140,6 +140,12 @@ uint64_t GuestNanoseconds();
+ uint64_t RealNanoseconds();
+ void PublishGuestTime();
+ void SetGuestWriteHook(GuestWriteHook hook);
++// A game layer's say over which host file an Xbox path opens (a jukebox: another sound bank for a stage's music).
++// Called with the normalised Xbox path in upper case ("\DEVICE\CDROM0\SNDSXBOX\MUSIC_TUNE4.MSX") and the host path the
++// title's files give it; true with host changed opens that file instead. Every path-based query goes through it
++// (opens, attributes), so the substitute's size is what the title sees. Must not open files through the kernel.
++using OpenHook = bool (*)(const std::string& xbox_upper, std::string& host);
++void SetOpenHook(OpenHook hook);
+ void BeforeGuestWrite(uint32_t va, uint32_t len);
+ // file reads the recording thread made while recording (host_rollback.h): a game layer keeps frames that load out of
+ // what a rollback runs again
+diff --git a/runtime/kernel/files.cpp b/runtime/kernel/files.cpp
+index cc318a9..4191f74 100644
+--- a/runtime/kernel/files.cpp
++++ b/runtime/kernel/files.cpp
+@@ -23,6 +23,7 @@ namespace {
+ std::mutex g_links_lock;
+ std::map<std::string, std::string> g_links;    // upper case "\??\D:" -> "\Device\CdRom0"
+ std::map<std::string, fs::path> g_devices;     // upper case device -> host directory
++OpenHook g_open_hook = nullptr;                // a game layer's substitute for a path (SetOpenHook)
+ constexpr char kCdRom[] = "\\DEVICE\\CDROM0";
+ 
+ std::string Upper(std::string s) {
+@@ -313,6 +314,11 @@ Target Resolve(const std::string& xbox_path, uint32_t root_handle) {
+     // no Xbox name holds ':', and fs::path would take "D:" as a host drive
+     for (auto& part : parts)
+         if (part.find(':') != std::string::npos) return {};
++    if (g_open_hook) {
++        // the hook's file stands in for the title's, on a disc image too
++        std::string host = best->first == kCdRom && MountedDisc() ? std::string() : MatchCase(best->second, parts).string();
++        if (g_open_hook(up, host)) return {host};
++    }
+     if (best->first == kCdRom)
+         if (const Disc* disc = MountedDisc()) return {{}, true, disc->Find(parts)};
+     return {MatchCase(best->second, parts).string()};
+@@ -348,6 +354,11 @@ uint32_t OpenOnDisc(const Disc::Entry* e, const std::string& name, uint32_t hand
+ 
+ std::string ResolvePath(const std::string& xbox_path, uint32_t root_handle) { return Resolve(xbox_path, root_handle).host; }
+ 
++void SetOpenHook(OpenHook hook) {
++    std::lock_guard<std::mutex> lock(g_links_lock);
++    g_open_hook = hook;
++}
++
+ bool ReadGameFile(const std::string& xbox_path, std::vector<uint8_t>& out) {
+     Target t = Resolve(xbox_path, 0);
+     if (t.disc) {

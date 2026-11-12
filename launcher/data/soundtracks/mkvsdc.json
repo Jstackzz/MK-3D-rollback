@@ -1,0 +1,179 @@
+{
+ "id": "mkvsdc",
+ "title": "Mortal Kombat vs. DC Universe",
+ "select": "01 - Mortal Kombat vs DC Universe OST - Main Theme.m4a",
+ "tracks": [
+  {
+   "file": "01 - Mortal Kombat vs DC Universe OST - Main Theme.m4a",
+   "title": "Main Theme",
+   "seconds": 191.0,
+   "kind": "select",
+   "tags": [
+    "main",
+    "theme"
+   ]
+  },
+  {
+   "file": "02 - Mortal Kombat vs DC Universe OST - Graveyard.m4a",
+   "title": "Graveyard",
+   "seconds": 147.0,
+   "kind": "stage",
+   "tags": [
+    "graveyard",
+    "tomb"
+   ]
+  },
+  {
+   "file": "03 - Mortal Kombat vs DC Universe OST - Wu Shi Academy.m4a",
+   "title": "Wu Shi Academy",
+   "seconds": 155.0,
+   "kind": "stage",
+   "tags": [
+    "academy",
+    "courtyard",
+    "shi",
+    "wu",
+    "wu shi"
+   ]
+  },
+  {
+   "file": "04 - Mortal Kombat vs DC Universe OST - Special Forces Base.m4a",
+   "title": "Special Forces Base",
+   "seconds": 152.0,
+   "kind": "stage",
+   "tags": [
+    "base",
+    "forces",
+    "special",
+    "special forces"
+   ]
+  },
+  {
+   "file": "05 - Mortal Kombat vs DC Universe OST - Raiden's Temple.m4a",
+   "title": "Raiden's Temple",
+   "seconds": 155.0,
+   "kind": "stage",
+   "tags": [
+    "raiden",
+    "raiden's",
+    "sky temple",
+    "temple"
+   ]
+  },
+  {
+   "file": "06 - Mortal Kombat vs DC Universe OST - Netherrealm.m4a",
+   "title": "Netherrealm",
+   "seconds": 150.0,
+   "kind": "stage",
+   "tags": [
+    "fortress",
+    "hell",
+    "netherrealm",
+    "nethership"
+   ]
+  },
+  {
+   "file": "07 - Mortal Kombat vs DC Universe OST - Metropolis.m4a",
+   "title": "Metropolis",
+   "seconds": 148.0,
+   "kind": "stage",
+   "tags": [
+    "city",
+    "metropolis"
+   ]
+  },
+  {
+   "file": "08 - Mortal Kombat vs DC Universe OST - Gotham City.m4a",
+   "title": "Gotham City",
+   "seconds": 161.0,
+   "kind": "stage",
+   "tags": [
+    "city",
+    "gotham"
+   ]
+  },
+  {
+   "file": "09 - Mortal Kombat vs DC Universe OST - Batcave.m4a",
+   "title": "Batcave",
+   "seconds": 162.0,
+   "kind": "stage",
+   "tags": [
+    "batcave",
+    "cave",
+    "lair"
+   ]
+  },
+  {
+   "file": "10 - Mortal Kombat vs DC Universe OST - UN Space Station.m4a",
+   "title": "UN Space Station",
+   "seconds": 173.0,
+   "kind": "stage",
+   "tags": [
+    "ship",
+    "space",
+    "station",
+    "un"
+   ]
+  },
+  {
+   "file": "11 - Mortal Kombat vs DC Universe OST - Themyscira, Outworld Exterior.m4a",
+   "title": "Themyscira, Outworld Exterior",
+   "seconds": 152.0,
+   "kind": "stage",
+   "tags": [
+    "exterior",
+    "outworld",
+    "ruins",
+    "themyscira"
+   ]
+  },
+  {
+   "file": "12 - Mortal Kombat vs DC Universe OST - Fortress of Solitude.m4a",
+   "title": "Fortress of Solitude",
+   "seconds": 170.0,
+   "kind": "stage",
+   "tags": [
+    "fortress",
+    "ice",
+    "lin kuei",
+    "solitude"
+   ]
+  },
+  {
+   "file": "13 - Mortal Kombat vs DC Universe OST - Oan Senate.m4a",
+   "title": "Oan Senate",
+   "seconds": 154.0,
+   "kind": "stage",
+   "tags": [
+    "arena",
+    "elder gods",
+    "oan",
+    "senate"
+   ]
+  },
+  {
+   "file": "14 - Mortal Kombat vs DC Universe OST - Apokolips.m4a",
+   "title": "Apokolips",
+   "seconds": 161.0,
+   "kind": "stage",
+   "tags": [
+    "apokolips",
+    "fire",
+    "hell",
+    "lava"
+   ]
+  },
+  {
+   "file": "15 - Mortal Kombat vs DC Universe OST - Throne Room.m4a",
+   "title": "Throne Room",
+   "seconds": 162.0,
+   "kind": "stage",
+   "tags": [
+    "kahn",
+    "palace",
+    "room",
+    "throne"
+   ]
+  }
+ ]
+}

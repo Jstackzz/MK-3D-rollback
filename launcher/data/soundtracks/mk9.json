@@ -1,0 +1,345 @@
+{
+ "id": "mk9",
+ "title": "Mortal Kombat (2011)",
+ "select": "03 - Mortal Kombat 9 (Character Select Screen Music).m4a",
+ "tracks": [
+  {
+   "file": "01 - Mortal Kombat (2011) - Main Menu.m4a",
+   "title": "Main Menu",
+   "seconds": 143.0,
+   "kind": "menu",
+   "tags": [
+    "main",
+    "menu"
+   ]
+  },
+  {
+   "file": "02 - Mortal Kombat (2011) - Overture.m4a",
+   "title": "Overture",
+   "seconds": 129.0,
+   "kind": "theme",
+   "tags": [
+    "overture"
+   ]
+  },
+  {
+   "file": "03 - Mortal Kombat 9 (Character Select Screen Music).m4a",
+   "title": "Mortal Kombat 9 (Character Select screen)",
+   "seconds": 90.0,
+   "kind": "select",
+   "tags": [
+    "character",
+    "screen",
+    "select"
+   ]
+  },
+  {
+   "file": "04 - Mortal Kombat 9 - Soundtrack： Courtyard Day.m4a",
+   "title": "Courtyard Day",
+   "seconds": 122.0,
+   "kind": "stage",
+   "tags": [
+    "academy",
+    "courtyard",
+    "day",
+    "wu shi"
+   ]
+  },
+  {
+   "file": "05 - Mortal Kombat 9 - Soundtrack： Courtyard Night.m4a",
+   "title": "Courtyard Night",
+   "seconds": 101.0,
+   "kind": "stage",
+   "tags": [
+    "courtyard",
+    "night"
+   ]
+  },
+  {
+   "file": "06 - Mortal Kombat 9 - Soundtrack： Shang Tsung's Garden Day⧸Night.m4a",
+   "title": "Shang Tsung's Garden Day/Night",
+   "seconds": 88.0,
+   "kind": "stage",
+   "tags": [
+    "day",
+    "garden",
+    "night",
+    "palace grounds",
+    "shang",
+    "shang tsung",
+    "tsung's"
+   ]
+  },
+  {
+   "file": "07 - Mortal Kombat 9 - Soundtrack： Pit Night⧸Day⧸Bottom.m4a",
+   "title": "Pit Night/Day/Bottom",
+   "seconds": 100.0,
+   "kind": "stage",
+   "tags": [
+    "bottom",
+    "bridge",
+    "cliffs",
+    "day",
+    "night",
+    "pit"
+   ]
+  },
+  {
+   "file": "08 - Mortal Kombat 9 - Soundtrack： Goro's Lair.m4a",
+   "title": "Goro's Lair",
+   "seconds": 98.0,
+   "kind": "stage",
+   "tags": [
+    "cave",
+    "goro",
+    "goro's",
+    "lair",
+    "moloch"
+   ]
+  },
+  {
+   "file": "09 - Mortal Kombat 9 - Soundtrack： Shang Tsung's Throne Room⧸Challenge Tower.m4a",
+   "title": "Shang Tsung's Throne Room/Challenge Tower",
+   "seconds": 106.0,
+   "kind": "stage",
+   "tags": [
+    "challenge",
+    "palace",
+    "room",
+    "shang",
+    "shang tsung",
+    "throne",
+    "tower",
+    "tsung's"
+   ]
+  },
+  {
+   "file": "10 - Mortal Kombat 9 - Soundtrack： Dead Pool.m4a",
+   "title": "Dead Pool",
+   "seconds": 92.0,
+   "kind": "stage",
+   "tags": [
+    "acid",
+    "bath",
+    "dead",
+    "dead pool",
+    "pool"
+   ]
+  },
+  {
+   "file": "11 - Mortal Kombat 9 - Soundtrack： Wastelands.m4a",
+   "title": "Wastelands",
+   "seconds": 151.0,
+   "kind": "stage",
+   "tags": [
+    "desert",
+    "ruins",
+    "wasteland",
+    "wastelands"
+   ]
+  },
+  {
+   "file": "12 - Mortal Kombat 9 - Soundtrack： Evil Monastery.m4a",
+   "title": "Evil Monastery",
+   "seconds": 106.0,
+   "kind": "stage",
+   "tags": [
+    "evil",
+    "house",
+    "monastery",
+    "temple"
+   ]
+  },
+  {
+   "file": "13 - Mortal Kombat 9 - Soundtrack： Living Forest.m4a",
+   "title": "Living Forest",
+   "seconds": 90.0,
+   "kind": "stage",
+   "tags": [
+    "forest",
+    "living",
+    "living forest"
+   ]
+  },
+  {
+   "file": "14 - Mortal Kombat 9 - Soundtrack： Armory.m4a",
+   "title": "Armory",
+   "seconds": 108.0,
+   "kind": "stage",
+   "tags": [
+    "armory",
+    "weapon"
+   ]
+  },
+  {
+   "file": "15 - Mortal Kombat 9 - Soundtrack： Kahn's Coliseum.m4a",
+   "title": "Kahn's Coliseum",
+   "seconds": 101.0,
+   "kind": "stage",
+   "tags": [
+    "arena",
+    "coliseum",
+    "drum",
+    "kahn",
+    "kahn's"
+   ]
+  },
+  {
+   "file": "16 - Mortal Kombat 9 - Soundtrack： Subway.m4a",
+   "title": "Subway",
+   "seconds": 109.0,
+   "kind": "stage",
+   "tags": [
+    "subway"
+   ]
+  },
+  {
+   "file": "17 - Mortal Kombat 9 - Soundtrack： Street.m4a",
+   "title": "Street",
+   "seconds": 108.0,
+   "kind": "stage",
+   "tags": [
+    "city",
+    "street"
+   ]
+  },
+  {
+   "file": "18 - Mortal Kombat 9 - Soundtrack： Rooftop Day⧸Dawn.m4a",
+   "title": "Rooftop Day/Dawn",
+   "seconds": 97.0,
+   "kind": "stage",
+   "tags": [
+    "city",
+    "dawn",
+    "day",
+    "roof",
+    "rooftop"
+   ]
+  },
+  {
+   "file": "19 - Mortal Kombat 9 - Soundtrack： Soul Chamber.m4a",
+   "title": "Soul Chamber",
+   "seconds": 95.0,
+   "kind": "stage",
+   "tags": [
+    "chamber",
+    "soul",
+    "soul chamber"
+   ]
+  },
+  {
+   "file": "20 - Mortal Kombat 9 - Soundtrack： Temple.m4a",
+   "title": "Temple",
+   "seconds": 107.0,
+   "kind": "stage",
+   "tags": [
+    "lung hai",
+    "sky temple",
+    "temple"
+   ]
+  },
+  {
+   "file": "21 - Mortal Kombat 9 - Soundtrack： Bell Tower.m4a",
+   "title": "Bell Tower",
+   "seconds": 102.0,
+   "kind": "stage",
+   "tags": [
+    "bell",
+    "bell tower",
+    "tower"
+   ]
+  },
+  {
+   "file": "22 - Mortal Kombat 9 - Soundtrack： Graveyard.m4a",
+   "title": "Graveyard",
+   "seconds": 97.0,
+   "kind": "stage",
+   "tags": [
+    "graveyard",
+    "tomb"
+   ]
+  },
+  {
+   "file": "23 - Mortal Kombat 9 - Soundtrack： Desert.m4a",
+   "title": "Desert",
+   "seconds": 88.0,
+   "kind": "stage",
+   "tags": [
+    "desert",
+    "ruins",
+    "sarna"
+   ]
+  },
+  {
+   "file": "24 - Mortal Kombat 9 - Soundtrack： Hell.m4a",
+   "title": "Hell",
+   "seconds": 111.0,
+   "kind": "stage",
+   "tags": [
+    "fire",
+    "hell",
+    "lava",
+    "netherrealm"
+   ]
+  },
+  {
+   "file": "25 - Mortal Kombat 9 - Soundtrack： Flesh Pits.m4a",
+   "title": "Flesh Pits",
+   "seconds": 111.0,
+   "kind": "stage",
+   "tags": [
+    "flesh",
+    "flesh pits",
+    "lab",
+    "pit",
+    "pits"
+   ]
+  },
+  {
+   "file": "26 - Mortal Kombat 9 - Soundtrack： Shao Kahn's Throne Room.m4a",
+   "title": "Shao Kahn's Throne Room",
+   "seconds": 93.0,
+   "kind": "stage",
+   "tags": [
+    "kahn's",
+    "kuatan",
+    "palace",
+    "room",
+    "shao",
+    "shao kahn",
+    "throne"
+   ]
+  },
+  {
+   "file": "27 - Mortal Kombat 9 - Soundtrack： Rooftop Dusk.m4a",
+   "title": "Rooftop Dusk",
+   "seconds": 93.0,
+   "kind": "stage",
+   "tags": [
+    "city",
+    "dusk",
+    "rooftop"
+   ]
+  },
+  {
+   "file": "28 - Chamber of the Flame⧸The Flame of Olympus - Mortal Kombat 9 (2011) OST.m4a",
+   "title": "Chamber of the Flame/The Flame of Olympus - Mortal Kombat 9 (2011) OST",
+   "seconds": 118.0,
+   "kind": "theme",
+   "tags": [
+    "chamber",
+    "flame",
+    "olympus"
+   ]
+  },
+  {
+   "file": "29 - Mortal Kombat (2011) - Nekropolis.m4a",
+   "title": "Nekropolis",
+   "seconds": 130.0,
+   "kind": "theme",
+   "tags": [
+    "nekropolis"
+   ]
+  }
+ ]
+}

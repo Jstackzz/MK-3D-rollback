@@ -119,6 +119,8 @@ bool ParseButton(const std::string& name, uint16_t& buttons, uint8_t& analog) {
 
 void Load() {
     if (const char* n = std::getenv("MKDA_PADS")) g_forced_pads = std::atoi(n);
+    // the launcher's offline versus: player 2's port is there from the start, plugged in or not
+    if (std::getenv("MK3D_VERSUS")) g_forced_pads = std::max(g_forced_pads, 2);
     // the launcher's matches need player 2's controller: the other player's online, the autopilot's on the select
     // screen; with none plugged in the game stops after the picks ("controller disconnected", port 2)
     if (mk3d::link::Active()) g_forced_pads = std::max(g_forced_pads, 2);

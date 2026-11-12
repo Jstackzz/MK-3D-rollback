@@ -541,7 +541,7 @@ void MatchController::freezeSolo() {
     if (!solo_ || soloFrozen_) return;
     soloHidden_.clear();
     soloFrozen_ = true;
-    const QString what = soloPractice_ ? tr("practice") : tr("single player");
+    const QString what = soloPractice_ ? tr("practice") : soloVersus_ ? tr("versus") : tr("single player");
     if (!winutil::freezeProcess(solo_->pid(), &soloHidden_)) log(tr("Standby: %1 could not be frozen").arg(what));
     log(tr("Standby: %1 set aside for the match").arg(what));
 }
@@ -577,7 +577,7 @@ void MatchController::maybeBackToSolo() {
     if (state == QLatin1String("between") || state == QLatin1String("playing")) return;
     thawSolo();
     log(soloPractice_ ? tr("Standby: back to practice") : tr("Standby: back to single player"));
-    if (phase_ == Phase::Idle) setPhase(Phase::Solo, soloPractice_ ? tr("Practicing") : tr("Playing single player"));
+    if (phase_ == Phase::Idle) setPhase(Phase::Solo, soloPractice_ ? tr("Practicing") : soloVersus_ ? tr("Playing versus") : tr("Playing single player"));
     // in front while the match's game still runs: taking the foreground from a frozen window would wait on it for ever
     emit soloResumed();
     freezeGame();
@@ -1445,7 +1445,7 @@ void MatchController::finishMatch() {
 // The whole game started plainly, its menus as on the console (arcade, its practice mode, the side modes): no hold
 // point and no match. One game runs at a time: the game waiting in the background for a match closes first, or,
 // while a search runs (standby) with single player, is frozen until a match is accepted.
-bool MatchController::startSolo(const QString& gameId, QString* error, bool practice) {
+bool MatchController::startSolo(const QString& gameId, QString* error, bool practice, bool versus) {
     if (!codeReady(gameId, error)) return false;
     if (solo_) {
         if (error) *error = tr("Your single-player game is already open.");
@@ -1476,7 +1476,8 @@ bool MatchController::startSolo(const QString& gameId, QString* error, bool prac
     }
     auto* g = new GameProcess(gameId, 1, this);
     if (practice) g->setEnv(QStringLiteral("MK3D_TRAINING"), QStringLiteral("1"));
-    watchForCrash(g, practice ? QStringLiteral("practice") : QStringLiteral("single player"));
+    if (versus) g->setEnv(QStringLiteral("MK3D_VERSUS"), QStringLiteral("1"));
+    watchForCrash(g, practice ? QStringLiteral("practice") : versus ? QStringLiteral("versus") : QStringLiteral("single player"));
     if (!g->start(cfg::gameExe(gameId), error, false)) {
         delete g;
         thawGame();
@@ -1484,13 +1485,15 @@ bool MatchController::startSolo(const QString& gameId, QString* error, bool prac
     }
     solo_ = g;
     soloPractice_ = practice;
+    soloVersus_ = versus;
     soloFrozen_ = false;
     practiceForSearch_ = false;  // maybeStartPractice says so when the search opened it
     connect(g, &GameProcess::exited, this, [this, g] {
         if (solo_ != g) return;
-        const QString closed = soloPractice_ ? tr("Practice closed") : tr("Single player closed");
+        const QString closed = soloPractice_ ? tr("Practice closed") : soloVersus_ ? tr("Versus closed") : tr("Single player closed");
         solo_ = nullptr;
         soloPractice_ = false;
+        soloVersus_ = false;
         soloFrozen_ = false;
         soloHidden_.clear();
         g->deleteLater();
@@ -1505,8 +1508,8 @@ bool MatchController::startSolo(const QString& gameId, QString* error, bool prac
         emit gameStatusChanged(gameStatus());
     });
     log(tr("Game %1 started for %2 (session %3)")
-            .arg(gameId, practice ? tr("practice") : tr("single player"), g->sessionDir()));
-    if (phase_ == Phase::Idle) setPhase(Phase::Solo, practice ? tr("Practicing") : tr("Playing single player"));
+            .arg(gameId, practice ? tr("practice") : versus ? tr("versus") : tr("single player"), g->sessionDir()));
+    if (phase_ == Phase::Idle) setPhase(Phase::Solo, practice ? tr("Practicing") : versus ? tr("Playing versus") : tr("Playing single player"));
     else if (practice) log(tr("Practice while you wait: pick your fighter, then the dummy; a match found comes up over it"));
     else log(tr("Playing single player while the search runs: a match found comes up over it"));
     emit gameStatusChanged(gameStatus());
@@ -1563,6 +1566,7 @@ void MatchController::closeSolo(const QString& why) {
     thawSolo();  // a frozen game would not see its quit
     solo_ = nullptr;
     soloPractice_ = false;
+    soloVersus_ = false;
     soloFrozen_ = false;
     practiceForSearch_ = false;
     soloHidden_.clear();

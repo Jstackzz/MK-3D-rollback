@@ -20,6 +20,9 @@
 
 #include "AppPaths.h"
 #include "ControlsPage.h"
+#ifdef MK3D_JUKEBOX
+#include "JukeboxPage.h"
+#endif
 #include "Dialogs.h"
 #include "GameData.h"
 #include "GamepadNav.h"
@@ -37,8 +40,13 @@
 #include "WinUtil.h"
 
 namespace {
+#ifdef MK3D_JUKEBOX
+enum PageIndex { kRanked, kCasual, kLobby, kSingle, kJukebox, kLeaderboard, kBuild, kControls, kSettings };
+const char* kPageNames[] = {"ranked", "casual", "lobby", "single", "jukebox", "leaderboard", "build", "controls", "settings"};
+#else
 enum PageIndex { kRanked, kCasual, kLobby, kSingle, kLeaderboard, kBuild, kControls, kSettings };
 const char* kPageNames[] = {"ranked", "casual", "lobby", "single", "leaderboard", "build", "controls", "settings"};
+#endif
 }  // namespace
 
 MainWindow::MainWindow(const LaunchOptions& opts, QWidget* parent)
@@ -82,6 +90,9 @@ MainWindow::MainWindow(const LaunchOptions& opts, QWidget* parent)
     settings_ = new SettingsPage(server_);
     build_ = new BuildPage;
     pages_ = {ranked_, casual_, new LobbyPage(server_, controller_), new SinglePlayerPage(controller_),
+#ifdef MK3D_JUKEBOX
+              new JukeboxPage,
+#endif
               new LeaderboardPage(server_), build_, new ControlsPage, settings_};
     for (Page* p : pages_) stack_->addWidget(p);
     v->addWidget(stack_, 1);
@@ -399,8 +410,11 @@ QWidget* MainWindow::buildNav() {
     h->setSpacing(2);
     navGroup_ = new QButtonGroup(this);
     navGroup_->setExclusive(true);
-    const QStringList names = {tr("RANKED"), tr("KASUAL"), tr("LOBBY"), tr("SINGLE PLAYER"), tr("LEADERBOARD"),
-                               tr("BUILD GAME"), tr("CONTROLS"), tr("SETTINGS")};
+    const QStringList names = {tr("RANKED"), tr("KASUAL"), tr("LOBBY"), tr("SINGLE PLAYER"),
+#ifdef MK3D_JUKEBOX
+                               tr("JUKEBOX"),
+#endif
+                               tr("LEADERBOARD"), tr("BUILD GAME"), tr("CONTROLS"), tr("SETTINGS")};
     for (int i = 0; i < names.size(); ++i) {
         auto* b = new QPushButton(names[i]);
         b->setObjectName(QStringLiteral("NavButton"));

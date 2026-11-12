@@ -104,10 +104,13 @@ public:
 private:
     void refreshTestRoster();
     void updateButtons();
+    void fillPlayer2();
     MatchController* controller_;
     QLabel* title_;
     QPushButton* play_;
     QPushButton* practice_;
+    QPushButton* versus_;
+    QComboBox* player2_;  // player 2's controller for versus (controls::Map::player2)
     QPushButton* close_;
     QComboBox* testMode_;
     QComboBox* testP1_;

@@ -1,0 +1,111 @@
+{
+ "id": "mk4",
+ "title": "Mortal Kombat 4 (arcade)",
+ "select": "",
+ "tracks": [
+  {
+   "file": "01 - Mortal Kombat 4 Arcade OST - Original Music Soundtrack - The Tomb.m4a",
+   "title": "The Tomb",
+   "seconds": 123.0,
+   "kind": "stage",
+   "tags": [
+    "krypt",
+    "tomb"
+   ]
+  },
+  {
+   "file": "02 - Mortal Kombat 4 Arcade OST - Original Music Soundtrack - Reptile's Lair (The Snake).m4a",
+   "title": "Reptile's Lair (The Snake)",
+   "seconds": 94.0,
+   "kind": "stage",
+   "tags": [
+    "cave",
+    "lair",
+    "reptile",
+    "reptile's",
+    "snake"
+   ]
+  },
+  {
+   "file": "03 - Mortal Kombat 4 Arcade OST - Original Music Soundtrack - Elder Gods' Arena.m4a",
+   "title": "Elder Gods' Arena",
+   "seconds": 126.0,
+   "kind": "stage",
+   "tags": [
+    "arena",
+    "drum",
+    "elder",
+    "elder gods",
+    "gods'"
+   ]
+  },
+  {
+   "file": "04 - Mortal Kombat 4 Arcade OST - Original Music Soundtrack - Goro's Lair.m4a",
+   "title": "Goro's Lair",
+   "seconds": 174.0,
+   "kind": "stage",
+   "tags": [
+    "goro",
+    "goro's",
+    "lair",
+    "moloch"
+   ]
+  },
+  {
+   "file": "05 - Mortal Kombat 4 Arcade OST - Original Music Soundtrack - The Well.m4a",
+   "title": "The Well",
+   "seconds": 118.0,
+   "kind": "stage",
+   "tags": [
+    "fire well",
+    "pit",
+    "well"
+   ]
+  },
+  {
+   "file": "06 - Mortal Kombat 4 Arcade OST - Original Music Soundtrack - The Prison.m4a",
+   "title": "The Prison",
+   "seconds": 157.0,
+   "kind": "stage",
+   "tags": [
+    "prison"
+   ]
+  },
+  {
+   "file": "07 - Mortal Kombat 4 Arcade OST - Original Music Soundtrack - The Woods⧸Living Forest⧸Ice Pit.m4a",
+   "title": "The Woods/Living Forest/Ice Pit",
+   "seconds": 146.0,
+   "kind": "stage",
+   "tags": [
+    "forest",
+    "ice",
+    "living",
+    "living forest",
+    "pit",
+    "woods"
+   ]
+  },
+  {
+   "file": "08 - Mortal Kombat 4 Arcade OST - Original Music Soundtrack - Wind World⧸Rain.m4a",
+   "title": "Wind World/Rain",
+   "seconds": 91.0,
+   "kind": "stage",
+   "tags": [
+    "dragonfly",
+    "rain",
+    "sky",
+    "wind",
+    "world"
+   ]
+  },
+  {
+   "file": "09 - Mortal Kombat 4 Arcade OST - Original Music Soundtrack - The Ends.m4a",
+   "title": "The Ends",
+   "seconds": 320.0,
+   "kind": "theme",
+   "tags": [
+    "ends"
+   ]
+  }
+ ]
+}

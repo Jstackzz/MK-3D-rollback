@@ -86,10 +86,13 @@ public:
     // it stood. `practice`: the game goes to its practice's select screen by itself (MK3D_TRAINING), where the player
     // picks both fighters; a Ranked or Kasual search starts it once the match's game waits at its hold point
     // (cfg::practiceWhileWaiting), to play while the search runs.
-    bool startSolo(const QString& gameId, QString* error, bool practice = false);
+    // `versus`: the game goes to its versus select screen with everything unlocked (MK3D_VERSUS), two players on
+    // their own controllers; it steps aside for a match as single player does
+    bool startSolo(const QString& gameId, QString* error, bool practice = false, bool versus = false);
     void stopSolo();
     bool soloRunning() const { return solo_ != nullptr; }
     bool soloIsPractice() const { return solo_ && soloPractice_; }
+    bool soloIsVersus() const { return solo_ && soloVersus_; }
     GameProcess* solo() const { return solo_; }
     bool startLocalTest(const QString& gameId, const QString& mode, const QString& p1, const QString& p2,
                         QString* error);
@@ -180,6 +183,7 @@ private:
     GameProcess* game_ = nullptr;
     GameProcess* solo_ = nullptr;
     bool soloPractice_ = false;  // solo_ was started for practice while a search waits
+    bool soloVersus_ = false;    // solo_ was started as the offline versus
     bool soloFrozen_ = false, gameFrozen_ = false;
     QList<quintptr> soloHidden_, gameHidden_;  // the windows freezing hid, shown again by thawing
     bool showWhenReady_ = false;  // standby: the match's game started on accepting; to the front once it is up

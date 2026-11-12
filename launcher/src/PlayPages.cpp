@@ -1,5 +1,7 @@
 #include "PlayPages.h"
 
+#include "Controls.h"
+
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDir>
@@ -745,17 +747,44 @@ SinglePlayerPage::SinglePlayerPage(MatchController* controller, QWidget* parent)
     play_->setObjectName(QStringLiteral("Primary"));
     practice_ = new QPushButton(tr("PRACTICE"));
     practice_->setObjectName(QStringLiteral("Primary"));
+    versus_ = new QPushButton(tr("VERSUS"));
+    versus_->setObjectName(QStringLiteral("Primary"));
     close_ = new QPushButton(tr("Close the game"));
     row->addWidget(play_, 1);
     row->addWidget(practice_, 1);
+    row->addWidget(versus_, 1);
     row->addWidget(close_);
     solo->addLayout(row);
     auto* practiceNote = ui::label(tr("PRACTICE goes straight to practice's select screen with every fighter "
-                                      "unlocked: pick yours, then the dummy, with one controller. What your profile "
-                                      "has unlocked stays as it is."),
+                                      "unlocked: pick yours, then the dummy, with one controller. VERSUS goes straight "
+                                      "to the two-player select screen with every fighter, costume and stage unlocked: "
+                                      "player 1 on the first controller (and the keyboard), player 2 on the controller "
+                                      "chosen below. What your profile has unlocked stays as it is."),
                                    "Muted");
     practiceNote->setWordWrap(true);
     solo->addWidget(practiceNote);
+    auto* p2Row = new QHBoxLayout;
+    p2Row->addWidget(ui::label(tr("Player 2's controller"), "Muted"));
+    player2_ = new QComboBox;
+    player2_->setMinimumWidth(260);
+    player2_->setToolTip(tr("Which controller plays as player 2 in VERSUS (and on the second port anywhere). Saved in the "
+                            "controls file; a running game follows it within a second."));
+    p2Row->addWidget(player2_, 1);
+    auto* p2Refresh = new QPushButton(tr("Refresh"));
+    p2Row->addWidget(p2Refresh);
+    solo->addLayout(p2Row);
+    fillPlayer2();
+    connect(p2Refresh, &QPushButton::clicked, this, &SinglePlayerPage::fillPlayer2);
+    connect(player2_, &QComboBox::currentIndexChanged, this, [this] {
+        if (player2_->signalsBlocked()) return;
+        controls::Map m = controls::load();
+        const QString name = player2_->currentData().toString();
+        if (m.player2 == name) return;
+        m.player2 = name;
+        QString err;
+        if (!controls::save(m, &err)) log_->line(err);
+        else log_->line(name.isEmpty() ? tr("Player 2: the second controller plugged in") : tr("Player 2: %1").arg(name));
+    });
     exeInfo_ = ui::label(QString(), "Muted");
     exeInfo_->setWordWrap(true);
     solo->addWidget(exeInfo_);
@@ -798,15 +827,16 @@ SinglePlayerPage::SinglePlayerPage(MatchController* controller, QWidget* parent)
     log_ = new LogView;
     root->addWidget(log_, 1);
 
-    auto start = [this](bool practice) {
+    auto start = [this](bool practice, bool versus) {
         QString err;
-        if (!controller_->startSolo(gameId_, &err, practice)) {
+        if (!controller_->startSolo(gameId_, &err, practice, versus)) {
             log_->line(err);
-            QMessageBox::warning(this, practice ? tr("Practice") : tr("Single player"), err);
+            QMessageBox::warning(this, practice ? tr("Practice") : versus ? tr("Versus") : tr("Single player"), err);
         }
     };
-    connect(play_, &QPushButton::clicked, this, [start] { start(false); });
-    connect(practice_, &QPushButton::clicked, this, [start] { start(true); });
+    connect(play_, &QPushButton::clicked, this, [start] { start(false, false); });
+    connect(practice_, &QPushButton::clicked, this, [start] { start(true, false); });
+    connect(versus_, &QPushButton::clicked, this, [start] { start(false, true); });
     connect(close_, &QPushButton::clicked, controller_, &MatchController::stopSolo);
     connect(test, &QPushButton::clicked, this, [this] {
         QString err;
@@ -839,12 +869,16 @@ void SinglePlayerPage::updateButtons() {
     const auto p = controller_->phase();
     const bool idle = p == MatchController::Phase::Idle || p == MatchController::Phase::Searching;  // standby
     const QString busy = !open && !idle ? tr("Busy: %1").arg(controller_->phaseText()) : QString();
-    play_->setText(open && !practicing ? tr("PLAYING") : tr("PLAY"));
+    const bool versus = controller_->soloIsVersus();
+    play_->setText(open && !practicing && !versus ? tr("PLAYING") : tr("PLAY"));
     play_->setEnabled(!open && idle);
     play_->setToolTip(busy);
     practice_->setText(practicing ? tr("PRACTICING") : tr("PRACTICE"));
     practice_->setEnabled(!open && idle);
     practice_->setToolTip(busy);
+    versus_->setText(versus ? tr("PLAYING VERSUS") : tr("VERSUS"));
+    versus_->setEnabled(!open && idle);
+    versus_->setToolTip(busy);
     close_->setEnabled(open);
 }
 
@@ -862,6 +896,19 @@ void SinglePlayerPage::setGame(const QString& gameId) {
     const QString exe = cfg::gameExe(gameId);
     exeInfo_->setText(QFileInfo::exists(exe) ? tr("Game: %1").arg(QDir::toNativeSeparators(exe))
                                              : tr("Game not built yet: %1 (see Build game)").arg(QDir::toNativeSeparators(exe)));
+}
+
+// the controllers plugged in now, and the saved choice even when it is not (it takes its port when it is)
+void SinglePlayerPage::fillPlayer2() {
+    const QSignalBlocker block(player2_);
+    const QString saved = controls::load().player2;
+    player2_->clear();
+    player2_->addItem(tr("The second controller plugged in"), QString());
+    QStringList names = controls::connectedControllers();
+    if (!saved.isEmpty() && !names.contains(saved)) player2_->addItem(tr("%1 (not plugged in)").arg(saved), saved);
+    for (const QString& n : names) player2_->addItem(n, n);
+    const int at = player2_->findData(saved);
+    player2_->setCurrentIndex(at < 0 ? 0 : at);
 }
 
 void SinglePlayerPage::refreshTestRoster() {

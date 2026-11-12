@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(mk3d_launcher VERSION 1.0.2 LANGUAGES CXX)
+project(mk3d_launcher VERSION 1.0.3 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -41,6 +41,8 @@ qt_add_executable(MK3DLauncher WIN32
     src/ToolPages.cpp src/ToolPages.h
     src/Controls.cpp src/Controls.h
     src/ControlsPage.cpp src/ControlsPage.h
+    src/Jukebox.cpp src/Jukebox.h
+    src/JukeboxPage.cpp src/JukeboxPage.h
     src/Xiso.cpp src/Xiso.h
     src/TitleImage.cpp src/TitleImage.h
     src/Upnp.cpp src/Upnp.h
@@ -55,7 +57,16 @@ mk3d_version_info(MK3DLauncher MK3DLauncher "MK3D Online launcher")
 qt_add_resources(MK3DLauncher "gamedata"
     PREFIX "/data"
     BASE data
-    FILES data/mkda.json data/mkd.json data/mka.json
+    FILES data/mkda.json data/mkd.json data/mka.json data/jukebox.json
+)
+
+# the jukebox's built-in soundtrack descriptions (tools/py/make_soundtracks.py): a music folder named like one of
+# them gets its tracks' kinds, keywords and select-screen track from here when it has no soundtrack.json of its own
+file(GLOB JUKEBOX_SOUNDTRACKS CONFIGURE_DEPENDS data/soundtracks/*.json)
+qt_add_resources(MK3DLauncher "soundtracks"
+    PREFIX "/soundtracks"
+    BASE data/soundtracks
+    FILES ${JUKEBOX_SOUNDTRACKS}
 )
 
 # the MK3D logo: the header and dialogs (mk3d-logo.png) and the window icon (icon-N.png); tools/py/make_logo.py makes
@@ -84,11 +95,15 @@ qt_add_resources(MK3DLauncher "sounds"
     FILES data/sounds/match-found.wav  # tools/py/make_chime.py
 )
 
+# the jukebox page (docs/JUKEBOX.md): a test-build feature for now, off in the public launcher
+option(MK3D_JUKEBOX "The Jukebox page and the --jukebox command" OFF)
 target_compile_definitions(MK3DLauncher PRIVATE
     MK3D_LAUNCHER_VERSION="${PROJECT_VERSION}"
     UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN
+    $<$<BOOL:${MK3D_JUKEBOX}>:MK3D_JUKEBOX=1>
 )
-target_link_libraries(MK3DLauncher PRIVATE Qt6::Widgets Qt6::Network SDL3::SDL3-static dwmapi advapi32 winmm)
+target_link_libraries(MK3DLauncher PRIVATE Qt6::Widgets Qt6::Network SDL3::SDL3-static dwmapi advapi32 winmm
+    mfplat mfreadwrite mfuuid xaudio2 ole32)  # the jukebox: Media Foundation decoding, XAudio2 previews
 set_target_properties(MK3DLauncher PROPERTIES OUTPUT_NAME "MK3DLauncher")
 
 if(MSVC)

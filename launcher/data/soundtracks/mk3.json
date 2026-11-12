@@ -1,0 +1,160 @@
+{
+ "id": "mk3",
+ "title": "Mortal Kombat 3 (arcade, extended)",
+ "select": "03 - Character Select - Mortal Kombat III (Arcade) OST Extended.m4a",
+ "tracks": [
+  {
+   "file": "01 - Prologue - Mortal Kombat III (Arcade) OST Extended.m4a",
+   "title": "Prologue",
+   "seconds": 1800.0,
+   "kind": "menu",
+   "tags": [
+    "prologue"
+   ]
+  },
+  {
+   "file": "02 - Attract Mode - Mortal Kombat III (Arcade) OST Extended.m4a",
+   "title": "Attract Mode",
+   "seconds": 1800.0,
+   "kind": "menu",
+   "tags": [
+    "attract",
+    "mode"
+   ]
+  },
+  {
+   "file": "03 - Character Select - Mortal Kombat III (Arcade) OST Extended.m4a",
+   "title": "Character Select",
+   "seconds": 1800.0,
+   "kind": "select",
+   "tags": [
+    "character",
+    "select"
+   ]
+  },
+  {
+   "file": "04 - Choose Your Destiny - Mortal Kombat III (Arcade) OST Extended.m4a",
+   "title": "Choose Your Destiny",
+   "seconds": 1800.0,
+   "kind": "menu",
+   "tags": [
+    "choose",
+    "destiny",
+    "your"
+   ]
+  },
+  {
+   "file": "05 - The Rooftop - Mortal Kombat III (Arcade) OST Extended.m4a",
+   "title": "The Rooftop",
+   "seconds": 1800.0,
+   "kind": "stage",
+   "tags": [
+    "city",
+    "roof",
+    "rooftop"
+   ]
+  },
+  {
+   "file": "06 - The Bank - Mortal Kombat III (Arcade) OST Extended.m4a",
+   "title": "The Bank",
+   "seconds": 1800.0,
+   "kind": "stage",
+   "tags": [
+    "bank",
+    "city"
+   ]
+  },
+  {
+   "file": "07 - The Street - Mortal Kombat III (Arcade) OST Extended.m4a",
+   "title": "The Street",
+   "seconds": 1800.0,
+   "kind": "stage",
+   "tags": [
+    "city",
+    "street"
+   ]
+  },
+  {
+   "file": "08 - The Subway - Mortal Kombat III (Arcade) OST Extended.m4a",
+   "title": "The Subway",
+   "seconds": 1800.0,
+   "kind": "stage",
+   "tags": [
+    "subway"
+   ]
+  },
+  {
+   "file": "09 - The Church - Mortal Kombat III (Arcade) OST Extended.m4a",
+   "title": "The Church",
+   "seconds": 1800.0,
+   "kind": "stage",
+   "tags": [
+    "church",
+    "house"
+   ]
+  },
+  {
+   "file": "10 - The Bridge - Mortal Kombat III (Arcade) OST Extended.m4a",
+   "title": "The Bridge",
+   "seconds": 1800.0,
+   "kind": "stage",
+   "tags": [
+    "bridge",
+    "pit"
+   ]
+  },
+  {
+   "file": "11 - The Pit III - Mortal Kombat III (Arcade) OST Extended.m4a",
+   "title": "The Pit III",
+   "seconds": 1800.0,
+   "kind": "stage",
+   "tags": [
+    "cliffs",
+    "pit"
+   ]
+  },
+  {
+   "file": "12 - The Graveyard - Mortal Kombat III (Arcade) OST Extended.m4a",
+   "title": "The Graveyard",
+   "seconds": 1800.0,
+   "kind": "stage",
+   "tags": [
+    "graveyard",
+    "tomb"
+   ]
+  },
+  {
+   "file": "13 - The Soul Chamber - Mortal Kombat III (Arcade) OST Extended.m4a",
+   "title": "The Soul Chamber",
+   "seconds": 1800.0,
+   "kind": "stage",
+   "tags": [
+    "chamber",
+    "soul",
+    "soul chamber"
+   ]
+  },
+  {
+   "file": "14 - Noob's Dorfen - Mortal Kombat III (Arcade) OST Extended.m4a",
+   "title": "Noob's Dorfen",
+   "seconds": 1800.0,
+   "kind": "stage",
+   "tags": [
+    "dorfen",
+    "nexus",
+    "noob",
+    "noob's",
+    "portal"
+   ]
+  },
+  {
+   "file": "15 - Kontinue - Mortal Kombat III (Arcade) OST Extended.m4a",
+   "title": "Kontinue",
+   "seconds": 1800.0,
+   "kind": "menu",
+   "tags": [
+    "kontinue"
+   ]
+  }
+ ]
+}

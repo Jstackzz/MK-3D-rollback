@@ -202,6 +202,12 @@ whether to trust it: compare it with your host's.
   with one controller.
   What your profile has unlocked stays as it is. You can search for a match
   while you practice, as below: accepting a match closes practice.
+- Single player, then VERSUS, goes straight to the two-player select screen
+  with every fighter, costume and arena unlocked: player 1 on the first
+  controller (and the keyboard), player 2 on the controller chosen under the
+  buttons ("Player 2's controller": a controller by name, or the second one
+  plugged in). Like PLAY, a versus game is set aside, frozen, for an online
+  match you accept, and goes on afterwards.
 - Play while you wait: search for a match (Kasual or Ranked) and play single
   player meanwhile, in either order. When a match is found, its ACCEPT window
   comes up over your game. Accept it and your single-player game is set aside,

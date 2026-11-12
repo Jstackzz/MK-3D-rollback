@@ -7,7 +7,8 @@
 #>
 param(
     [string]$Name = 'snap',
-    [string]$Process = 'MKD'
+    [string]$Process = 'MKD',
+    [int]$Id = 0  # a process id instead of the name (two launchers open: the one you started)
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -24,7 +25,8 @@ public static class SnapWin {
 }
 '@
 [SnapWin]::SetProcessDPIAware() | Out-Null
-$p = Get-Process -Name $Process -ErrorAction Stop | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } | Select-Object -First 1
+if ($Id) { $p = Get-Process -Id $Id -ErrorAction Stop }
+else { $p = Get-Process -Name $Process -ErrorAction Stop | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } | Select-Object -First 1 }
 if (-not $p) { throw "no window for process $Process" }
 $h = $p.MainWindowHandle
 $r = New-Object SnapWin+RECT

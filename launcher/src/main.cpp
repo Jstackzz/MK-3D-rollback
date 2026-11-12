@@ -3,6 +3,9 @@
 
 #include <algorithm>
 #include <QApplication>
+#include <QTextStream>
+#include <QDir>
+#include <QEventLoop>
 #include <QCommandLineParser>
 #include <QLockFile>
 #include <QMessageBox>
@@ -11,9 +14,45 @@
 
 #include "AppPaths.h"
 #include "GameData.h"
+#include "Jukebox.h"
 #include "MainWindow.h"
 #include "Style.h"
 #include "WinUtil.h"
+
+#ifdef MK3D_JUKEBOX
+// --jukebox <game>: the plan from the saved settings, the banks made, the map written; what happened on stdout
+static int jukeboxCommand(const QString& game) {
+    const QList<jukebox::Soundtrack> library = jukebox::scanLibrary(jukebox::libraryFolder());
+    const jukebox::Config config = jukebox::loadConfig(game);
+    const jukebox::Plan plan = jukebox::resolve(game, config, library);
+    QTextStream out(stdout);
+    out << "music folder " << QDir::toNativeSeparators(jukebox::libraryFolder()) << ": " << library.size() << " soundtracks\n";
+    out << "soundtrack " << (config.soundtrack.isEmpty() ? QStringLiteral("(the game's own)") : config.soundtrack) << "\n";
+    out << "select screen: " << (plan.select.file.isEmpty() ? QStringLiteral("the game's own") : plan.select.title) << "\n";
+    for (const jukebox::Pick& p : plan.stages)
+        out << "arena " << p.stage << " (" << p.bank << "): " << (p.file.isEmpty() ? QStringLiteral("the game's own") : p.soundtrack + ": " + p.title) << "\n";
+    for (const QString& n : plan.notes) out << "note: " << n << "\n";
+    out.flush();
+    jukebox::Applier applier;
+    QEventLoop loop;
+    bool ok = false;
+    QObject::connect(&applier, &jukebox::Applier::progress, [&](int done, int total, const QString& what) {
+        out << "preparing " << done + 1 << "/" << total << ": " << what << "\n";
+        out.flush();
+    });
+    QObject::connect(&applier, &jukebox::Applier::finished, [&](bool good, const QString& message) {
+        ok = good;
+        out << (good ? "done: " : "failed: ") << message << "\n";
+        out.flush();
+        loop.quit();
+    });
+    if (!applier.apply(game, plan)) return 2;
+    loop.exec();
+    out << "map " << QDir::toNativeSeparators(jukebox::mapFile(game)) << "\n";
+    out.flush();
+    return ok ? 0 : 1;
+}
+#endif
 
 int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
@@ -95,13 +134,17 @@ int main(int argc, char* argv[]) {
         QStringLiteral("updated"),
         QStringLiteral("Started by an update of this version: waits for it to close, then deletes what it set aside."),
         QStringLiteral("version"));
+    const QCommandLineOption jukeboxOpt(QStringLiteral("jukebox"),
+                                        QStringLiteral("Development: prepare the jukebox's banks for this game from the saved "
+                                                       "settings, print the plan, and exit."),
+                                        QStringLiteral("game"));
     const QCommandLineOption autoUpdateOpt(QStringLiteral("auto-update"),
                                            QStringLiteral("Development: install an update offered at once, without asking."));
     for (const auto* o : {&configOpt, &serverOpt, &fpOpt, &userOpt, &pwEnvOpt, &regOpt, &queueOpt, &gameOpt, &modeOpt,
                           &charOpt, &pageOpt, &acceptOpt, &cancelOpt, &localTestOpt, &extractOpt, &lobbyOpt, &lobbyNameOpt,
                           &lobbyMatchesOpt, &leaveLobbyOpt, &upnpProbeOpt, &rematchesOpt, &rematchChoiceOpt,
                           &leaveSeriesOpt, &soloOpt,
-                          &practiceOpt, &searchAgainOpt, &deathTrapsOpt, &updatedOpt, &autoUpdateOpt})
+                          &practiceOpt, &searchAgainOpt, &deathTrapsOpt, &updatedOpt, &autoUpdateOpt, &jukeboxOpt})
         cli.addOption(*o);
     cli.process(app);
 
@@ -124,6 +167,9 @@ int main(int argc, char* argv[]) {
         QMessageBox::critical(nullptr, QStringLiteral("MK3D Online"), error);
         return 1;
     }
+#ifdef MK3D_JUKEBOX
+    if (cli.isSet(jukeboxOpt)) return jukeboxCommand(cli.value(jukeboxOpt));
+#endif
     if (QSslSocket::availableBackends().contains(QStringLiteral("schannel")))
         QSslSocket::setActiveBackend(QStringLiteral("schannel"));
     applog::write(QStringLiteral("tls backend %1, %2").arg(QSslSocket::activeBackend(), QSslSocket::sslLibraryVersionString()));

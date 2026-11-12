@@ -23,6 +23,10 @@ launcher/                Qt 6 Widgets, C++20, CMake + Ninja + MSVC
   build.cmd              configure + build + windeployqt
 ```
 
+The jukebox (page JUKEBOX) and the offline versus (Single Player's VERSUS button, player 2's controller) are
+described in [JUKEBOX.md](JUKEBOX.md): `launcher/src/Jukebox.cpp` and `JukeboxPage.cpp`, `data/jukebox.json` (each
+game's stages and music banks), `data/soundtracks/*.json`, the games' `MK3D_JUKEBOX` map file and `MK3D_VERSUS`.
+
 ## Server
 
 ### Run it locally

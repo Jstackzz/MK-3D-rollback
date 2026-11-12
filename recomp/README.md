@@ -315,6 +315,12 @@ for p in recomp/patches/xboxxberecomp-*.patch; do git -C external/XboxXBERecomp 
   ImGui overlays (players' names, the frame data panel), copied out of the
   swap chain's back buffer (its buffers can be copied, never sampled; a minimized
   windowed game has none to save). The launcher's report sender leaves it out.
+- `0045-open-hook`: `kernel::SetOpenHook`: a game layer's say over which host file an Xbox path opens, asked in
+  `Resolve` for every path-based query (a disc image too). The jukebox (`recomp/common/src/mk3d/jukebox.cpp`,
+  docs/JUKEBOX.md) answers with another sound bank for a stage's music; nothing in the simulation changes.
+- `0046-player-2-controller`: the controls file's `[ports] player2 = "<name>"`: a controller by that name takes port 1
+  whenever it is plugged in (another one there moves to a free port), the others keep clear of port 1 while a name
+  is set; read again with the rest of the file. The launcher's offline versus names player 2's controller with it.
 
 `tools/py/lib_audit.py <game dir> <xbsdb symbols>` lists the XDK library
 functions the game calls that still run console code against host objects,

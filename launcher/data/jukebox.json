@@ -1,0 +1,900 @@
+{
+  "_comment": "The jukebox's view of the three games (launcher/src/Jukebox.cpp): each stage's arena id as the game's own jukebox adapter reports it, the sound bank a fight there loads (the music is the bank's long streams; 'streams' names them where the long ones are not all music), and keywords for the automatic song picks. The select screen's music bank and stream per game. Found 2026-11-11 from the games' arena tables and from runs that log 'jukebox: bank X opened, arena N'.",
+  "games": {
+    "mkda": {
+      "select_bank": "shell",
+      "select_streams": [
+        27
+      ],
+      "min_stream_seconds": 12,
+      "stages": [
+        {
+          "id": 0,
+          "name": "Acid Bath",
+          "bank": "mk5tune1",
+          "tags": [
+            "acid",
+            "bath",
+            "pool",
+            "dead pool",
+            "sewer"
+          ]
+        },
+        {
+          "id": 1,
+          "name": "Wu Shi Academy",
+          "bank": "music_tune4",
+          "tags": [
+            "wu shi",
+            "academy",
+            "courtyard",
+            "temple",
+            "garden"
+          ]
+        },
+        {
+          "id": 2,
+          "name": "House of Pekara",
+          "bank": "music_tune8",
+          "tags": [
+            "house",
+            "church",
+            "temple",
+            "shrine",
+            "monastery"
+          ]
+        },
+        {
+          "id": 3,
+          "name": "Dragonfly",
+          "bank": "music_drum_arena",
+          "tags": [
+            "dragonfly",
+            "sky",
+            "wind",
+            "air",
+            "flying",
+            "rain"
+          ]
+        },
+        {
+          "id": 4,
+          "name": "Drum Arena",
+          "bank": "music_drum_arena",
+          "tags": [
+            "drum",
+            "arena",
+            "coliseum",
+            "kahn",
+            "elder gods"
+          ]
+        },
+        {
+          "id": 5,
+          "name": "Quan Chi's Fortress",
+          "bank": "music_tune10",
+          "tags": [
+            "quan chi",
+            "fortress",
+            "netherrealm",
+            "hell",
+            "evil"
+          ]
+        },
+        {
+          "id": 6,
+          "name": "Lin Kuei Temple",
+          "bank": "music_tune9",
+          "tags": [
+            "lin kuei",
+            "temple",
+            "ice",
+            "arctika",
+            "snow"
+          ]
+        },
+        {
+          "id": 7,
+          "name": "Kuatan Palace",
+          "bank": "music_tune5",
+          "tags": [
+            "kuatan",
+            "palace",
+            "throne",
+            "outworld",
+            "kahn",
+            "great hall"
+          ]
+        },
+        {
+          "id": 9,
+          "name": "Lost Tomb",
+          "bank": "mk5tune3",
+          "tags": [
+            "tomb",
+            "krypt",
+            "graveyard",
+            "treasure",
+            "chamber"
+          ]
+        },
+        {
+          "id": 10,
+          "name": "Portal",
+          "bank": "mk5tune1",
+          "tags": [
+            "portal",
+            "nexus",
+            "hourglass",
+            "lost portal"
+          ]
+        },
+        {
+          "id": 11,
+          "name": "Lung Hai Temple",
+          "bank": "music_tune6",
+          "tags": [
+            "temple",
+            "sky temple",
+            "shrine",
+            "lung hai",
+            "jinsei"
+          ]
+        },
+        {
+          "id": 12,
+          "name": "Palace Grounds",
+          "bank": "music_drum_arena",
+          "tags": [
+            "palace",
+            "grounds",
+            "garden",
+            "courtyard",
+            "gate"
+          ]
+        },
+        {
+          "id": 13,
+          "name": "Shang Tsung's Palace",
+          "bank": "music_tune7",
+          "tags": [
+            "shang tsung",
+            "palace",
+            "throne",
+            "island",
+            "hall"
+          ]
+        },
+        {
+          "id": 14,
+          "name": "Lava Shrine",
+          "bank": "music_tune11",
+          "tags": [
+            "lava",
+            "fire",
+            "shrine",
+            "hell",
+            "fire temple",
+            "well"
+          ]
+        },
+        {
+          "id": 15,
+          "name": "Sarna Ruins",
+          "bank": "music_tune6",
+          "tags": [
+            "ruins",
+            "desert",
+            "wasteland",
+            "sarna",
+            "sand"
+          ]
+        },
+        {
+          "id": 23,
+          "name": "Nethership",
+          "bank": "music_tune7",
+          "tags": [
+            "nethership",
+            "ship",
+            "kove",
+            "sea",
+            "warship",
+            "netherrealm"
+          ]
+        },
+        {
+          "id": 24,
+          "name": "Moloch's Lair",
+          "bank": "music_moloch",
+          "tags": [
+            "lair",
+            "goro",
+            "cave",
+            "cavern",
+            "moloch",
+            "pit"
+          ]
+        }
+      ]
+    },
+    "mkd": {
+      "select_bank": "shell_music",
+      "select_streams": [
+        2
+      ],
+      "min_stream_seconds": 12,
+      "stages": [
+        {
+          "id": 0,
+          "name": "Beetle Lair",
+          "bank": "music_tune_3",
+          "tags": [
+            "lair",
+            "beetle",
+            "hive",
+            "kytinn",
+            "cave",
+            "insect"
+          ]
+        },
+        {
+          "id": 1,
+          "name": "Courtyard",
+          "bank": "music_tune_courtyard",
+          "tags": [
+            "courtyard",
+            "wu shi",
+            "academy",
+            "palace grounds"
+          ]
+        },
+        {
+          "id": 2,
+          "name": "Dark Prison",
+          "bank": "music_tune_5",
+          "tags": [
+            "prison",
+            "dark",
+            "dungeon",
+            "tekunin"
+          ]
+        },
+        {
+          "id": 3,
+          "name": "Dead Pool",
+          "bank": "music_tune_deadpool",
+          "tags": [
+            "dead pool",
+            "acid",
+            "pool",
+            "bath",
+            "sewer"
+          ]
+        },
+        {
+          "id": 5,
+          "name": "Dragon Mountain",
+          "bank": "music_tune_12",
+          "tags": [
+            "mountain",
+            "dragon",
+            "cliffs",
+            "sky",
+            "wind"
+          ]
+        },
+        {
+          "id": 6,
+          "name": "Falling Cliffs",
+          "bank": "music_tune_7",
+          "tags": [
+            "cliffs",
+            "falling",
+            "pit",
+            "bridge",
+            "kollapsing"
+          ]
+        },
+        {
+          "id": 7,
+          "name": "Quan Chi's Fortress",
+          "bank": "music_tune_11",
+          "tags": [
+            "quan chi",
+            "fortress",
+            "netherrealm",
+            "evil"
+          ]
+        },
+        {
+          "id": 8,
+          "name": "Hell's Foundry",
+          "bank": "music_tune_5",
+          "tags": [
+            "hell",
+            "foundry",
+            "fire",
+            "lava",
+            "netherrealm"
+          ]
+        },
+        {
+          "id": 9,
+          "name": "Liu Kang's Tomb",
+          "bank": "music_tune_2",
+          "tags": [
+            "tomb",
+            "krypt",
+            "graveyard",
+            "liu kang",
+            "treasure"
+          ]
+        },
+        {
+          "id": 10,
+          "name": "Kuatan Palace",
+          "bank": "music_tune_8",
+          "tags": [
+            "kuatan",
+            "palace",
+            "throne",
+            "outworld",
+            "kahn",
+            "great hall"
+          ]
+        },
+        {
+          "id": 11,
+          "name": "Living Forest",
+          "bank": "music_tune_forest",
+          "tags": [
+            "living forest",
+            "forest",
+            "woods",
+            "trees",
+            "jungle"
+          ]
+        },
+        {
+          "id": 12,
+          "name": "Golden Desert",
+          "bank": "music_tune_2",
+          "tags": [
+            "desert",
+            "sand",
+            "ruins",
+            "wasteland",
+            "golden"
+          ]
+        },
+        {
+          "id": 13,
+          "name": "Lower Mines",
+          "bank": "music_tune_10",
+          "tags": [
+            "mines",
+            "cave",
+            "cavern",
+            "lair",
+            "underground"
+          ]
+        },
+        {
+          "id": 14,
+          "name": "Nethership Interior",
+          "bank": "music_tune_3",
+          "tags": [
+            "nethership",
+            "ship",
+            "kove",
+            "sea",
+            "netherrealm",
+            "warship"
+          ]
+        },
+        {
+          "id": 15,
+          "name": "Nexus Arena",
+          "bank": "music_tune_8",
+          "tags": [
+            "nexus",
+            "portal",
+            "hourglass",
+            "arena"
+          ]
+        },
+        {
+          "id": 16,
+          "name": "Portal",
+          "bank": "music_tune_portal",
+          "tags": [
+            "portal",
+            "nexus",
+            "hourglass",
+            "lost portal"
+          ]
+        },
+        {
+          "id": 17,
+          "name": "Chamber of Artifacts",
+          "bank": "music_tune_4",
+          "tags": [
+            "chamber",
+            "artifacts",
+            "treasure",
+            "red dragon",
+            "temple"
+          ]
+        },
+        {
+          "id": 18,
+          "name": "Sky Temple",
+          "bank": "music_tune_1",
+          "tags": [
+            "sky temple",
+            "temple",
+            "sky",
+            "jinsei",
+            "raiden",
+            "lung hai"
+          ]
+        },
+        {
+          "id": 19,
+          "name": "Slaughterhouse",
+          "bank": "music_tune_6",
+          "tags": [
+            "slaughterhouse",
+            "flesh pits",
+            "lab",
+            "meat",
+            "butcher"
+          ]
+        },
+        {
+          "id": 20,
+          "name": "The Pit",
+          "bank": "music_tune_pit",
+          "tags": [
+            "pit",
+            "bridge",
+            "cliffs",
+            "spikes"
+          ]
+        },
+        {
+          "id": 21,
+          "name": "Yin Yang Island",
+          "bank": "",
+          "tags": [
+            "island",
+            "yin yang",
+            "sea",
+            "shang tsung",
+            "water"
+          ]
+        }
+      ]
+    },
+    "mka": {
+      "select_bank": "shell_music",
+      "select_streams": [
+        5
+      ],
+      "min_stream_seconds": 12,
+      "stages": [
+        {
+          "id": 0,
+          "name": "Subway",
+          "bank": "",
+          "tags": [
+            "subway",
+            "train",
+            "street",
+            "city"
+          ]
+        },
+        {
+          "id": 1,
+          "name": "Tekunin Prison",
+          "bank": "",
+          "tags": [
+            "prison",
+            "tekunin",
+            "dungeon",
+            "dark",
+            "base"
+          ]
+        },
+        {
+          "id": 2,
+          "name": "Armory",
+          "bank": "",
+          "tags": [
+            "armory",
+            "weapon",
+            "arsenal"
+          ]
+        },
+        {
+          "id": 3,
+          "name": "Bell Tower",
+          "bank": "",
+          "tags": [
+            "bell tower",
+            "tower",
+            "rooftop",
+            "bell"
+          ]
+        },
+        {
+          "id": 5,
+          "name": "Goro's Lair",
+          "bank": "",
+          "tags": [
+            "goro",
+            "lair",
+            "cave",
+            "moloch",
+            "pit"
+          ]
+        },
+        {
+          "id": 6,
+          "name": "Battle Arena",
+          "bank": "",
+          "tags": [
+            "arena",
+            "battle",
+            "coliseum",
+            "drum",
+            "kahn",
+            "elder gods"
+          ]
+        },
+        {
+          "id": 7,
+          "name": "Wastelands",
+          "bank": "",
+          "tags": [
+            "wastelands",
+            "wasteland",
+            "desert",
+            "ruins",
+            "sand"
+          ]
+        },
+        {
+          "id": 8,
+          "name": "Reptile's Lair",
+          "bank": "",
+          "tags": [
+            "reptile",
+            "lair",
+            "snake",
+            "cave",
+            "jungle"
+          ]
+        },
+        {
+          "id": 9,
+          "name": "Hell",
+          "bank": "",
+          "tags": [
+            "hell",
+            "netherrealm",
+            "fire",
+            "lava",
+            "apokolips"
+          ]
+        },
+        {
+          "id": 10,
+          "name": "Lumber Mill",
+          "bank": "",
+          "tags": [
+            "lumber",
+            "mill",
+            "forest",
+            "woods",
+            "saw"
+          ]
+        },
+        {
+          "id": 11,
+          "name": "Pyramid of Argus",
+          "bank": "",
+          "tags": [
+            "pyramid",
+            "summit",
+            "argus",
+            "sky",
+            "portal"
+          ]
+        },
+        {
+          "id": 12,
+          "name": "Sky Temple",
+          "bank": "",
+          "tags": [
+            "sky temple",
+            "temple",
+            "sky",
+            "jinsei",
+            "raiden",
+            "lung hai"
+          ]
+        },
+        {
+          "id": 13,
+          "name": "Falling Cliffs",
+          "bank": "",
+          "tags": [
+            "cliffs",
+            "falling",
+            "pit",
+            "bridge",
+            "kollapsing"
+          ]
+        },
+        {
+          "id": 14,
+          "name": "Hell's Foundry",
+          "bank": "",
+          "tags": [
+            "hell",
+            "foundry",
+            "fire",
+            "lava",
+            "netherrealm"
+          ]
+        },
+        {
+          "id": 15,
+          "name": "Nethership Interior",
+          "bank": "",
+          "tags": [
+            "nethership",
+            "ship",
+            "kove",
+            "sea",
+            "netherrealm",
+            "warship"
+          ]
+        },
+        {
+          "id": 16,
+          "name": "Meteor Storm",
+          "bank": "",
+          "tags": [
+            "meteor",
+            "storm",
+            "sky",
+            "space",
+            "station",
+            "rain"
+          ]
+        },
+        {
+          "id": 17,
+          "name": "Fire Well",
+          "bank": "",
+          "tags": [
+            "fire",
+            "well",
+            "lava",
+            "fire well",
+            "shrine"
+          ]
+        },
+        {
+          "id": 18,
+          "name": "Soul Chamber",
+          "bank": "",
+          "tags": [
+            "soul chamber",
+            "chamber",
+            "soul",
+            "flesh pits"
+          ]
+        },
+        {
+          "id": 19,
+          "name": "Evil Tower",
+          "bank": "",
+          "tags": [
+            "tower",
+            "evil",
+            "evil tower",
+            "portal",
+            "kahn"
+          ]
+        },
+        {
+          "id": 20,
+          "name": "Outworld Spire",
+          "bank": "",
+          "tags": [
+            "spire",
+            "outworld",
+            "tower",
+            "throne",
+            "inner spire"
+          ]
+        },
+        {
+          "id": 26,
+          "name": "Botan Jungle",
+          "bank": "",
+          "tags": [
+            "jungle",
+            "kuatan jungle",
+            "forest",
+            "living forest",
+            "woods"
+          ]
+        },
+        {
+          "id": 27,
+          "name": "Arctika",
+          "bank": "",
+          "tags": [
+            "arctika",
+            "ice",
+            "snow",
+            "lin kuei",
+            "temple",
+            "mountain"
+          ]
+        },
+        {
+          "id": 28,
+          "name": "Lin Kuei Palace",
+          "bank": "",
+          "tags": [
+            "lin kuei",
+            "palace",
+            "ice",
+            "temple",
+            "fortress"
+          ]
+        },
+        {
+          "id": 30,
+          "name": "Netherrealm Cliffs",
+          "bank": "",
+          "tags": [
+            "netherrealm",
+            "cliffs",
+            "hell",
+            "fire",
+            "lava"
+          ]
+        },
+        {
+          "id": 31,
+          "name": "Shinnok's Spire",
+          "bank": "",
+          "tags": [
+            "spire",
+            "shinnok",
+            "netherrealm",
+            "tower",
+            "throne"
+          ]
+        },
+        {
+          "id": 32,
+          "name": "Shinnok's Throne Room",
+          "bank": "",
+          "tags": [
+            "throne",
+            "shinnok",
+            "netherrealm",
+            "palace",
+            "hall"
+          ]
+        },
+        {
+          "id": 33,
+          "name": "Reiko's War Room",
+          "bank": "",
+          "tags": [
+            "war room",
+            "reiko",
+            "map",
+            "base",
+            "special forces"
+          ]
+        },
+        {
+          "id": 34,
+          "name": "Shao Kahn's Throne Room",
+          "bank": "",
+          "tags": [
+            "throne",
+            "shao kahn",
+            "kahn",
+            "palace",
+            "great hall",
+            "kuatan"
+          ]
+        },
+        {
+          "id": 37,
+          "name": "Shao Kahn's Balcony",
+          "bank": "",
+          "tags": [
+            "balcony",
+            "shao kahn",
+            "kahn",
+            "coliseum",
+            "arena"
+          ]
+        },
+        {
+          "id": 38,
+          "name": "Scorpion's Lair",
+          "bank": "",
+          "tags": [
+            "scorpion",
+            "lair",
+            "hell",
+            "fire",
+            "netherrealm",
+            "pit"
+          ]
+        },
+        {
+          "id": 39,
+          "name": "Edenian Ruins",
+          "bank": "",
+          "tags": [
+            "ruins",
+            "edenia",
+            "edenian",
+            "temple",
+            "garden"
+          ]
+        },
+        {
+          "id": 40,
+          "name": "Krimson Forest",
+          "bank": "",
+          "tags": [
+            "forest",
+            "krimson",
+            "living forest",
+            "woods",
+            "dead woods"
+          ]
+        },
+        {
+          "id": 41,
+          "name": "Red Dragon Caverns",
+          "bank": "",
+          "tags": [
+            "cavern",
+            "cave",
+            "red dragon",
+            "lair",
+            "mines"
+          ]
+        },
+        {
+          "id": 42,
+          "name": "Chamber of Daegon",
+          "bank": "",
+          "tags": [
+            "chamber",
+            "daegon",
+            "red dragon",
+            "temple",
+            "cave"
+          ]
+        }
+      ]
+    }
+  }
+}
