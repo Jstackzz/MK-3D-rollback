@@ -40,11 +40,31 @@ The runtime asks a game-layer hook before opening any title path (patch 0045, `k
 
 A bank copy holds every song that goes into it (one copy for a menu bank with the main menu's and the select screen's
 songs), every stream a song fills pointing at one copy of it (Armageddon's jukebox bank: 108 streams, one song, a few
-MB). A song longer than ten minutes is cut; the game loops what it gets, and a bank whose music is several parts (an
-intro and loops) plays the song whole in each part: every part is replaced (Deadly Alliance's select screen opens with
-a 7.8 s intro, stream 26, before its loop, stream 27, and its arena banks have short parts too; with those left as they
-were, the game's own music played for a few seconds first). The cache is keyed by the bank and its songs and trimmed to
-3 GB, the copies the maps name kept, the longest unused going first.
+MB). A song longer than ten minutes is cut; the game loops what it gets. The cache is keyed by the bank and its songs
+and trimmed to 3 GB, the copies the maps name kept, the longest unused going first.
+
+**Music in pieces: the descriptor's cues** (from test 18). A bank's music is played by cues in its descriptor, the
+`.mbx` beside it: the fourth section (offsets from [0x10], so [0x1C] to [0x20]), elements of 44 bytes in version 6
+(Deadly Alliance: +4 flags, +8 seconds) and 48 in version 11 (Deception, Armageddon: +8 flags, +24 seconds). An
+element 0x2000NNNN plays sound NNNN once (flags 0x10301, or 0x10101 for a sound the game keeps in memory) or looped
+(0x301 / 0x101), the given seconds after the element before it started (that sound's own length); 0xFFFFFFFF with
+flags 7 ends the cue (after its seconds, or -1 never: the last sound loops). A stage bank has three cues the game plays
+during a fight, each stopping the one before: the round music (an intro, then a loop; Deception's a second version
+with a short pre-intro for some rounds), the "finish him" loop and the round-end sting (traced: rounds restart the
+round music), plus a last cue of every piece in a row. Deadly Alliance's select screen is one cue: stream 26 (7.8 s)
+once, then stream 27 looped 7.752 s later; Deception's main menu streams 9 then 10 (12.624 s later).
+
+The game starts a cue's next piece after the seconds the descriptor gives, whatever the stream it plays: a song put in
+every piece played over itself (test 17: Acid Bath's loop began on top of the song 20.8 s into a round, the select
+screen's after 7.75 s). So the launcher (`roundMusicStreams`, `fitCueTimes`) puts the song only in a stage's round music
+(the cues that loop the bank's longest looping stream: `"streams": "cue"` in jukebox.json; the sting and the "finish
+him" loop stay the game's, and a round starts the song again as the game's own music does), and writes the copy's
+descriptor so that a piece after a replaced one starts once the song has ended (the round music's loop then repeats
+the song seamlessly), and a cue that ended after a replaced piece ends with the song. Checked in the games (file traces,
+`build/jukebox/stream-timeline.py`; audio dumps): Deadly Alliance's select screen and Acid Bath (one copy of the song,
+the loop starting at its end, 61 s in; the sting and "finish him" the game's own between rounds), Deception's main
+menu and Beetle Lair. `build/jukebox/round-cues.py <game>` prints every stage bank's cues and the round music chosen,
+`--copy <folder>` a made copy's fitted cues.
 
 Each song is made as loud as the music it replaces (from test 17): the launcher measures the longest stream it fills as
 the game has it and the song itself (ITU-R BS.1770 loudness, LUFS: K-weighted, 400 ms blocks, gated) and changes the
@@ -63,8 +83,8 @@ to streams):
 
 | | Stages | Main menu | Select screen |
 |---|---|---|---|
-| Deadly Alliance | 17 arenas, each its music bank (the arena table at 0x231750, +0x14 the bank's index into the list at 0x27F5F8), every part | `shell` stream 1 | `shell` streams 26 (an intro) then 27 |
-| Deception | 20 arenas, each its `music_tune_*` bank (the game's own arena ids: 0 Beetle Lair ...), every part; Yin Yang Island (twelve short pieces) keeps its own | `shell_music` streams 9 (once) and 10 (looped), resident | `shell_music` streams 1 then 2 |
+| Deadly Alliance | 17 arenas, each its music bank (the arena table at 0x231750, +0x14 the bank's index into the list at 0x27F5F8), the round music's cues | `shell` stream 1 | `shell` streams 26 (an intro) then 27 |
+| Deception | 20 arenas, each its `music_tune_*` bank (the game's own arena ids: 0 Beetle Lair ...), the round music's cues; Yin Yang Island (twelve short pieces) keeps its own | `shell_music` streams 9 (once) and 10 (looped), resident | `shell_music` streams 1 then 2 |
 | Armageddon | 34 arenas, all from `shell_jukebox` (each arena always starts the same stream of it, 20 different ones, many arenas sharing one): a copy per song with every stream that song | `shell` stream 25 | `shell_music` stream 5, resident |
 
 A **resident** sound is one the game loads whole into memory at boot: a longer one is not loaded at all (56 to 150 s

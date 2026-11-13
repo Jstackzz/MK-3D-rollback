@@ -44,7 +44,7 @@ namespace {
 constexpr double kMaxSongSeconds = 600;  // a song longer than this is cut (the game loops what it gets)
 constexpr double kStingerSeconds = 40;   // a track shorter than this is no stage music (a fatality sting)
 constexpr double kMenuSeconds = 45;      // a menu theme shorter than this is an intro, not the menu's music
-constexpr char kCacheVersion[] = "v4";   // in the cache key: bump when the banks are made differently (v4: loudness)
+constexpr char kCacheVersion[] = "v5";   // in the cache key: bump when the banks are made differently (v4: loudness, v5: cues)
 constexpr qint64 kCacheBudget = qint64(3) * 1024 * 1024 * 1024;  // the cache is trimmed to this, the oldest first
 
 QString lower(const QString& s) { return s.toLower(); }
@@ -224,6 +224,7 @@ namespace {
 
 QList<int> streamsOf(const QJsonValue& v) {
     if (v.isString() && v.toString() == QLatin1String("all")) return {-1};
+    if (v.isString() && v.toString() == QLatin1String("cue")) return {-2};  // the round music's cues (roundMusicStreams)
     QList<int> out;
     for (const QJsonValue& s : v.toArray()) out << s.toInt();
     return out;
@@ -1104,7 +1105,7 @@ QList<QPair<int, double>> bankStreams(const QByteArray& bank) {
 }
 
 bool replaceStreamsMany(const QByteArray& bank, const QList<StreamSong>& songs, double maxSeconds, QByteArray& out,
-                        QString* error, QList<int>* streamedIds, QList<double>* gainsDb) {
+                        QString* error, QList<int>* streamedIds, QList<double>* gainsDb, QMap<int, double>* newSeconds) {
     Bank b;
     if (!parseBank(bank, b, error)) return false;
     QMap<int, int> songOf;  // entry index -> the song it gets
@@ -1167,6 +1168,15 @@ bool replaceStreamsMany(const QByteArray& bank, const QList<StreamSong>& songs, 
             }
             if (gainsDb) (*gainsDb)[si] = gainDb;
             blocks.insert(qMakePair(si, f), encodeXboxAdpcm(made, f.first));
+        }
+    }
+    if (newSeconds) {
+        newSeconds->clear();
+        for (const BankEntry& e : b.entries) {
+            const int si = songOf.value(e.index, -1);
+            if (si < 0) continue;
+            const QByteArray& data = blocks[qMakePair(si, qMakePair(e.channels, e.rate))];
+            newSeconds->insert(e.id, double(data.size() / (36 * e.channels) * 64) / e.rate);
         }
     }
     const qsizetype align = 0x800;
@@ -1244,6 +1254,101 @@ QByteArray setStreamed(const QByteArray& mbx, const QList<int>& ids) {
         const qsizetype rec = at + 36 * qsizetype(i);
         if (rec + 36 > out.size()) break;
         if (ids.contains(int(u32(out, rec + 8) & 0xFFFF))) put32(out, rec + 32, 1);
+    }
+    return out;
+}
+
+// --- the descriptor's music cues -------------------------------------------------------------------------------
+
+namespace {
+
+// The cue section is the fourth of the descriptor's sections (their offsets from [0x10], so [0x1C] to [0x20]), an
+// array of elements: 44 bytes in version 6 (Deadly Alliance: +4 flags, +8 the seconds), 48 in version 11 (Deception,
+// Armageddon: +8 flags, +24 the seconds). An element's first word is 0x2000NNNN for sound NNNN (flags 0x10301 play
+// once, 0x301 loop; 0x10101 and 0x101 for a sound the game keeps in memory, as Deception's main menu) or 0xFFFFFFFF
+// with flags 7 for a cue's end (its seconds: after the last element started, or -1 never); anything else is left
+// alone.
+struct CueElement {
+    qsizetype at = 0;       // where it is in the descriptor
+    qsizetype secondsAt = 0;
+    enum Kind { Stream, End, Other } kind = Other;
+    int id = -1;
+    bool loop = false;
+};
+
+QList<CueElement> cueElements(const QByteArray& mbx) {
+    QList<CueElement> out;
+    const uint32_t version = u32(mbx, 0);
+    const int size = version == 6 ? 44 : version == 11 ? 48 : 0;
+    if (!size) return out;
+    const int flagsAt = version == 6 ? 4 : 8, secondsAt = version == 6 ? 8 : 24;
+    const qsizetype from = u32(mbx, 0x1C), to = std::min<qsizetype>(u32(mbx, 0x20), mbx.size());
+    for (qsizetype at = from; at + size <= to; at += size) {
+        CueElement e;
+        e.at = at;
+        e.secondsAt = at + secondsAt;
+        const uint32_t word = u32(mbx, at), flags = u32(mbx, at + flagsAt);
+        if ((word >> 16) == 0x2000 && ((flags & 0xFFFF) == 0x0301 || (flags & 0xFFFF) == 0x0101)) {
+            e.kind = CueElement::Stream;
+            e.id = int(word & 0xFFFF);
+            e.loop = !(flags & 0x10000);
+        } else if (word == 0xFFFFFFFFu && flags == 7) {
+            e.kind = CueElement::End;
+        }
+        out << e;
+    }
+    return out;
+}
+
+float f32(const QByteArray& d, qsizetype at) {
+    const uint32_t u = u32(d, at);
+    float f;
+    std::memcpy(&f, &u, 4);
+    return f;
+}
+
+void putF32(QByteArray& d, qsizetype at, float f) {
+    uint32_t u;
+    std::memcpy(&u, &f, 4);
+    put32(d, at, u);
+}
+
+}  // namespace
+
+QList<int> roundMusicStreams(const QByteArray& mbx, const QMap<int, double>& seconds) {
+    // the cues, split at their ends
+    QList<QList<CueElement>> cues(1);
+    for (const CueElement& e : cueElements(mbx)) {
+        if (e.kind == CueElement::Stream) cues.last() << e;
+        if (e.kind == CueElement::End && !cues.last().isEmpty()) cues << QList<CueElement>();
+    }
+    int longest = -1;
+    for (const auto& cue : cues)
+        for (const CueElement& e : cue)
+            if (e.loop && seconds.contains(e.id) && (longest < 0 || seconds[e.id] > seconds[longest])) longest = e.id;
+    QList<int> out;
+    if (longest < 0) return out;
+    for (const auto& cue : cues) {
+        bool round = false;
+        for (const CueElement& e : cue) round = round || (e.loop && e.id == longest);
+        if (!round) continue;
+        for (const CueElement& e : cue)
+            if (!out.contains(e.id)) out << e.id;
+    }
+    return out;
+}
+
+QByteArray fitCueTimes(const QByteArray& mbx, const QMap<int, double>& newSeconds) {
+    QByteArray out = mbx;
+    double after = -1;  // the new length of the replaced stream the element before this one plays, or -1
+    for (const CueElement& e : cueElements(mbx)) {
+        if (e.kind == CueElement::Stream) {
+            if (after >= 0) putF32(out, e.secondsAt, float(after));
+            after = newSeconds.value(e.id, -1);
+        } else {
+            if (e.kind == CueElement::End && after >= 0 && f32(mbx, e.secondsAt) >= 0) putF32(out, e.secondsAt, float(after));
+            after = -1;
+        }
     }
     return out;
 }
@@ -1365,11 +1470,21 @@ bool Applier::apply(const QString& gameId, const Plan& plan) {
         for (const Pick& p : plan.picks) {
             if (p.file.isEmpty() || p.bank.isEmpty()) continue;
             QList<int> streams = p.streams;
-            if (streams.isEmpty()) {
+            if (streams.isEmpty() || streams == QList<int>{-2}) {
+                // the round music's streams from the descriptor's cues ({-2}), else (or when it has none this reads)
+                // every stream of 12 s or more
+                QMap<int, double> lengths;
                 QFile in(QDir(banksDir).filePath(p.bank + QStringLiteral(".msx")));
                 if (in.open(QIODevice::ReadOnly))
-                    for (const auto& [id, seconds] : bankStreams(in.readAll()))
-                        if (seconds >= 12) streams << id;
+                    for (const auto& [id, seconds] : bankStreams(in.readAll())) lengths.insert(id, seconds);
+                streams.clear();
+                if (p.streams == QList<int>{-2}) {
+                    QFile mbx(QDir(banksDir).filePath(p.bank + QStringLiteral(".mbx")));
+                    if (mbx.open(QIODevice::ReadOnly)) streams = roundMusicStreams(mbx.readAll(), lengths);
+                }
+                if (streams.isEmpty())
+                    for (auto it = lengths.cbegin(); it != lengths.cend(); ++it)
+                        if (it.value() >= 12) streams << it.key();
             }
             if (streams.isEmpty()) {
                 failure = QStringLiteral("%1 has no music stream to replace (is the game built?).").arg(p.bank);
@@ -1428,7 +1543,8 @@ bool Applier::apply(const QString& gameId, const Plan& plan) {
                 QByteArray out;
                 QList<int> streamed;
                 QList<double> gains;
-                if (!replaceStreamsMany(bank, j.songs, kMaxSongSeconds, out, &error, &streamed, &gains)) {
+                QMap<int, double> newSeconds;
+                if (!replaceStreamsMany(bank, j.songs, kMaxSongSeconds, out, &error, &streamed, &gains, &newSeconds)) {
                     failure = QStringLiteral("%1: %2").arg(j.titles.join(QStringLiteral(", ")), error);
                     break;
                 }
@@ -1446,10 +1562,13 @@ bool Applier::apply(const QString& gameId, const Plan& plan) {
                     }
                     n.write(text.toUtf8());
                 }
-                // the descriptor goes with it (sounds made streamed say so there)
+                // the descriptor goes with it: sounds made streamed say so there, and its music cues wait for each song
+                // to end before they go on (the game starts a cue's next stream after the time the descriptor gives,
+                // the old stream's length: a song would play over itself)
                 QFile mbxIn(QDir(banksDir).filePath(j.bank + QStringLiteral(".mbx")));
                 QByteArray mbx = mbxIn.open(QIODevice::ReadOnly) ? mbxIn.readAll() : QByteArray();
                 if (!streamed.isEmpty()) mbx = setStreamed(mbx, streamed);
+                if (!mbx.isEmpty()) mbx = fitCueTimes(mbx, newSeconds);
                 if (!mbx.isEmpty() && !writeWhole(QDir(folder).filePath(j.bank + QStringLiteral(".mbx")), mbx, &error)) {
                     failure = error;
                     break;

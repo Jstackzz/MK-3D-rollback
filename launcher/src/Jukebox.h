@@ -47,7 +47,8 @@ struct Slot {
     QString screen;       // "menu", "select"; empty for a stage
     QString name;         // "Acid Bath", "Main menu"
     QString bank;         // the sound bank its music is in; empty: cannot be changed (the game's own stays)
-    QList<int> streams;   // the bank's streams that are its music; empty: every stream of 12 s or more; {-1}: all
+    QList<int> streams;   // the bank's streams that are its music; empty: every stream of 12 s or more; {-1}: all;
+                          // {-2}: the round music's cues in the bank's descriptor (roundMusicStreams)
     QStringList tags;     // keywords for the preset picks
     QString why;          // why it cannot be changed, when it cannot
     bool isStage() const { return stage >= 0; }
@@ -126,11 +127,23 @@ struct StreamSong {
 // the streams a song fills share one copy of it. Each song is made as loud as the longest stream it replaces (BS.1770
 // loudness, a limiter on its peaks); gainsDb gets what each song was changed by. A resident sound (one the game keeps
 // in memory, loaded whole at boot, with no room to grow) that is replaced becomes a streamed one: its id goes to
-// streamedIds, for the .mbx (setStreamed). False with why when the bank cannot be read or a stream is not there.
+// streamedIds, for the .mbx (setStreamed); newSeconds gets every replaced stream's new length (for fitCueTimes). False
+// with why when the bank cannot be read or a stream is not there.
 bool replaceStreamsMany(const QByteArray& bank, const QList<StreamSong>& songs, double maxSeconds, QByteArray& out,
-                        QString* error, QList<int>* streamedIds = nullptr, QList<double>* gainsDb = nullptr);
+                        QString* error, QList<int>* streamedIds = nullptr, QList<double>* gainsDb = nullptr,
+                        QMap<int, double>* newSeconds = nullptr);
 // a bank's descriptor (.mbx) with the given sounds marked streamed
 QByteArray setStreamed(const QByteArray& mbx, const QList<int>& ids);
+// A descriptor's music cues string streams together: each element plays a stream once or looped, a given number of
+// seconds after the element before it started (the stream's own length, as the descriptor has it), and a cue ends at
+// its end element (after some seconds, or never: its last stream loops). The streams of a stage's round music: every
+// stream of the cues that loop the bank's longest looping stream (the round's intro and its loop, a pre-intro too;
+// not the "finish him" loop or the round-end sting). seconds: the bank's streams' lengths (bankStreams). Empty when
+// the descriptor has no cues this reads (Deadly Alliance's version 6 and Deception's and Armageddon's version 11 do).
+QList<int> roundMusicStreams(const QByteArray& mbx, const QMap<int, double>& seconds);
+// the descriptor with its cues fitted to replaced streams: an element after a replaced stream starts once that stream's
+// new length has passed, and a cue that ends after one ends then, so a song never plays over itself
+QByteArray fitCueTimes(const QByteArray& mbx, const QMap<int, double>& newSeconds);
 // the streams of a bank: (id, seconds) for every sound that is not resident
 QList<QPair<int, double>> bankStreams(const QByteArray& bank);
 

@@ -1,5 +1,5 @@
 {
-  "_comment": "The jukebox's table (launcher Jukebox.cpp): each game's stages by the game's own arena id and its menu screens, with the sound bank their music is in and the streams of it (empty: every stream of 12 s or more; \"all\": every stream); a stage or screen with no bank keeps the game's own music. Made from mapping runs (tools/py/jukebox_map.py) and traces of what each game reads (XBE_FILE_TRACE).",
+  "_comment": "The jukebox's table (launcher Jukebox.cpp): each game's stages by the game's own arena id and its menu screens, with the sound bank their music is in and the streams of it (empty: every stream of 12 s or more; \"all\": every stream; \"cue\": the round music, the streams of the cues in the bank's descriptor that loop its longest looping stream); a stage or screen with no bank keeps the game's own music. Made from mapping runs (tools/py/jukebox_map.py) and traces of what each game reads (XBE_FILE_TRACE).",
   "games": {
     "mkda": {
       "stages": [
@@ -14,7 +14,7 @@
             "dead pool",
             "sewer"
           ],
-          "streams": "all"
+          "streams": "cue"
         },
         {
           "id": 1,
@@ -27,7 +27,7 @@
             "temple",
             "garden"
           ],
-          "streams": "all"
+          "streams": "cue"
         },
         {
           "id": 2,
@@ -40,7 +40,7 @@
             "shrine",
             "monastery"
           ],
-          "streams": "all"
+          "streams": "cue"
         },
         {
           "id": 3,
@@ -54,7 +54,7 @@
             "flying",
             "rain"
           ],
-          "streams": "all"
+          "streams": "cue"
         },
         {
           "id": 4,
@@ -67,7 +67,7 @@
             "kahn",
             "elder gods"
           ],
-          "streams": "all"
+          "streams": "cue"
         },
         {
           "id": 5,
@@ -80,7 +80,7 @@
             "hell",
             "evil"
           ],
-          "streams": "all"
+          "streams": "cue"
         },
         {
           "id": 6,
@@ -93,7 +93,7 @@
             "arctika",
             "snow"
           ],
-          "streams": "all"
+          "streams": "cue"
         },
         {
           "id": 7,
@@ -107,7 +107,7 @@
             "kahn",
             "great hall"
           ],
-          "streams": "all"
+          "streams": "cue"
         },
         {
           "id": 9,
@@ -120,7 +120,7 @@
             "treasure",
             "chamber"
           ],
-          "streams": "all"
+          "streams": "cue"
         },
         {
           "id": 10,
@@ -132,7 +132,7 @@
             "hourglass",
             "lost portal"
           ],
-          "streams": "all"
+          "streams": "cue"
         },
         {
           "id": 11,
@@ -145,7 +145,7 @@
             "lung hai",
             "jinsei"
           ],
-          "streams": "all"
+          "streams": "cue"
         },
         {
           "id": 12,
@@ -158,7 +158,7 @@
             "courtyard",
             "gate"
           ],
-          "streams": "all"
+          "streams": "cue"
         },
         {
           "id": 13,
@@ -171,7 +171,7 @@
             "island",
             "hall"
           ],
-          "streams": "all"
+          "streams": "cue"
         },
         {
           "id": 14,
@@ -185,7 +185,7 @@
             "fire temple",
             "well"
           ],
-          "streams": "all"
+          "streams": "cue"
         },
         {
           "id": 15,
@@ -198,7 +198,7 @@
             "sarna",
             "sand"
           ],
-          "streams": "all"
+          "streams": "cue"
         },
         {
           "id": 23,
@@ -212,7 +212,7 @@
             "warship",
             "netherrealm"
           ],
-          "streams": "all"
+          "streams": "cue"
         },
         {
           "id": 24,
@@ -226,7 +226,7 @@
             "moloch",
             "pit"
           ],
-          "streams": "all"
+          "streams": "cue"
         }
       ],
       "screens": [
@@ -263,7 +263,7 @@
             "cave",
             "insect"
           ],
-          "streams": "all"
+          "streams": "cue"
         },
         {
           "id": 1,
@@ -275,7 +275,7 @@
             "academy",
             "palace grounds"
           ],
-          "streams": "all"
+          "streams": "cue"
         },
         {
           "id": 2,
@@ -287,7 +287,7 @@
             "dungeon",
             "tekunin"
           ],
-          "streams": "all"
+          "streams": "cue"
         },
         {
           "id": 3,
@@ -300,7 +300,7 @@
             "bath",
             "sewer"
           ],
-          "streams": "all"
+          "streams": "cue"
         },
         {
           "id": 5,
@@ -313,7 +313,7 @@
             "sky",
             "wind"
           ],
-          "streams": "all"
+          "streams": "cue"
         },
         {
           "id": 6,
@@ -326,7 +326,7 @@
             "bridge",
             "kollapsing"
           ],
-          "streams": "all"
+          "streams": "cue"
         },
         {
           "id": 7,
@@ -338,7 +338,7 @@
             "netherrealm",
             "evil"
           ],
-          "streams": "all"
+          "streams": "cue"
         },
         {
           "id": 8,
@@ -351,7 +351,7 @@
             "lava",
             "netherrealm"
           ],
-          "streams": "all"
+          "streams": "cue"
         },
         {
           "id": 9,
@@ -364,7 +364,7 @@
             "liu kang",
             "treasure"
           ],
-          "streams": "all"
+          "streams": "cue"
         },
         {
           "id": 10,
@@ -378,7 +378,7 @@
             "kahn",
             "great hall"
           ],
-          "streams": "all"
+          "streams": "cue"
         },
         {
           "id": 11,
@@ -391,7 +391,7 @@
             "trees",
             "jungle"
           ],
-          "streams": "all"
+          "streams": "cue"
         },
         {
           "id": 12,
@@ -404,7 +404,7 @@
             "wasteland",
             "golden"
           ],
-          "streams": "all"
+          "streams": "cue"
         },
         {
           "id": 13,
@@ -417,7 +417,7 @@
             "lair",
             "underground"
           ],
-          "streams": "all"
+          "streams": "cue"
         },
         {
           "id": 14,
@@ -431,7 +431,7 @@
             "netherrealm",
             "warship"
           ],
-          "streams": "all"
+          "streams": "cue"
         },
         {
           "id": 15,
@@ -443,7 +443,7 @@
             "hourglass",
             "arena"
           ],
-          "streams": "all"
+          "streams": "cue"
         },
         {
           "id": 16,
@@ -455,7 +455,7 @@
             "hourglass",
             "lost portal"
           ],
-          "streams": "all"
+          "streams": "cue"
         },
         {
           "id": 17,
@@ -468,7 +468,7 @@
             "red dragon",
             "temple"
           ],
-          "streams": "all"
+          "streams": "cue"
         },
         {
           "id": 18,
@@ -482,7 +482,7 @@
             "raiden",
             "lung hai"
           ],
-          "streams": "all"
+          "streams": "cue"
         },
         {
           "id": 19,
@@ -495,7 +495,7 @@
             "meat",
             "butcher"
           ],
-          "streams": "all"
+          "streams": "cue"
         },
         {
           "id": 20,
@@ -507,7 +507,7 @@
             "cliffs",
             "spikes"
           ],
-          "streams": "all"
+          "streams": "cue"
         },
         {
           "id": 21,
