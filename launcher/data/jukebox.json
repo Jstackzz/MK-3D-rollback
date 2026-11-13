@@ -13,7 +13,8 @@
             "pool",
             "dead pool",
             "sewer"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 1,
@@ -25,7 +26,8 @@
             "courtyard",
             "temple",
             "garden"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 2,
@@ -37,7 +39,8 @@
             "temple",
             "shrine",
             "monastery"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 3,
@@ -50,7 +53,8 @@
             "air",
             "flying",
             "rain"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 4,
@@ -62,7 +66,8 @@
             "coliseum",
             "kahn",
             "elder gods"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 5,
@@ -74,7 +79,8 @@
             "netherrealm",
             "hell",
             "evil"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 6,
@@ -86,7 +92,8 @@
             "ice",
             "arctika",
             "snow"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 7,
@@ -99,7 +106,8 @@
             "outworld",
             "kahn",
             "great hall"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 9,
@@ -111,7 +119,8 @@
             "graveyard",
             "treasure",
             "chamber"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 10,
@@ -122,7 +131,8 @@
             "nexus",
             "hourglass",
             "lost portal"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 11,
@@ -134,7 +144,8 @@
             "shrine",
             "lung hai",
             "jinsei"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 12,
@@ -146,7 +157,8 @@
             "garden",
             "courtyard",
             "gate"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 13,
@@ -158,7 +170,8 @@
             "throne",
             "island",
             "hall"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 14,
@@ -171,7 +184,8 @@
             "hell",
             "fire temple",
             "well"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 15,
@@ -183,7 +197,8 @@
             "wasteland",
             "sarna",
             "sand"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 23,
@@ -196,7 +211,8 @@
             "sea",
             "warship",
             "netherrealm"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 24,
@@ -209,7 +225,8 @@
             "cavern",
             "moloch",
             "pit"
-          ]
+          ],
+          "streams": "all"
         }
       ],
       "screens": [
@@ -226,6 +243,7 @@
           "name": "Select screen",
           "bank": "shell",
           "streams": [
+            26,
             27
           ]
         }
@@ -244,7 +262,8 @@
             "kytinn",
             "cave",
             "insect"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 1,
@@ -255,7 +274,8 @@
             "wu shi",
             "academy",
             "palace grounds"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 2,
@@ -266,7 +286,8 @@
             "dark",
             "dungeon",
             "tekunin"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 3,
@@ -278,7 +299,8 @@
             "pool",
             "bath",
             "sewer"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 5,
@@ -290,7 +312,8 @@
             "cliffs",
             "sky",
             "wind"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 6,
@@ -302,7 +325,8 @@
             "pit",
             "bridge",
             "kollapsing"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 7,
@@ -313,7 +337,8 @@
             "fortress",
             "netherrealm",
             "evil"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 8,
@@ -325,7 +350,8 @@
             "fire",
             "lava",
             "netherrealm"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 9,
@@ -337,7 +363,8 @@
             "graveyard",
             "liu kang",
             "treasure"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 10,
@@ -350,7 +377,8 @@
             "outworld",
             "kahn",
             "great hall"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 11,
@@ -362,7 +390,8 @@
             "woods",
             "trees",
             "jungle"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 12,
@@ -374,7 +403,8 @@
             "ruins",
             "wasteland",
             "golden"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 13,
@@ -386,7 +416,8 @@
             "cavern",
             "lair",
             "underground"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 14,
@@ -399,7 +430,8 @@
             "sea",
             "netherrealm",
             "warship"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 15,
@@ -410,7 +442,8 @@
             "portal",
             "hourglass",
             "arena"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 16,
@@ -421,7 +454,8 @@
             "nexus",
             "hourglass",
             "lost portal"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 17,
@@ -433,7 +467,8 @@
             "treasure",
             "red dragon",
             "temple"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 18,
@@ -446,7 +481,8 @@
             "jinsei",
             "raiden",
             "lung hai"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 19,
@@ -458,7 +494,8 @@
             "lab",
             "meat",
             "butcher"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 20,
@@ -469,7 +506,8 @@
             "bridge",
             "cliffs",
             "spikes"
-          ]
+          ],
+          "streams": "all"
         },
         {
           "id": 21,

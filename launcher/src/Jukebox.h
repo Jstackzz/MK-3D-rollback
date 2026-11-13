@@ -123,11 +123,12 @@ struct StreamSong {
     QString file;
 };
 // the bank with every song's streams replaced by that song, re-encoded in each stream's format and cut at maxSeconds;
-// the streams a song fills share one copy of it. A resident sound (one the game keeps in memory, loaded whole at
-// boot, with no room to grow) that is replaced becomes a streamed one: its id goes to streamedIds, for the .mbx
-// (setStreamed). False with why when the bank cannot be read or a stream is not there.
+// the streams a song fills share one copy of it. Each song is made as loud as the longest stream it replaces (BS.1770
+// loudness, a limiter on its peaks); gainsDb gets what each song was changed by. A resident sound (one the game keeps
+// in memory, loaded whole at boot, with no room to grow) that is replaced becomes a streamed one: its id goes to
+// streamedIds, for the .mbx (setStreamed). False with why when the bank cannot be read or a stream is not there.
 bool replaceStreamsMany(const QByteArray& bank, const QList<StreamSong>& songs, double maxSeconds, QByteArray& out,
-                        QString* error, QList<int>* streamedIds = nullptr);
+                        QString* error, QList<int>* streamedIds = nullptr, QList<double>* gainsDb = nullptr);
 // a bank's descriptor (.mbx) with the given sounds marked streamed
 QByteArray setStreamed(const QByteArray& mbx, const QList<int>& ids);
 // the streams of a bank: (id, seconds) for every sound that is not resident

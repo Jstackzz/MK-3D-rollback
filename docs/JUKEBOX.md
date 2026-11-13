@@ -41,8 +41,21 @@ The runtime asks a game-layer hook before opening any title path (patch 0045, `k
 A bank copy holds every song that goes into it (one copy for a menu bank with the main menu's and the select screen's
 songs), every stream a song fills pointing at one copy of it (Armageddon's jukebox bank: 108 streams, one song, a few
 MB). A song longer than ten minutes is cut; the game loops what it gets, and a bank whose music is several parts (an
-intro and loops) plays the song whole in each part. The cache is keyed by the bank and its songs and trimmed to 3 GB,
-the copies the maps name kept, the longest unused going first.
+intro and loops) plays the song whole in each part: every part is replaced (Deadly Alliance's select screen opens with
+a 7.8 s intro, stream 26, before its loop, stream 27, and its arena banks have short parts too; with those left as they
+were, the game's own music played for a few seconds first). The cache is keyed by the bank and its songs and trimmed to
+3 GB, the copies the maps name kept, the longest unused going first.
+
+Each song is made as loud as the music it replaces (from test 17): the launcher measures the longest stream it fills as
+the game has it and the song itself (ITU-R BS.1770 loudness, LUFS: K-weighted, 400 ms blocks, gated) and changes the
+song by the difference, at most 20 dB up or 15 dB down, with a limiter that looks 5 ms ahead holding its peaks under
+-1 dBFS (the gain eases back over about 200 ms); what the limiter takes off a big boost is made up, twice at most. The
+games' own music is loud (Deadly Alliance's stages -9 to -12.6 LUFS, its select screen -11.4; Deception's -8 to -10.5;
+Armageddon's -11.4 to -14.5) and many soundtracks are much quieter (MKX's -25.5 LUFS with peaks at -11.6 dBFS), so
+without this a song sounded far softer than the game's music it replaced. Measured in made banks, songs land within
+1 dB of the game's music (`build/jukebox/level-check.py <map> <game>`), and in Deadly Alliance's own output (audio
+dumps) MKX's songs played at -26.4 LUFS on the select screen against -27.3 for its own music, and at -30.6 against -30.0
+on Acid Bath. `track.txt` in a copy's folder says by how much each song was changed.
 
 The table of what plays from where is `launcher/data/jukebox.json`, made from mapping runs and traces
 (`XBE_FILE_TRACE=.MSX`, patch 0047, which logs every read of a sound bank; `build/jukebox/read-trace.py` maps the reads
@@ -50,8 +63,8 @@ to streams):
 
 | | Stages | Main menu | Select screen |
 |---|---|---|---|
-| Deadly Alliance | 17 arenas, each its music bank (the arena table at 0x231750, +0x14 the bank's index into the list at 0x27F5F8) | `shell` stream 1 | `shell` stream 27 |
-| Deception | 20 arenas, each its `music_tune_*` bank (the game's own arena ids: 0 Beetle Lair ...); Yin Yang Island (twelve short pieces) keeps its own | `shell_music` streams 9 (once) and 10 (looped), resident | `shell_music` streams 1 then 2 |
+| Deadly Alliance | 17 arenas, each its music bank (the arena table at 0x231750, +0x14 the bank's index into the list at 0x27F5F8), every part | `shell` stream 1 | `shell` streams 26 (an intro) then 27 |
+| Deception | 20 arenas, each its `music_tune_*` bank (the game's own arena ids: 0 Beetle Lair ...), every part; Yin Yang Island (twelve short pieces) keeps its own | `shell_music` streams 9 (once) and 10 (looped), resident | `shell_music` streams 1 then 2 |
 | Armageddon | 34 arenas, all from `shell_jukebox` (each arena always starts the same stream of it, 20 different ones, many arenas sharing one): a copy per song with every stream that song | `shell` stream 25 | `shell_music` stream 5, resident |
 
 A **resident** sound is one the game loads whole into memory at boot: a longer one is not loaded at all (56 to 150 s

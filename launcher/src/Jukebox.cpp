@@ -44,7 +44,7 @@ namespace {
 constexpr double kMaxSongSeconds = 600;  // a song longer than this is cut (the game loops what it gets)
 constexpr double kStingerSeconds = 40;   // a track shorter than this is no stage music (a fatality sting)
 constexpr double kMenuSeconds = 45;      // a menu theme shorter than this is an intro, not the menu's music
-constexpr char kCacheVersion[] = "v3";   // in the cache key: bump when the banks are made differently
+constexpr char kCacheVersion[] = "v4";   // in the cache key: bump when the banks are made differently (v4: loudness)
 constexpr qint64 kCacheBudget = qint64(3) * 1024 * 1024 * 1024;  // the cache is trimmed to this, the oldest first
 
 QString lower(const QString& s) { return s.toLower(); }
@@ -795,6 +795,170 @@ QByteArray encodeXboxAdpcm(const QVector<int16_t>& pcm, int channels) {
     return out;
 }
 
+// --- loudness -------------------------------------------------------------------------------------------------
+
+namespace {
+
+constexpr double kLevelSeconds = 240;  // how much of a game's stream is measured
+constexpr double kMaxBoostDb = 20;     // a song is made at most this much louder ...
+constexpr double kMaxCutDb = 15;       // ... or quieter
+constexpr double kCeilingDb = -1;      // the limiter keeps a song's peaks under this (dBFS)
+
+// Xbox ADPCM blocks to interleaved samples, 64 frames a block as the games play them (the header's sample, then 63
+// of the 64 codes; the last one is the next block's first sample)
+QVector<int16_t> decodeXboxAdpcm(const char* data, qsizetype size, int channels) {
+    const qsizetype block = 36 * qsizetype(channels);
+    const qsizetype blocks = channels > 0 ? size / block : 0;
+    QVector<int16_t> out(blocks * 64 * channels);
+    for (qsizetype b = 0; b < blocks; b++) {
+        const auto* p = reinterpret_cast<const uint8_t*>(data) + b * block;
+        int16_t* o = out.data() + b * 64 * channels;
+        for (int c = 0; c < channels; c++) {
+            int pred = int16_t(uint16_t(p[4 * c] | p[4 * c + 1] << 8));
+            int idx = std::min(int(p[4 * c + 2]), 88);
+            o[c] = int16_t(pred);
+            int at = 1;
+            for (int k = 0; k < 8; k++) {
+                const uint8_t* w = p + 4 * channels + (k * channels + c) * 4;
+                for (int j = 0; j < 8; j++, at++) {
+                    const int n = (w[j / 2] >> ((j & 1) * 4)) & 15;
+                    const int step = kStepTable[idx];
+                    int d = step >> 3;
+                    if (n & 1) d += step >> 2;
+                    if (n & 2) d += step >> 1;
+                    if (n & 4) d += step;
+                    pred = std::clamp(n & 8 ? pred - d : pred + d, -32768, 32767);
+                    idx = std::clamp(idx + kIndexTable[n], 0, 88);
+                    if (at < 64) o[at * channels + c] = int16_t(pred);
+                }
+            }
+        }
+    }
+    return out;
+}
+
+// One stage of the BS.1770 K-weighting filter (transposed direct form II), made for the sound's rate
+struct Biquad {
+    double b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0, z1 = 0, z2 = 0;
+    double run(double x) {
+        const double y = b0 * x + z1;
+        z1 = b1 * x - a1 * y + z2;
+        z2 = b2 * x - a2 * y;
+        return y;
+    }
+};
+
+Biquad shelfStage(int rate) {  // +4 dB above about 1.7 kHz, the head's own boost
+    const double gainDb = 3.99984385397, q = 0.7071752369554193, fc = 1681.9744509555319;
+    const double a = std::pow(10.0, gainDb / 40), w0 = 2 * kPi * fc / rate, alpha = std::sin(w0) / (2 * q),
+                 c = std::cos(w0), s = 2 * std::sqrt(a) * alpha;
+    const double a0 = (a + 1) - (a - 1) * c + s;
+    Biquad f;
+    f.b0 = a * ((a + 1) + (a - 1) * c + s) / a0;
+    f.b1 = -2 * a * ((a - 1) + (a + 1) * c) / a0;
+    f.b2 = a * ((a + 1) + (a - 1) * c - s) / a0;
+    f.a1 = 2 * ((a - 1) - (a + 1) * c) / a0;
+    f.a2 = ((a + 1) - (a - 1) * c - s) / a0;
+    return f;
+}
+
+Biquad highPassStage(int rate) {  // the lowest bass counts less
+    const double q = 0.5003270373253953, fc = 38.13547087613982;
+    const double w0 = 2 * kPi * fc / rate, alpha = std::sin(w0) / (2 * q), c = std::cos(w0), a0 = 1 + alpha;
+    Biquad f;
+    f.b0 = (1 + c) / 2 / a0;
+    f.b1 = -(1 + c) / a0;
+    f.b2 = (1 + c) / 2 / a0;
+    f.a1 = -2 * c / a0;
+    f.a2 = (1 - alpha) / a0;
+    return f;
+}
+
+// How loud a sound is, in LUFS (ITU-R BS.1770: K-weighted, 400 ms blocks every 100 ms, the blocks under -70 LUFS and
+// those 10 LU under the rest's loudness left out). A mono sound counts as played on both speakers, as the games do.
+// NaN when it is shorter than a block or silent.
+double loudnessOf(const int16_t* pcm, qsizetype frames, int channels, int rate) {
+    const qsizetype step = rate / 10;
+    if (channels <= 0 || step <= 0 || frames < 4 * step) return std::nan("");
+    std::vector<Biquad> shelf(size_t(channels), shelfStage(rate)), high(size_t(channels), highPassStage(rate));
+    const double weight = channels == 1 ? 2.0 : 1.0;
+    std::vector<double> steps;  // each 100 ms: the K-weighted energy summed over the channels
+    steps.reserve(size_t(frames / step));
+    double acc = 0;
+    for (qsizetype f = 0; f < frames; f++) {
+        for (int c = 0; c < channels; c++) {
+            const double y = high[c].run(shelf[c].run(pcm[f * channels + c] / 32768.0));
+            acc += y * y;
+        }
+        if ((f + 1) % step == 0) {
+            steps.push_back(acc * weight);
+            acc = 0;
+        }
+    }
+    std::vector<double> blocks;  // each block's mean power
+    for (size_t i = 3; i < steps.size(); i++) blocks.push_back((steps[i - 3] + steps[i - 2] + steps[i - 1] + steps[i]) / (4.0 * step));
+    const auto lufs = [](double power) { return -0.691 + 10 * std::log10(power); };
+    double sum = 0;
+    int n = 0;
+    for (double p : blocks)
+        if (p > 0 && lufs(p) > -70) sum += p, n++;
+    if (!n) return std::nan("");
+    const double gate = lufs(sum / n) - 10;
+    double kept = 0;
+    int m = 0;
+    for (double p : blocks)
+        if (p > 0 && lufs(p) > -70 && lufs(p) > gate) kept += p, m++;
+    return m ? lufs(kept / m) : std::nan("");
+}
+
+// A sound made gainDb louder (or quieter), its peaks held under kCeilingDb by a limiter that looks 5 ms ahead (the
+// gain comes down smoothly before a peak and goes back up over about 200 ms), so a song brought up does not clip
+void applyGain(QVector<int16_t>& pcm, int channels, int rate, double gainDb) {
+    if (channels <= 0 || rate <= 0 || std::abs(gainDb) < 0.01) return;
+    const double gain = std::pow(10.0, gainDb / 20), ceiling = 32767.0 * std::pow(10.0, kCeilingDb / 20);
+    const qsizetype frames = pcm.size() / channels;
+    const qsizetype ahead = std::max(1, rate / 200);
+    const double release = 1 - std::exp(-1.0 / (0.2 * rate));
+    const auto reduction = [&](qsizetype f) {  // what the frame needs to stay under the ceiling
+        int peak = 0;
+        for (int c = 0; c < channels; c++) peak = std::max(peak, std::abs(int(pcm[f * channels + c])));
+        const double p = peak * gain;
+        return p > ceiling ? ceiling / p : 1.0;
+    };
+    // the smallest need over the next `ahead` frames (a sliding minimum), averaged over the last `ahead` of those:
+    // the average of minimums whose windows all hold this frame is never more than this frame's own need
+    std::vector<std::pair<qsizetype, double>> window;  // (frame, need), the needs rising: a monotonic queue
+    size_t head = 0;
+    qsizetype next = 0;
+    std::vector<double> last(size_t(ahead), 1.0);
+    double sum = double(ahead), g = 1;
+    for (qsizetype n = -(ahead - 1); n < frames; n++) {
+        for (; next < frames && next <= n + ahead - 1; next++) {
+            const double r = reduction(next);
+            while (window.size() > head && window.back().second >= r) window.pop_back();
+            window.emplace_back(next, r);
+        }
+        while (head < window.size() && window[head].first < n) head++;
+        if (head > 4096 && head * 2 > window.size()) {  // keep the queue short
+            window.erase(window.begin(), window.begin() + qsizetype(head));
+            head = 0;
+        }
+        const double low = head < window.size() ? window[head].second : 1.0;
+        const size_t slot = size_t((n + ahead) % ahead);
+        sum += low - last[slot];
+        last[slot] = low;
+        if (n < 0) continue;
+        g = std::min(sum / double(ahead), g + (1 - g) * release);
+        const double k = gain * g;
+        for (int c = 0; c < channels; c++) {
+            int16_t& s = pcm[n * channels + c];
+            s = int16_t(std::clamp<long>(std::lround(s * k), -32768, 32767));
+        }
+    }
+}
+
+}  // namespace
+
 // --- the banks ------------------------------------------------------------------------------------------------
 
 namespace {
@@ -940,7 +1104,7 @@ QList<QPair<int, double>> bankStreams(const QByteArray& bank) {
 }
 
 bool replaceStreamsMany(const QByteArray& bank, const QList<StreamSong>& songs, double maxSeconds, QByteArray& out,
-                        QString* error, QList<int>* streamedIds) {
+                        QString* error, QList<int>* streamedIds, QList<double>* gainsDb) {
     Bank b;
     if (!parseBank(bank, b, error)) return false;
     QMap<int, int> songOf;  // entry index -> the song it gets
@@ -966,18 +1130,44 @@ bool replaceStreamsMany(const QByteArray& bank, const QList<StreamSong>& songs, 
             }
         }
     }
-    // each song once per format its streams have
+    // each song once per format its streams have, as loud as the music it replaces (the longest of its streams as
+    // the game has it): a song mastered quieter than the game's music is brought up to it, a louder one down
     QMap<QPair<int, QPair<int, int>>, QByteArray> blocks;  // (song, (channels, rate)) -> ADPCM blocks
+    if (gainsDb) *gainsDb = QList<double>(songs.size(), 0.0);
     for (int si = 0; si < songs.size(); si++) {
         QSet<QPair<int, int>> formats;
+        BankEntry longest;
         for (const BankEntry& e : b.entries)
-            if (songOf.value(e.index, -1) == si) formats.insert(qMakePair(e.channels, e.rate));
+            if (songOf.value(e.index, -1) == si) {
+                formats.insert(qMakePair(e.channels, e.rate));
+                if (!longest.channels || secondsOf(e) > secondsOf(longest)) longest = e;
+            }
         if (formats.isEmpty()) continue;
         int rate = 0, channels = 0;
         QVector<int16_t> pcm;
         if (!decodeAudio(songs[si].file, rate, channels, pcm, error, maxSeconds)) return false;
-        for (const auto& f : formats)
-            blocks.insert(qMakePair(si, f), encodeXboxAdpcm(convertPcm(pcm, channels, rate, f.first, f.second), f.first));
+        const qsizetype measured = std::min<qsizetype>(longest.dataSize, qsizetype(kLevelSeconds * longest.rate / 64 + 1) * 36 * longest.channels);
+        const QVector<int16_t> game = decodeXboxAdpcm(bank.constData() + longest.data, measured, longest.channels);
+        const double target = loudnessOf(game.constData(), game.size() / longest.channels, longest.channels, longest.rate);
+        const double own = loudnessOf(pcm.constData(), pcm.size() / channels, channels, rate);
+        const bool level = std::isfinite(target) && std::isfinite(own);
+        for (const auto& f : formats) {
+            const QVector<int16_t> converted = convertPcm(pcm, channels, rate, f.first, f.second);
+            double gainDb = level ? std::clamp(target - own, -kMaxCutDb, kMaxBoostDb) : 0.0;
+            QVector<int16_t> made = converted;
+            applyGain(made, f.first, f.second, gainDb);
+            // the limiter takes some of a big boost back off the peaks: what is missing is made up (twice at most)
+            for (int pass = 0; level && pass < 2; pass++) {
+                const double got = loudnessOf(made.constData(), made.size() / f.first, f.first, f.second);
+                const double more = std::min(target - got, kMaxBoostDb - gainDb);
+                if (!std::isfinite(got) || more < 0.3) break;
+                gainDb += more;
+                made = converted;
+                applyGain(made, f.first, f.second, gainDb);
+            }
+            if (gainsDb) (*gainsDb)[si] = gainDb;
+            blocks.insert(qMakePair(si, f), encodeXboxAdpcm(made, f.first));
+        }
     }
     const qsizetype align = 0x800;
     out = bank.left(b.headerEnd);
@@ -1237,9 +1427,24 @@ bool Applier::apply(const QString& gameId, const Plan& plan) {
                 QDir().mkpath(folder);
                 QByteArray out;
                 QList<int> streamed;
-                if (!replaceStreamsMany(bank, j.songs, kMaxSongSeconds, out, &error, &streamed)) {
+                QList<double> gains;
+                if (!replaceStreamsMany(bank, j.songs, kMaxSongSeconds, out, &error, &streamed, &gains)) {
                     failure = QStringLiteral("%1: %2").arg(j.titles.join(QStringLiteral(", ")), error);
                     break;
+                }
+                QFile n(note);  // what the copy holds, and how much louder each song was made
+                if (n.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                    QString text;
+                    for (int i = 0; i < j.songs.size(); i++) {
+                        QStringList ids;
+                        for (int id : j.songs[i].streams) ids << (id < 0 ? QStringLiteral("all") : QString::number(id));
+                        text += QDir::toNativeSeparators(j.songs[i].file) + QStringLiteral("\r\n  ") + j.titles[i] +
+                                QStringLiteral(" (streams %1, %2 dB)\r\n")
+                                    .arg(ids.join(QLatin1Char(',')))
+                                    .arg(gains.value(i) >= 0 ? QStringLiteral("+%1").arg(gains.value(i), 0, 'f', 1)
+                                                             : QString::number(gains.value(i), 'f', 1));
+                    }
+                    n.write(text.toUtf8());
                 }
                 // the descriptor goes with it (sounds made streamed say so there)
                 QFile mbxIn(QDir(banksDir).filePath(j.bank + QStringLiteral(".mbx")));
@@ -1254,16 +1459,9 @@ bool Applier::apply(const QString& gameId, const Plan& plan) {
                     break;
                 }
             }
-            QFile n(note);  // written each time: its date is when the copy was last used (the cache trims by it)
-            if (n.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-                QString text;
-                for (int i = 0; i < j.songs.size(); i++) {
-                    QStringList ids;
-                    for (int id : j.songs[i].streams) ids << (id < 0 ? QStringLiteral("all") : QString::number(id));
-                    text += QDir::toNativeSeparators(j.songs[i].file) + QStringLiteral("\r\n  ") + j.titles[i] +
-                            QStringLiteral(" (streams %1)\r\n").arg(ids.join(QLatin1Char(',')));
-                }
-                n.write(text.toUtf8());
+            {
+                QFile n(note);  // its date is when the copy was last used (the cache trims by it)
+                if (n.open(QIODevice::ReadWrite)) n.setFileTime(QDateTime::currentDateTime(), QFileDevice::FileModificationTime);
             }
             const QString nativeFolder = QDir::toNativeSeparators(folder);
             for (const Pick* p : j.picks) {
