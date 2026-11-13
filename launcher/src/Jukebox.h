@@ -176,7 +176,8 @@ class Service : public QObject {
 public:
     static Service& instance();
     void apply(const QString& gameId);  // the saved settings' plan, now or once the running one is done
-    // a game starts: a shuffle set draws new songs (the map follows a moment later; until then the last draw plays)
+    // a game starts: a shuffle set draws new songs, and any set is applied again (cached banks: only the map is
+    // written; banks the launcher now makes differently are made anew); the map follows a moment later
     void gameStarting(const QString& gameId);
     bool running() const { return applier_.running(); }
 

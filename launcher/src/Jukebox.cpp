@@ -1656,11 +1656,17 @@ void Service::next() {
 }
 
 void Service::gameStarting(const QString& gameId) {
+    // a shuffle draws new songs for this time; any set is applied again, which only rewrites the map while its banks
+    // are in the cache, and makes them anew when the launcher makes them differently (a new cache version: a player
+    // who updates keeps no banks of the old kind)
     Config c = loadConfig(gameId);
-    if (!c.set.startsWith(QLatin1String("shuffle:"))) return;
-    c.shuffleDraw = QRandomGenerator::global()->generate() | 1u;
-    saveConfig(gameId, c);
-    emit configChanged(gameId);
+    if (c.set.startsWith(QLatin1String("shuffle:"))) {
+        c.shuffleDraw = QRandomGenerator::global()->generate() | 1u;
+        saveConfig(gameId, c);
+        emit configChanged(gameId);
+    } else if ((c.set.isEmpty() || c.set == QLatin1String("own")) && !QFileInfo::exists(mapFile(gameId))) {
+        return;  // never used: nothing to do
+    }
     apply(gameId);
 }
 
