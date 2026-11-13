@@ -123,15 +123,33 @@ struct StreamSong {
     QList<int> streams;
     QString file;
 };
+// Where a song loops (findLoop, the method described in Jukebox.cpp): played as game music is, its intro [0, start)
+// once and then [start, start + period) over and over; exact when the repeat is sample for sample. A song that does not
+// repeat loops whole, from where its music begins to where it ends (before a fade-out, a final decay, silence).
+struct LoopInfo {
+    bool found = false, exact = false;
+    double start = 0, period = 0;
+    double begin = 0, end = 0;
+};
+LoopInfo findLoop(const QVector<int16_t>& pcm, int channels, int rate);
+QString describeLoop(const LoopInfo& li);
+// what a replaced stream plays of its song, from the descriptor's cues (streamParts): a stream the game loops its loop,
+// one played once just before a looped one its intro, one played once with no loop after it the intro and one loop in
+// a row, one further before an intro a moment of silence
+enum class SongPart { Loop, Intro, Once, Silence };
+QMap<int, SongPart> streamParts(const QByteArray& mbx);
 // the bank with every song's streams replaced by that song, re-encoded in each stream's format and cut at maxSeconds;
 // the streams a song fills share one copy of it. Each song is made as loud as the longest stream it replaces (BS.1770
 // loudness, a limiter on its peaks); gainsDb gets what each song was changed by. A resident sound (one the game keeps
 // in memory, loaded whole at boot, with no room to grow) that is replaced becomes a streamed one: its id goes to
 // streamedIds, for the .mbx (setStreamed); newSeconds gets every replaced stream's new length (for fitCueTimes). False
 // with why when the bank cannot be read or a stream is not there.
+// Each stream gets the part of its song that parts names (streamParts; none given, or a stream not named: its loop),
+// cut as the song loops (findLoop; loops gets each song's).
 bool replaceStreamsMany(const QByteArray& bank, const QList<StreamSong>& songs, double maxSeconds, QByteArray& out,
                         QString* error, QList<int>* streamedIds = nullptr, QList<double>* gainsDb = nullptr,
-                        QMap<int, double>* newSeconds = nullptr);
+                        QMap<int, double>* newSeconds = nullptr, const QMap<int, SongPart>* parts = nullptr,
+                        QList<LoopInfo>* loops = nullptr);
 // a bank's descriptor (.mbx) with the given sounds marked streamed
 QByteArray setStreamed(const QByteArray& mbx, const QList<int>& ids);
 // A descriptor's music cues string streams together: each element plays a stream once or looped, a given number of

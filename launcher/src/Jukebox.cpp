@@ -24,6 +24,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <complex>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -44,7 +45,7 @@ namespace {
 constexpr double kMaxSongSeconds = 600;  // a song longer than this is cut (the game loops what it gets)
 constexpr double kStingerSeconds = 40;   // a track shorter than this is no stage music (a fatality sting)
 constexpr double kMenuSeconds = 45;      // a menu theme shorter than this is an intro, not the menu's music
-constexpr char kCacheVersion[] = "v5";   // in the cache key: bump when the banks are made differently (v4: loudness, v5: cues)
+constexpr char kCacheVersion[] = "v6";   // in the cache key: bump when the banks are made differently (v4: loudness, v5: cues, v6: loops)
 constexpr qint64 kCacheBudget = qint64(3) * 1024 * 1024 * 1024;  // the cache is trimmed to this, the oldest first
 
 QString lower(const QString& s) { return s.toLower(); }
@@ -960,6 +961,363 @@ void applyGain(QVector<int16_t>& pcm, int channels, int rate, double gainDb) {
 
 }  // namespace
 
+// --- loops ----------------------------------------------------------------------------------------------------
+//
+// A song is made to loop as game music does: its intro once, then its loop over and over. Soundtrack rips play a
+// game's loop twice or more and fade out; the loop is the stretch that comes back one period later. Found from the
+// song alone (build/jukebox/loop-scan.py is the same method, tried on the whole library): 0.1 s frames of 40
+// log-spaced bands (80 Hz to 5 kHz) of a mono 11025 Hz copy, each frame's own loudness taken out (a repeat that fades
+// still matches), each band centred over the song and each frame normalised; for every lag from 8 s up, the longest
+// stretch (gaps under 1 s closed) of frames matching the frames one lag later (similarity over 0.7). The loop is the
+// shortest lag whose stretch verifies 80% of it and 20 s or more, starts in the song's first half and matches 0.8 on
+// average. The period is refined to the sample by waveform correlation, the loop counted exact when nearly every
+// second of it repeats sample for sample (else it repeats musically: a rip that varies, an edited extended version;
+// such a loop must come back two and a half times or cover most of the song, else a longer lag is tried),
+// and an exact loop's start found to the waveform: the first moment from which the song repeats one period later (the
+// frames' start can be seconds early, and a loop starting in the intro would replay a moment of the intro every time
+// round; a musical loop starts 1 s after the frames' start). On Deadly Alliance's own music the periods found are
+// the game's own loop lengths to within 0.03 s. No such lag: the song does not repeat, and the whole of it loops (from
+// where its music starts to where it ends: before a fade-out, a final decay or silence).
+
+namespace {
+
+constexpr int kLoopRate = 11025;
+constexpr int kLoopWin = 2048;
+constexpr int kLoopBands = 40;
+constexpr double kLoopHop = 0.1;
+
+void fftInPlace(std::vector<std::complex<float>>& a) {
+    const size_t n = a.size();
+    for (size_t i = 1, j = 0; i < n; i++) {
+        size_t bit = n >> 1;
+        for (; j & bit; bit >>= 1) j ^= bit;
+        j ^= bit;
+        if (i < j) std::swap(a[i], a[j]);
+    }
+    for (size_t len = 2; len <= n; len <<= 1) {
+        const double ang = -2 * kPi / double(len);
+        const std::complex<float> wl(float(std::cos(ang)), float(std::sin(ang)));
+        for (size_t i = 0; i < n; i += len) {
+            std::complex<float> w(1, 0);
+            for (size_t k = 0; k < len / 2; k++) {
+                const std::complex<float> u = a[i + k], v = a[i + k + len / 2] * w;
+                a[i + k] = u + v;
+                a[i + k + len / 2] = u - v;
+                w *= wl;
+            }
+        }
+    }
+}
+
+// the frames' features (frames x kLoopBands), loudness-free, centred, normalised
+std::vector<float> loopFeatures(const std::vector<float>& x, qsizetype& frames) {
+    const qsizetype hop = qsizetype(kLoopRate * kLoopHop);
+    frames = qsizetype(x.size()) >= kLoopWin ? (qsizetype(x.size()) - kLoopWin) / hop + 1 : 0;
+    std::vector<float> f(size_t(frames) * kLoopBands, 0.0f);
+    if (!frames) return f;
+    std::vector<float> hann(kLoopWin);
+    for (int i = 0; i < kLoopWin; i++) hann[i] = float(0.5 - 0.5 * std::cos(2 * kPi * i / (kLoopWin - 1)));
+    int lo[kLoopBands], hi[kLoopBands];
+    for (int b = 0; b < kLoopBands; b++) {
+        const double e0 = 80 * std::pow(5000.0 / 80, double(b) / kLoopBands), e1 = 80 * std::pow(5000.0 / 80, double(b + 1) / kLoopBands);
+        lo[b] = int(std::ceil(e0 * kLoopWin / kLoopRate));
+        hi[b] = int(std::ceil(e1 * kLoopWin / kLoopRate));  // bins with e0 <= freq < e1
+    }
+    std::vector<std::complex<float>> buf(kLoopWin);
+    for (qsizetype t = 0; t < frames; t++) {
+        for (int i = 0; i < kLoopWin; i++) buf[i] = std::complex<float>(x[size_t(t * hop + i)] * hann[i], 0);
+        fftInPlace(buf);
+        float* row = &f[size_t(t) * kLoopBands];
+        double mean = 0;
+        for (int b = 0; b < kLoopBands; b++) {
+            double e = 0;
+            for (int k = lo[b]; k < hi[b] && k <= kLoopWin / 2; k++) e += std::norm(buf[k]);
+            row[b] = float(std::log1p(e * 1e4));
+            mean += row[b];
+        }
+        mean /= kLoopBands;
+        for (int b = 0; b < kLoopBands; b++) row[b] -= float(mean);  // the frame's own loudness out
+    }
+    for (int b = 0; b < kLoopBands; b++) {
+        double mean = 0;
+        for (qsizetype t = 0; t < frames; t++) mean += f[size_t(t) * kLoopBands + b];
+        mean /= double(frames);
+        for (qsizetype t = 0; t < frames; t++) f[size_t(t) * kLoopBands + b] -= float(mean);
+    }
+    for (qsizetype t = 0; t < frames; t++) {
+        float* row = &f[size_t(t) * kLoopBands];
+        double norm = 0;
+        for (int b = 0; b < kLoopBands; b++) norm += double(row[b]) * row[b];
+        const float inv = float(1.0 / (std::sqrt(norm) + 1e-9));
+        for (int b = 0; b < kLoopBands; b++) row[b] *= inv;
+    }
+    return f;
+}
+
+// the level of each `seconds` block of x, dBFS
+std::vector<double> blockLevels(const std::vector<float>& x, double seconds) {
+    const qsizetype blk = qsizetype(kLoopRate * seconds);
+    std::vector<double> out;
+    for (qsizetype at = 0; at + blk <= qsizetype(x.size()); at += blk) {
+        double e = 0;
+        for (qsizetype i = 0; i < blk; i++) e += double(x[size_t(at + i)]) * x[size_t(at + i)];
+        out.push_back(10 * std::log10(e / double(blk) + 1e-18));
+    }
+    return out;
+}
+
+double waveCorr(const std::vector<float>& x, qsizetype a, qsizetype b, qsizetype w) {
+    if (a < 0 || b < 0 || a + w > qsizetype(x.size()) || b + w > qsizetype(x.size())) return 0;
+    double ab = 0, aa = 0, bb = 0;
+    for (qsizetype i = 0; i < w; i++) {
+        const double u = x[size_t(a + i)], v = x[size_t(b + i)];
+        ab += u * v;
+        aa += u * u;
+        bb += v * v;
+    }
+    return aa > 1e-9 && bb > 1e-9 ? ab / std::sqrt(aa * bb) : 0;
+}
+
+}  // namespace
+
+LoopInfo findLoop(const QVector<int16_t>& pcm, int channels, int rate) {
+    LoopInfo li;
+    const QVector<int16_t> mono = convertPcm(pcm, channels, rate, 1, kLoopRate);
+    std::vector<float> x(size_t(mono.size()));
+    for (qsizetype i = 0; i < mono.size(); i++) x[size_t(i)] = mono[i] / 32768.0f;
+    const double dur = double(x.size()) / kLoopRate;
+    li.end = dur;
+    // where the music starts and ends: the first 0.05 s over -45 dBFS; after the last 0.4 s block within 10 dB of the
+    // song's loud level (its 75th percentile), so a fade-out, a final decay or silence is left off
+    {
+        const std::vector<double> fine = blockLevels(x, 0.05);
+        for (size_t i = 0; i < fine.size(); i++)
+            if (fine[i] > -45) {
+                li.begin = double(i) * 0.05;
+                break;
+            }
+        std::vector<double> lev = blockLevels(x, 0.4);
+        if (lev.size() >= 5) {
+            std::vector<double> sorted = lev;
+            std::sort(sorted.begin(), sorted.end());
+            const double loud = sorted[size_t(0.75 * double(sorted.size() - 1))];
+            for (size_t i = lev.size(); i-- > 0;)
+                if (lev[i] >= loud - 10) {
+                    li.end = std::min(dur, double(i + 1) * 0.4);
+                    break;
+                }
+        }
+        if (li.end <= li.begin + 1) {
+            li.begin = 0;
+            li.end = dur;
+        }
+    }
+    // trailing silence (under -50 dBFS): the repeat is looked for before it
+    double silence = 0;
+    {
+        const std::vector<double> lev = blockLevels(x, 0.05);
+        size_t last = lev.size();
+        while (last > 0 && lev[last - 1] <= -50) last--;
+        silence = double(lev.size() - last) * 0.05;
+    }
+    qsizetype frames = 0;
+    const std::vector<float> f = loopFeatures(x, frames);
+    const qsizetype endF = std::min<qsizetype>(frames, qsizetype((dur - silence) / kLoopHop));
+    const qsizetype lo = qsizetype(8 / kLoopHop), gap = qsizetype(1.0 / kLoopHop), minRun = qsizetype(20 / kLoopHop);
+    if (endF < 3 * lo) return li;
+    std::vector<float> d(static_cast<size_t>(endF), 0.0f);
+    for (qsizetype lag = lo; lag <= qsizetype(double(endF) / 1.5); lag++) {
+        const qsizetype n = endF - lag;
+        if (n < lo) break;
+        qsizetype bestStart = 0, bestLen = 0, runStart = -1, last = -(gap + 2);
+        for (qsizetype t = 0; t < n; t++) {
+            const float* u = &f[size_t(t) * kLoopBands];
+            const float* v = &f[size_t(t + lag) * kLoopBands];
+            float s = 0;
+            for (int b = 0; b < kLoopBands; b++) s += u[b] * v[b];
+            d[size_t(t)] = s;
+            if (s > 0.7f) {
+                if (t - last > gap + 1) runStart = t;
+                last = t;
+                if (last - runStart + 1 > bestLen) {
+                    bestLen = last - runStart + 1;
+                    bestStart = runStart;
+                }
+            }
+        }
+        if (bestLen < std::max<qsizetype>(qsizetype(0.8 * double(lag)), minRun) || double(bestStart) * kLoopHop > 0.5 * dur) continue;
+        double mean = 0;
+        for (qsizetype t = bestStart; t < bestStart + bestLen; t++) mean += d[size_t(t)];
+        mean /= double(bestLen);
+        if (mean < 0.8) continue;
+        // the shortest such lag: the loop itself (a longer one would be two of it)
+        const double start = double(bestStart) * kLoopHop + 0.3, lagS = double(lag) * kLoopHop;
+        // the period to the sample: where a 3 s stretch inside the repeat matches best, within 0.15 s of the lag
+        const qsizetype w = 3 * kLoopRate, a = qsizetype((start + std::min(lagS / 2, 6.0)) * kLoopRate);
+        double best = -1;
+        qsizetype bestOff = qsizetype(lagS * kLoopRate);
+        if (a + w < qsizetype(x.size())) {
+            double aa = 0;
+            for (qsizetype i = 0; i < w; i++) aa += double(x[size_t(a + i)]) * x[size_t(a + i)];
+            const qsizetype from = qsizetype((lagS - 0.15) * kLoopRate), to = qsizetype((lagS + 0.15) * kLoopRate);
+            double bb = 0;
+            bool primed = false;
+            for (qsizetype off = from; off <= to && a + off + w <= qsizetype(x.size()); off++) {
+                if (!primed) {
+                    for (qsizetype i = 0; i < w; i++) bb += double(x[size_t(a + off + i)]) * x[size_t(a + off + i)];
+                    primed = true;
+                } else {
+                    const double out = x[size_t(a + off - 1)], in = x[size_t(a + off + w - 1)];
+                    bb += in * in - out * out;
+                }
+                double ab = 0;
+                for (qsizetype i = 0; i < w; i++) ab += double(x[size_t(a + i)]) * x[size_t(a + off + i)];
+                const double c = aa > 1e-9 && bb > 1e-9 ? ab / std::sqrt(aa * bb) : 0;
+                if (c > best) {
+                    best = c;
+                    bestOff = off;
+                }
+            }
+        }
+        const double period = double(bestOff) / kLoopRate;
+        // exact: 80% or more of its 1 s windows, over the verified stretch, match one period later sample for sample
+        qsizetype good = 0, total = 0;
+        const qsizetype until = qsizetype((double(bestStart + bestLen) * kLoopHop + period) * kLoopRate);
+        for (qsizetype t = qsizetype(start * kLoopRate); t + bestOff + kLoopRate <= std::min<qsizetype>(qsizetype(x.size()), until); t += kLoopRate) {
+            total++;
+            if (waveCorr(x, t, t + bestOff, kLoopRate) >= 0.9) good++;
+        }
+        li.found = true;
+        li.exact = total && double(good) / double(total) >= 0.8;
+        li.period = period;
+        // the loop start to the waveform: the first moment (0.05 s steps, from 3 s before the frames' start to 15 s
+        // after) from which 0.25 s windows match one period later (0.9 or more) for 1.5 s on, so that the loop never
+        // takes a moment of the intro with it (the frames' start can be early by seconds); a little after it. A
+        // musical repeat (not sample for sample) starts 1 s after the frames' start.
+        li.start = double(bestStart) * kLoopHop + 1.0;
+        if (li.exact) {
+            const qsizetype w = kLoopRate / 4, step = kLoopRate / 20, hold = 30;
+            const qsizetype from = std::max<qsizetype>(0, qsizetype((double(bestStart) * kLoopHop - 3) * kLoopRate));
+            const qsizetype to = qsizetype((double(bestStart) * kLoopHop + 15) * kLoopRate);
+            std::vector<char> ok;
+            for (qsizetype t = from; t <= to; t += step) ok.push_back(waveCorr(x, t, t + bestOff, w) >= 0.9);
+            qsizetype found = -1;
+            for (qsizetype i = 0; i + hold <= qsizetype(ok.size()) && found < 0; i++) {
+                bool all = true;
+                for (qsizetype k = 0; k < hold && all; k++) all = ok[size_t(i + k)];
+                if (all) found = i;
+            }
+            if (found >= 0) li.start = double(from + found * step) / kLoopRate + 0.1;
+            else li.exact = false;  // no stretch repeats sample for sample: a musical repeat after all
+        }
+        // a musical repeat must show more: its stretch comes back at least two and a half times, or the loop covers
+        // most of the song (else it may be one section of a song that moves on: a longer lag, or the whole song)
+        if (!li.exact && double(bestLen) * kLoopHop < 1.5 * period && li.start + 2 * period < 0.75 * li.end) {
+            li.found = false;
+            continue;
+        }
+        break;
+    }
+    return li;
+}
+
+QString describeLoop(const LoopInfo& li) {
+    if (li.found)
+        return QStringLiteral("loop %1 s from %2 s (%3)")
+            .arg(li.period, 0, 'f', 2)
+            .arg(li.start, 0, 'f', 1)
+            .arg(li.exact ? QStringLiteral("exact") : QStringLiteral("musical"));
+    return QStringLiteral("no repeat: the whole song loops, %1 s to %2 s").arg(li.begin, 0, 'f', 1).arg(li.end, 0, 'f', 1);
+}
+
+namespace {
+
+// a song cut into what the game's music pieces play: its intro (once), its loop (over and over; the loop's last
+// moments cross-faded into what comes before the loop's start, so that going round is seamless), the two in a row
+// (a piece the game plays once and ends on) and a moment of silence (a piece before an intro). made: the song as the
+// stream's format has it (channels, rate). A loop's length is whole ADPCM blocks (64 frames).
+struct SongPieces {
+    QVector<int16_t> intro, loop, once, silence;
+};
+
+// frames [from, from + inFrames) of pcm (both may be fractional) resampled to exactly outFrames: a loop of the song's
+// own period made whole ADPCM blocks long (a stretch of at most 32 frames over the loop: far too little to hear), so
+// that its end runs into its start exactly
+QVector<int16_t> stretchPcm(const QVector<int16_t>& pcm, int channels, double from, double inFrames, qsizetype outFrames) {
+    const qsizetype frames = pcm.size() / channels;
+    const double ratio = inFrames / double(outFrames);
+    const std::vector<float>& table = sincTable(0.92);
+    QVector<int16_t> out(outFrames * channels);
+    for (qsizetype i = 0; i < outFrames; i++) {
+        const double t = from + double(i) * ratio;
+        const qsizetype k0 = qsizetype(std::floor(t));
+        const int ph = int((t - double(k0)) * kPhases) % kPhases;
+        const float* w = &table[size_t(ph) * kTaps];
+        for (int c = 0; c < channels; c++) {
+            double acc = 0;
+            for (int k = 0; k < kTaps; k++) {
+                const qsizetype src = k0 + (k - kTaps / 2 + 1);
+                if (src < 0 || src >= frames) continue;
+                acc += w[k] * pcm[src * channels + c];
+            }
+            out[i * channels + c] = int16_t(std::clamp<long>(std::lround(acc), -32768, 32767));
+        }
+    }
+    return out;
+}
+
+SongPieces cutSong(const QVector<int16_t>& made, int channels, int rate, const LoopInfo& li) {
+    SongPieces p;
+    const qsizetype frames = made.size() / channels;
+    const auto slice = [&](qsizetype from, qsizetype n) {
+        return made.mid(from * channels, n * channels);
+    };
+    qsizetype introAt = 0, introN = 0, loopAt = 0, loopN = 0, crossFrom = 0, crossN = 0;
+    bool equalPower = true;
+    if (li.found) {
+        introAt = 0;
+        introN = std::min<qsizetype>(qsizetype(std::llround(li.start * rate)), frames);
+        loopAt = introN;
+        loopN = std::max<qsizetype>(64, qsizetype(std::llround(li.period * rate / 64)) * 64);
+        if (double(loopAt) + li.period * rate + 1 > double(frames)) loopN = 0;  // not all there: the whole song loops
+        crossN = std::min<qsizetype>({qsizetype((li.exact ? 0.06 : 1.0) * rate), introN, loopN / 4});
+        crossFrom = loopAt - crossN;  // what comes before the loop's start
+        equalPower = !li.exact;
+    }
+    const bool periodic = li.found && loopN >= 64;
+    if (!periodic) {
+        const qsizetype begin = std::min<qsizetype>(qsizetype(li.begin * rate), frames);
+        const qsizetype end = std::clamp<qsizetype>(qsizetype(li.end * rate), begin, frames);
+        crossN = std::min<qsizetype>(qsizetype(2.0 * rate), (end - begin) / 4);
+        introAt = begin;
+        introN = std::max<qsizetype>(crossN, 64);
+        loopAt = introAt + introN;
+        loopN = std::max<qsizetype>(0, end - loopAt) / 64 * 64;
+        crossFrom = introAt;  // the loop goes round into the song's beginning
+        crossN = std::min(crossN, loopN / 2);
+        equalPower = true;
+    }
+    p.intro = slice(introAt, introN);
+    p.loop = periodic ? stretchPcm(made, channels, li.start * rate, li.period * rate, loopN)  // exactly one period
+                      : slice(loopAt, loopN);
+    for (qsizetype i = 0; i < crossN && loopN > 0; i++) {
+        const double u = (double(i) + 0.5) / double(crossN);
+        const double win = equalPower ? std::sin(u * kPi / 2) : u, wout = equalPower ? std::cos(u * kPi / 2) : 1 - u;
+        for (int c = 0; c < channels; c++) {
+            const qsizetype at = (loopN - crossN + i) * channels + c;
+            const double v = p.loop[at] * wout + made[(crossFrom + i) * channels + c] * win;
+            p.loop[at] = int16_t(std::clamp<long>(std::lround(v), -32768, 32767));
+        }
+    }
+    if (p.intro.size() < 64 * channels) p.intro.resize(64 * channels);  // a stream holds one block at least
+    if (p.loop.size() < 64 * channels) p.loop.resize(64 * channels);
+    p.once = p.intro + p.loop;
+    p.silence = QVector<int16_t>(qsizetype(std::max(64, rate / 10 / 64 * 64)) * channels, 0);
+    return p;
+}
+
+}  // namespace
+
 // --- the banks ------------------------------------------------------------------------------------------------
 
 namespace {
@@ -1105,7 +1463,8 @@ QList<QPair<int, double>> bankStreams(const QByteArray& bank) {
 }
 
 bool replaceStreamsMany(const QByteArray& bank, const QList<StreamSong>& songs, double maxSeconds, QByteArray& out,
-                        QString* error, QList<int>* streamedIds, QList<double>* gainsDb, QMap<int, double>* newSeconds) {
+                        QString* error, QList<int>* streamedIds, QList<double>* gainsDb, QMap<int, double>* newSeconds,
+                        const QMap<int, SongPart>* parts, QList<LoopInfo>* loops) {
     Bank b;
     if (!parseBank(bank, b, error)) return false;
     QMap<int, int> songOf;  // entry index -> the song it gets
@@ -1132,9 +1491,16 @@ bool replaceStreamsMany(const QByteArray& bank, const QList<StreamSong>& songs, 
         }
     }
     // each song once per format its streams have, as loud as the music it replaces (the longest of its streams as
-    // the game has it): a song mastered quieter than the game's music is brought up to it, a louder one down
-    QMap<QPair<int, QPair<int, int>>, QByteArray> blocks;  // (song, (channels, rate)) -> ADPCM blocks
+    // the game has it): a song mastered quieter than the game's music is brought up to it, a louder one down; then cut
+    // into the parts its streams play (cutSong: the intro, the loop, the two in a row, a moment of silence)
+    const auto partOf = [&](const BankEntry& e) { return parts ? parts->value(e.id, SongPart::Loop) : SongPart::Loop; };
+    using BlockKey = QPair<QPair<int, int>, QPair<int, int>>;  // ((song, part), (channels, rate))
+    const auto keyOf = [&](int si, const BankEntry& e) {
+        return BlockKey(qMakePair(si, int(partOf(e))), qMakePair(e.channels, e.rate));
+    };
+    QMap<BlockKey, QByteArray> blocks;
     if (gainsDb) *gainsDb = QList<double>(songs.size(), 0.0);
+    if (loops) *loops = QList<LoopInfo>(songs.size());
     for (int si = 0; si < songs.size(); si++) {
         QSet<QPair<int, int>> formats;
         BankEntry longest;
@@ -1147,6 +1513,8 @@ bool replaceStreamsMany(const QByteArray& bank, const QList<StreamSong>& songs, 
         int rate = 0, channels = 0;
         QVector<int16_t> pcm;
         if (!decodeAudio(songs[si].file, rate, channels, pcm, error, maxSeconds)) return false;
+        const LoopInfo li = findLoop(pcm, channels, rate);
+        if (loops) (*loops)[si] = li;
         const qsizetype measured = std::min<qsizetype>(longest.dataSize, qsizetype(kLevelSeconds * longest.rate / 64 + 1) * 36 * longest.channels);
         const QVector<int16_t> game = decodeXboxAdpcm(bank.constData() + longest.data, measured, longest.channels);
         const double target = loudnessOf(game.constData(), game.size() / longest.channels, longest.channels, longest.rate);
@@ -1167,7 +1535,18 @@ bool replaceStreamsMany(const QByteArray& bank, const QList<StreamSong>& songs, 
                 applyGain(made, f.first, f.second, gainDb);
             }
             if (gainsDb) (*gainsDb)[si] = gainDb;
-            blocks.insert(qMakePair(si, f), encodeXboxAdpcm(made, f.first));
+            const SongPieces pieces = cutSong(made, f.first, f.second, li);
+            for (const BankEntry& e : b.entries) {
+                if (songOf.value(e.index, -1) != si || e.channels != f.first || e.rate != f.second) continue;
+                const BlockKey key = keyOf(si, e);
+                if (blocks.contains(key)) continue;
+                const SongPart part = partOf(e);
+                const QVector<int16_t>& piece = part == SongPart::Intro  ? pieces.intro
+                                                : part == SongPart::Once  ? pieces.once
+                                                : part == SongPart::Silence ? pieces.silence
+                                                                            : pieces.loop;
+                blocks.insert(key, encodeXboxAdpcm(piece, f.first));
+            }
         }
     }
     if (newSeconds) {
@@ -1175,7 +1554,7 @@ bool replaceStreamsMany(const QByteArray& bank, const QList<StreamSong>& songs, 
         for (const BankEntry& e : b.entries) {
             const int si = songOf.value(e.index, -1);
             if (si < 0) continue;
-            const QByteArray& data = blocks[qMakePair(si, qMakePair(e.channels, e.rate))];
+            const QByteArray& data = blocks[keyOf(si, e)];
             newSeconds->insert(e.id, double(data.size() / (36 * e.channels) * 64) / e.rate);
         }
     }
@@ -1203,19 +1582,19 @@ bool replaceStreamsMany(const QByteArray& bank, const QList<StreamSong>& songs, 
         out.append(QByteArray(int(b.headerEnd + rsize - out.size()), '\0'));
         put32(out, 0x14, uint32_t(rsize));
     }
-    QMap<QPair<int, QPair<int, int>>, QPair<uint32_t, uint32_t>> placed;  // a song's blocks already in the file
+    QMap<BlockKey, QPair<uint32_t, uint32_t>> placed;  // a song part's blocks already in the file
     qsizetype pos = out.size();
     for (BankEntry& e : b.entries) {
         if (e.resident) continue;
         const int si = songOf.value(e.index, -1);
         if (si >= 0) {
-            const auto key = qMakePair(si, qMakePair(e.channels, e.rate));
+            const BlockKey key = keyOf(si, e);
             const QByteArray& data = blocks[key];
             if (b.version == 2) {
                 const QByteArray h = xboxHeader(e.channels, e.rate, uint32_t(data.size()), false);
                 std::memcpy(out.data() + e.hdr, h.constData(), size_t(h.size()));
             }
-            if (placed.contains(key)) {  // the streams of one song share one copy of it
+            if (placed.contains(key)) {  // the streams of one song playing one part share one copy of it
                 e.off = placed[key].first;
                 e.size = placed[key].second;
                 continue;
@@ -1335,6 +1714,39 @@ QList<int> roundMusicStreams(const QByteArray& mbx, const QMap<int, double>& sec
         for (const CueElement& e : cue)
             if (!out.contains(e.id)) out << e.id;
     }
+    return out;
+}
+
+QMap<int, SongPart> streamParts(const QByteArray& mbx) {
+    // each cue's streams: looped, the loop; played once right before a looped one, the intro; once with a looped one
+    // further on, silence (a piece before the intro); once with none after, the intro and loop in a row. A stream in
+    // several cues takes the first of loop, intro, once, silence it has.
+    QMap<int, int> rank;  // 3 loop, 2 intro, 1 once, 0 silence
+    QList<CueElement> cue;
+    const auto flush = [&] {
+        for (int i = 0; i < cue.size(); i++) {
+            int r = 1;
+            if (cue[i].loop) {
+                r = 3;
+            } else if (i + 1 < cue.size() && cue[i + 1].loop) {
+                r = 2;
+            } else {
+                for (int k = i + 1; k < cue.size(); k++)
+                    if (cue[k].loop) r = 0;
+            }
+            rank[cue[i].id] = std::max(rank.value(cue[i].id, -1), r);
+        }
+        cue.clear();
+    };
+    for (const CueElement& e : cueElements(mbx)) {
+        if (e.kind == CueElement::Stream) cue << e;
+        if (e.kind == CueElement::End) flush();
+    }
+    flush();
+    QMap<int, SongPart> out;
+    for (auto it = rank.cbegin(); it != rank.cend(); ++it)
+        out.insert(it.key(), it.value() == 3 ? SongPart::Loop : it.value() == 2 ? SongPart::Intro
+                                         : it.value() == 1 ? SongPart::Once : SongPart::Silence);
     return out;
 }
 
@@ -1544,7 +1956,12 @@ bool Applier::apply(const QString& gameId, const Plan& plan) {
                 QList<int> streamed;
                 QList<double> gains;
                 QMap<int, double> newSeconds;
-                if (!replaceStreamsMany(bank, j.songs, kMaxSongSeconds, out, &error, &streamed, &gains, &newSeconds)) {
+                QList<LoopInfo> loops;
+                QFile mbxIn(QDir(banksDir).filePath(j.bank + QStringLiteral(".mbx")));
+                QByteArray mbx = mbxIn.open(QIODevice::ReadOnly) ? mbxIn.readAll() : QByteArray();
+                const QMap<int, SongPart> parts = streamParts(mbx);
+                if (!replaceStreamsMany(bank, j.songs, kMaxSongSeconds, out, &error, &streamed, &gains, &newSeconds,
+                                        parts.isEmpty() ? nullptr : &parts, &loops)) {
                     failure = QStringLiteral("%1: %2").arg(j.titles.join(QStringLiteral(", ")), error);
                     break;
                 }
@@ -1555,18 +1972,17 @@ bool Applier::apply(const QString& gameId, const Plan& plan) {
                         QStringList ids;
                         for (int id : j.songs[i].streams) ids << (id < 0 ? QStringLiteral("all") : QString::number(id));
                         text += QDir::toNativeSeparators(j.songs[i].file) + QStringLiteral("\r\n  ") + j.titles[i] +
-                                QStringLiteral(" (streams %1, %2 dB)\r\n")
+                                QStringLiteral(" (streams %1, %2 dB, %3)\r\n")
                                     .arg(ids.join(QLatin1Char(',')))
                                     .arg(gains.value(i) >= 0 ? QStringLiteral("+%1").arg(gains.value(i), 0, 'f', 1)
-                                                             : QString::number(gains.value(i), 'f', 1));
+                                                             : QString::number(gains.value(i), 'f', 1))
+                                    .arg(describeLoop(loops.value(i)));
                     }
                     n.write(text.toUtf8());
                 }
-                // the descriptor goes with it: sounds made streamed say so there, and its music cues wait for each song
+                // the descriptor goes with it: sounds made streamed say so there, and its music cues wait for each part
                 // to end before they go on (the game starts a cue's next stream after the time the descriptor gives,
                 // the old stream's length: a song would play over itself)
-                QFile mbxIn(QDir(banksDir).filePath(j.bank + QStringLiteral(".mbx")));
-                QByteArray mbx = mbxIn.open(QIODevice::ReadOnly) ? mbxIn.readAll() : QByteArray();
                 if (!streamed.isEmpty()) mbx = setStreamed(mbx, streamed);
                 if (!mbx.isEmpty()) mbx = fitCueTimes(mbx, newSeconds);
                 if (!mbx.isEmpty() && !writeWhole(QDir(folder).filePath(j.bank + QStringLiteral(".mbx")), mbx, &error)) {

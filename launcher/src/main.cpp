@@ -7,6 +7,7 @@
 #include <QDir>
 #include <QEventLoop>
 #include <QCommandLineParser>
+#include <QDirIterator>
 #include <QLockFile>
 #include <QMessageBox>
 #include <QSslSocket>
@@ -56,6 +57,36 @@ static int jukeboxCommand(const QString& game, const QString& set) {
     out << "map " << QDir::toNativeSeparators(jukebox::mapFile(game)) << "\n";
     out.flush();
     return ok ? 0 : 1;
+}
+// --jukebox-loops <folder>: every song under the folder (the music folder's soundtracks, or one of them) with the loop
+// the jukebox finds for it (Jukebox.cpp findLoop), one line each
+static int jukeboxLoopsCommand(const QString& folder) {
+    QTextStream out(stdout);
+    out.setEncoding(QStringConverter::Utf8);
+    static const QStringList kinds = {QStringLiteral("*.m4a"), QStringLiteral("*.mp3"), QStringLiteral("*.wav"),
+                                      QStringLiteral("*.flac"), QStringLiteral("*.ogg"), QStringLiteral("*.opus"),
+                                      QStringLiteral("*.webm")};
+    QStringList files;
+    QDirIterator it(folder, kinds, QDir::Files, QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        const QString f = it.next();
+        if (!f.contains(QStringLiteral("/cache/"))) files << f;
+    }
+    files.sort();
+    for (const QString& f : files) {
+        int rate = 0, channels = 0;
+        QVector<int16_t> pcm;
+        QString error;
+        if (!jukebox::decodeAudio(f, rate, channels, pcm, &error, 600)) {
+            out << QFileInfo(f).dir().dirName() << "/" << QFileInfo(f).fileName() << "\t" << error << "\n";
+            continue;
+        }
+        const jukebox::LoopInfo li = jukebox::findLoop(pcm, channels, rate);
+        out << QFileInfo(f).dir().dirName() << "/" << QFileInfo(f).fileName() << "\t"
+            << QString::number(double(pcm.size() / channels) / rate, 'f', 1) << " s\t" << jukebox::describeLoop(li) << "\n";
+        out.flush();
+    }
+    return 0;
 }
 #endif
 
@@ -147,6 +178,9 @@ int main(int argc, char* argv[]) {
                                            QStringLiteral("Development: with --jukebox, first set the game's music set (own, "
                                                           "preset:<soundtrack>, shuffle:<soundtrack>, shuffle:*, playlist:<n>)."),
                                            QStringLiteral("set"));
+    const QCommandLineOption jukeboxLoopsOpt(QStringLiteral("jukebox-loops"),
+                                             QStringLiteral("Print the loop the jukebox finds for every song under the folder."),
+                                             QStringLiteral("folder"));
     const QCommandLineOption autoUpdateOpt(QStringLiteral("auto-update"),
                                            QStringLiteral("Development: install an update offered at once, without asking."));
     for (const auto* o : {&configOpt, &serverOpt, &fpOpt, &userOpt, &pwEnvOpt, &regOpt, &queueOpt, &gameOpt, &modeOpt,
@@ -154,7 +188,7 @@ int main(int argc, char* argv[]) {
                           &lobbyMatchesOpt, &leaveLobbyOpt, &upnpProbeOpt, &rematchesOpt, &rematchChoiceOpt,
                           &leaveSeriesOpt, &soloOpt,
                           &practiceOpt, &searchAgainOpt, &deathTrapsOpt, &updatedOpt, &autoUpdateOpt, &jukeboxOpt,
-                          &jukeboxSetOpt})
+                          &jukeboxSetOpt, &jukeboxLoopsOpt})
         cli.addOption(*o);
     cli.process(app);
 
@@ -179,6 +213,7 @@ int main(int argc, char* argv[]) {
     }
 #ifdef MK3D_JUKEBOX
     if (cli.isSet(jukeboxOpt)) return jukeboxCommand(cli.value(jukeboxOpt), cli.value(jukeboxSetOpt));
+    if (cli.isSet(jukeboxLoopsOpt)) return jukeboxLoopsCommand(cli.value(jukeboxLoopsOpt));
 #endif
     if (QSslSocket::availableBackends().contains(QStringLiteral("schannel")))
         QSslSocket::setActiveBackend(QStringLiteral("schannel"));

@@ -66,6 +66,40 @@ the loop starting at its end, 61 s in; the sting and "finish him" the game's own
 menu and Beetle Lair. `build/jukebox/round-cues.py <game>` prints every stage bank's cues and the round music chosen,
 `--copy <folder>` a made copy's fitted cues.
 
+**Songs loop as game music does** (from test 19). A song no longer goes into every piece whole: the launcher finds its
+loop (`findLoop`) and cuts it into the parts the game's pieces play (`cutSong`), each piece's part read from the cues
+(`streamParts`): a looped piece plays the song's loop, a piece played once right before a looped one its intro, a
+piece played once with nothing looped after it the intro and one loop in a row, and a piece further before an intro
+(Deception's pre-intros, Armageddon's three-piece chains) a moment of silence. The game then plays the intro once and
+the loop forever, and `fitCueTimes` starts each piece when the one before has ended. The change is all in the made
+copies (the bank and its descriptor): the games are untouched.
+
+`findLoop` (the launcher; `build/jukebox/loop-scan.py`, `loop-diag.py` and `loop-start.py` are how it was worked out
+on the whole library): soundtrack rips play the game's loop twice or more and fade out, so the loop is the stretch that
+comes back one period later. 0.1 s frames of 40 log-spaced bands (80 Hz to 5 kHz) of a mono 11025 Hz copy, each frame's
+own loudness out (a fading repeat still matches), centred and normalised; for each lag from 8 s up, the longest stretch
+of frames matching the frames one lag later (over 0.7, gaps under 1 s closed). The loop is the shortest lag whose
+stretch verifies 80% of it and 20 s or more, starts in the song's first half and matches 0.8 on average. Its period is
+then refined to the sample by waveform correlation, and it is exact when 80% of its 1 s windows repeat sample for
+sample; an exact loop's start is found to the waveform (the first moment from which 0.25 s windows match one period on
+for 1.5 s: the frames' start can be seconds early, Lost Tomb's by 4 s, and a loop starting in the intro would replay a
+moment of it every time round). A loop that repeats only musically (a rip that varies, as the arcade music systems do,
+or an extended version edited together) must come back two and a half times or cover most of the song, else a longer
+lag is tried; it starts 1 s after its stretch. No loop: the whole song loops, from where its music begins to where it
+ends (after the last 0.4 s within 10 dB of its loud level: a fade-out, a final decay and silence left off).
+
+The pieces: the intro is the song up to the loop start; the loop is exactly one period resampled to whole ADPCM blocks
+(64 frames: a stretch of at most 32 frames, too little to hear) so that its end runs into its start, its last 60 ms
+cross-faded into what comes before the loop start (an exact loop; 1 s, equal-power, for a musical one). A whole-song
+loop starts 2 s into the song, the intro being those 2 s, and its end blends over 2 s into them. Checked: on Deadly
+Alliance's own music the periods found are the game's own loop lengths to within 0.03 s (Acid Bath 33.707 s against
+33.694, Lost Tomb 34.306 against 34.29, Moloch's Lair 43.656 against 43.64), and both versions of Armageddon's select
+music give 28.00 s; `build/jukebox/seam-check.py <copy folder>` scores a made loop's seam against the song (exact loops
+0.91 to 0.99 against 0.99 to 1.00 inside the loop; musical ones 0.995 against the song's own way into its loop); in the
+games (audio dumps followed with audio_match.py), MK2's Dead Pool on Acid Bath went round its 28.96 s loop twice and
+Armageddon's Subway (52.38 s, musical) once, each without a gap, a restart or an overlap. `MK3DLauncher --jukebox-loops
+<folder>` prints the loop found for every song under a folder.
+
 Each song is made as loud as the music it replaces (from test 17): the launcher measures the longest stream it fills as
 the game has it and the song itself (ITU-R BS.1770 loudness, LUFS: K-weighted, 400 ms blocks, gated) and changes the
 song by the difference, at most 20 dB up or 15 dB down, with a limiter that looks 5 ms ahead holding its peaks under
