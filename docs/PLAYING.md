@@ -208,6 +208,21 @@ whether to trust it: compare it with your host's.
   buttons ("Player 2's controller": a controller by name, or the second one
   plugged in). Like PLAY, a versus game is set aside, frozen, for an online
   match you accept, and goes on afterwards.
+- JUKEBOX (from 1.0.6): other Mortal Kombat music on each game's stages, main
+  menu and select screen, like Tekken 8's jukebox. Put each soundtrack you have
+  in a folder of its own inside Music\MK3D Jukebox (m4a, mp3, wav or flac files;
+  the page shows the folder and opens it), press Rescan, and pick what the game
+  plays at the top of the page: Original (its own music), a soundtrack as its
+  Preset (each stage gets the song that fits it best) or Shuffled (new songs
+  each time the game starts), Every soundtrack shuffled, or My Playlist 1, 2 or
+  3 (a song of your choice for each stage and menu; Edit, then click a song or
+  its play button to hear it first). Each game is set up on its own. The songs
+  play as loud as the game's own music and loop as game music does: the intro
+  once, then the loop forever (a song that never repeats runs to its end and
+  blends into its beginning). Nothing is downloaded: the music is yours, and
+  the launcher keeps its converted copies in Music\MK3D Jukebox\cache (at most
+  3 GB; deleting it is always safe). Online only you hear your choice: the
+  fight is the same whatever each player listens to.
 - Play while you wait: search for a match (Kasual or Ranked) and play single
   player meanwhile, in either order. When a match is found, its ACCEPT window
   comes up over your game. Accept it and your single-player game is set aside,

@@ -1,9 +1,9 @@
 # The jukebox and the offline versus
 
 Added 2026-11-11, the jukebox reworked like Tekken 8's on 2026-11-12. The offline versus is in MK3D Online from 1.0.3
-(Single Player's VERSUS button). The jukebox page is a test-build feature for now: the launcher only has it when
-built with `-DMK3D_JUKEBOX=ON` (the Deadly Alliance test launcher, test 15 on); the public launcher is built without
-it, while the games carry the hook either way (harmless without a map file).
+(Single Player's VERSUS button). The jukebox is in MK3D Online from 1.0.6 (the JUKEBOX page; the launcher's
+`MK3D_JUKEBOX` build option, on by default); before that it was a test-build feature (Deadly Alliance tests 15 to 19).
+The games carry the hook either way (harmless without a map file).
 
 ## What it does
 
@@ -48,7 +48,9 @@ and trimmed to 3 GB, the copies the maps name kept, the longest unused going fir
 (Deadly Alliance: +4 flags, +8 seconds) and 48 in version 11 (Deception, Armageddon: +8 flags, +24 seconds). An
 element 0x2000NNNN plays sound NNNN once (flags 0x10301, or 0x10101 for a sound the game keeps in memory) or looped
 (0x301 / 0x101), the given seconds after the element before it started (that sound's own length); 0xFFFFFFFF with
-flags 7 ends the cue (after its seconds, or -1 never: the last sound loops). A stage bank has three cues the game plays
+flags 7 ends the cue (after its seconds, or -1 never: the last sound loops), with flags 8 goes on within the cue after
+its seconds, the elements after it timed from it (Armageddon's Tekunin Prison and Goro's Lair start their music so:
+until test 19 the launcher fitted none of those times, so a song overlapped itself or left a long silence there). A stage bank has three cues the game plays
 during a fight, each stopping the one before: the round music (an intro, then a loop; Deception's a second version
 with a short pre-intro for some rounds), the "finish him" loop and the round-end sting (traced: rounds restart the
 round music), plus a last cue of every piece in a row. Deadly Alliance's select screen is one cue: stream 26 (7.8 s)
@@ -68,9 +70,11 @@ menu and Beetle Lair. `build/jukebox/round-cues.py <game>` prints every stage ba
 
 **Songs loop as game music does** (from test 19). A song no longer goes into every piece whole: the launcher finds its
 loop (`findLoop`) and cuts it into the parts the game's pieces play (`cutSong`), each piece's part read from the cues
-(`streamParts`): a looped piece plays the song's loop, a piece played once right before a looped one its intro, a
-piece played once with nothing looped after it the intro and one loop in a row, and a piece further before an intro
-(Deception's pre-intros, Armageddon's three-piece chains) a moment of silence. The game then plays the intro once and
+(`streamParts`): a looped piece plays the song's loop; the pieces a cue plays once before its looped one (a chain)
+hold the intro once between them (a chain of one is that piece; a longer chain keeps the piece that is some cue's
+intro, else its last), the others a moment of silence (Deception's pre-intros, Armageddon's three-piece chains and
+Tekunin Prison, whose later rounds start at the chain's first piece); a piece played once with nothing looped after
+it the intro and one loop in a row. The game then plays the intro once and
 the loop forever, and `fitCueTimes` starts each piece when the one before has ended. The change is all in the made
 copies (the bank and its descriptor): the games are untouched.
 

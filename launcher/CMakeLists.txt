@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(mk3d_launcher VERSION 1.0.5 LANGUAGES CXX)
+project(mk3d_launcher VERSION 1.0.6 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -95,8 +95,8 @@ qt_add_resources(MK3DLauncher "sounds"
     FILES data/sounds/match-found.wav  # tools/py/make_chime.py
 )
 
-# the jukebox page (docs/JUKEBOX.md): a test-build feature for now, off in the public launcher
-option(MK3D_JUKEBOX "The Jukebox page and the --jukebox command" OFF)
+# the jukebox page (docs/JUKEBOX.md): in MK3D Online from 1.0.6 (a test-build feature in Deadly Alliance tests 15 to 19)
+option(MK3D_JUKEBOX "The Jukebox page and the --jukebox command" ON)
 target_compile_definitions(MK3DLauncher PRIVATE
     MK3D_LAUNCHER_VERSION="${PROJECT_VERSION}"
     UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN
