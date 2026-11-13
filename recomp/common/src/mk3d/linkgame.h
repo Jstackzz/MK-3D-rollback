@@ -30,7 +30,7 @@ struct Start {
     std::string stage;
     int wins_needed = 2;   // rounds a player must win (from the launcher's best of N)
     bool death_traps = true;  // the arenas' death traps (Deception, Armageddon: the options' DEATH TRAPS)
-    bool ranked = false;   // a ranked match (Deadly Alliance: no Acid Bath)
+    bool ranked = false;   // a ranked match (no game rule hangs on it since 1.0.5: Deadly Alliance's Acid Bath is back)
     bool online = false;
     int side = 0;          // online: this PC's player, 0 (P1) or 1 (P2)
     bool watch = false;    // a spectator: no player on this PC, both picks come from the players' games
