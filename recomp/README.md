@@ -326,6 +326,9 @@ for p in recomp/patches/xboxxberecomp-*.patch; do git -C external/XboxXBERecomp 
   by the jukebox's `build/jukebox/read-trace.py`), `XBE_DSOUND_TRACE=1` logs the sound buffers made, filled and
   played and the streams' formats and packets. How the jukebox found Armageddon's stage music and every game's menu
   music (docs/JUKEBOX.md).
+- `0048-audio-mute`: `XBE_AUDIO_MUTE=1` plays nothing through the speakers (the output voice at volume 0) while the
+  game, its pacing and an `XBE_AUDIO_DUMP` run as ever: tests on a PC someone is using (the owner heard two test
+  games' music, one with the jukebox's songs and one with the game's own, and took it for a fault of their game).
 
 `tools/py/lib_audit.py <game dir> <xbsdb symbols>` lists the XDK library
 functions the game calls that still run console code against host objects,

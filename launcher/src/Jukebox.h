@@ -133,9 +133,9 @@ struct LoopInfo {
 };
 LoopInfo findLoop(const QVector<int16_t>& pcm, int channels, int rate);
 QString describeLoop(const LoopInfo& li);
-// what a replaced stream plays of its song, from the descriptor's cues (streamParts): a stream the game loops its loop,
-// one played once just before a looped one its intro, one played once with no loop after it the intro and one loop in
-// a row, one further before an intro a moment of silence
+// what a replaced stream plays of its song, from the descriptor's cues (streamParts): a stream the game loops its loop;
+// of the streams a cue plays once before its looped one, one the intro and the others a moment of silence; one played
+// once with no loop after it the intro and one loop in a row
 enum class SongPart { Loop, Intro, Once, Silence };
 QMap<int, SongPart> streamParts(const QByteArray& mbx);
 // the bank with every song's streams replaced by that song, re-encoded in each stream's format and cut at maxSeconds;

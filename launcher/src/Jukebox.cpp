@@ -1645,12 +1645,13 @@ namespace {
 // array of elements: 44 bytes in version 6 (Deadly Alliance: +4 flags, +8 the seconds), 48 in version 11 (Deception,
 // Armageddon: +8 flags, +24 the seconds). An element's first word is 0x2000NNNN for sound NNNN (flags 0x10301 play
 // once, 0x301 loop; 0x10101 and 0x101 for a sound the game keeps in memory, as Deception's main menu) or 0xFFFFFFFF
-// with flags 7 for a cue's end (its seconds: after the last element started, or -1 never); anything else is left
-// alone.
+// with flags 7 for a cue's end (its seconds: after the last element started, or -1 never) or with flags 8 for going on
+// within the cue (its seconds after the element before started, the elements after it timed from it: Armageddon's
+// Tekunin Prison and Goro's Lair start their music so); anything else is left alone.
 struct CueElement {
     qsizetype at = 0;       // where it is in the descriptor
     qsizetype secondsAt = 0;
-    enum Kind { Stream, End, Other } kind = Other;
+    enum Kind { Stream, End, Next, Other } kind = Other;
     int id = -1;
     bool loop = false;
 };
@@ -1673,6 +1674,8 @@ QList<CueElement> cueElements(const QByteArray& mbx) {
             e.loop = !(flags & 0x10000);
         } else if (word == 0xFFFFFFFFu && flags == 7) {
             e.kind = CueElement::End;
+        } else if (word == 0xFFFFFFFFu && flags == 8) {
+            e.kind = CueElement::Next;
         }
         out << e;
     }
@@ -1718,35 +1721,46 @@ QList<int> roundMusicStreams(const QByteArray& mbx, const QMap<int, double>& sec
 }
 
 QMap<int, SongPart> streamParts(const QByteArray& mbx) {
-    // each cue's streams: looped, the loop; played once right before a looped one, the intro; once with a looped one
-    // further on, silence (a piece before the intro); once with none after, the intro and loop in a row. A stream in
-    // several cues takes the first of loop, intro, once, silence it has.
-    QMap<int, int> rank;  // 3 loop, 2 intro, 1 once, 0 silence
+    // A looped piece plays the loop. The pieces a cue plays once before its looped one (a chain) must hold the song's
+    // intro once between them: a chain of one is that piece; in a longer chain the piece that is already some cue's
+    // intro, else its last one; the chain's other pieces a moment of silence (Deception starts some rounds with a
+    // short piece before the intro, Armageddon's Tekunin Prison has a chain of two whose first starts the later
+    // rounds alone). A piece played once with no loop after it plays the intro and one loop in a row.
+    QSet<int> looped, once;
+    QList<QList<int>> chains;
     QList<CueElement> cue;
     const auto flush = [&] {
+        int firstLoop = -1;
+        for (int i = 0; i < cue.size() && firstLoop < 0; i++)
+            if (cue[i].loop) firstLoop = i;
+        QList<int> chain;
         for (int i = 0; i < cue.size(); i++) {
-            int r = 1;
-            if (cue[i].loop) {
-                r = 3;
-            } else if (i + 1 < cue.size() && cue[i + 1].loop) {
-                r = 2;
-            } else {
-                for (int k = i + 1; k < cue.size(); k++)
-                    if (cue[k].loop) r = 0;
-            }
-            rank[cue[i].id] = std::max(rank.value(cue[i].id, -1), r);
+            if (cue[i].loop) looped.insert(cue[i].id);
+            else if (firstLoop >= 0 && i < firstLoop) chain << cue[i].id;
+            else once.insert(cue[i].id);
         }
+        if (!chain.isEmpty()) chains << chain;
         cue.clear();
     };
     for (const CueElement& e : cueElements(mbx)) {
         if (e.kind == CueElement::Stream) cue << e;
-        if (e.kind == CueElement::End) flush();
+        if (e.kind == CueElement::End) flush();  // a going-on marker (Next) keeps the cue going
     }
     flush();
+    QSet<int> intro;
+    for (const QList<int>& c : chains)
+        if (c.size() == 1) intro.insert(c.first());
+    for (const QList<int>& c : chains) {
+        bool has = false;
+        for (int id : c) has = has || intro.contains(id);
+        if (!has) intro.insert(c.last());
+    }
     QMap<int, SongPart> out;
-    for (auto it = rank.cbegin(); it != rank.cend(); ++it)
-        out.insert(it.key(), it.value() == 3 ? SongPart::Loop : it.value() == 2 ? SongPart::Intro
-                                         : it.value() == 1 ? SongPart::Once : SongPart::Silence);
+    for (const QList<int>& c : chains)
+        for (int id : c) out.insert(id, intro.contains(id) ? SongPart::Intro : SongPart::Silence);
+    for (int id : once)
+        if (!out.contains(id)) out.insert(id, SongPart::Once);
+    for (int id : looped) out.insert(id, SongPart::Loop);
     return out;
 }
 
@@ -1758,8 +1772,9 @@ QByteArray fitCueTimes(const QByteArray& mbx, const QMap<int, double>& newSecond
             if (after >= 0) putF32(out, e.secondsAt, float(after));
             after = newSeconds.value(e.id, -1);
         } else {
-            if (e.kind == CueElement::End && after >= 0 && f32(mbx, e.secondsAt) >= 0) putF32(out, e.secondsAt, float(after));
-            after = -1;
+            const bool timed = e.kind == CueElement::Next || (e.kind == CueElement::End && f32(mbx, e.secondsAt) >= 0);
+            if (timed && after >= 0) putF32(out, e.secondsAt, float(after));
+            after = -1;  // what follows a going-on marker is timed from it (0: at once)
         }
     }
     return out;

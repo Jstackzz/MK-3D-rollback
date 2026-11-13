@@ -1,0 +1,13 @@
+diff --git a/runtime/audio/xaudio2.cpp b/runtime/audio/xaudio2.cpp
+index 3c74190..bd4356c 100644
+--- a/runtime/audio/xaudio2.cpp
++++ b/runtime/audio/xaudio2.cpp
+@@ -73,6 +73,8 @@ void StartOutput(std::function<void(float*, uint32_t)> render) {
+             LOGE("audio: XAudio2 unavailable (%08X), no sound", unsigned(hr));
+             return;
+         }
++        // XBE_AUDIO_MUTE=1 (tests on a PC someone uses): nothing to the speakers, the game and a dump run as ever
++        if (const char* mute = std::getenv("XBE_AUDIO_MUTE"); mute && *mute && *mute != '0') voice->SetVolume(0.0f);
+         voice->Start();
+         constexpr uint32_t kFrames = kRate / 100;
+         constexpr uint32_t kMinQueued = 3;
