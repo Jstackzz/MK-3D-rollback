@@ -77,18 +77,18 @@ async def test_ranked_set_ends_at_three_wins_with_one_elo_change(server, connect
     over1, over2 = await play(c1, c2, gos3[1]["match"], 1)
     assert over1["state"] == "over" and over1["outcome"] == "won" and over1["winner"] == p1
     assert (over1["you"], over1["them"]) == (3, 0)
-    assert over1["elo"][p1] == {"before": 475, "after": 491, "delta": 16,
+    assert over1["elo"][p1] == {"before": 475, "after": 507, "delta": 32,
                                 "title_before": "Beginner", "title_after": "Beginner"}
     assert over2["elo"][p2] == {"before": 475, "after": 459, "delta": -16,
                                 "title_before": "Beginner", "title_after": "Beginner"}
     # one set: one win and one loss, whatever its score
-    assert await ranked_stats(c1, p1) == {"elo": 491, "title": "Beginner", "wins": 1, "losses": 0}
+    assert await ranked_stats(c1, p1) == {"elo": 507, "title": "Beginner", "wins": 1, "losses": 0}
     assert await ranked_stats(c1, p2) == {"elo": 459, "title": "Beginner", "wins": 0, "losses": 1}
     board = await c2.request({"type": "leaderboard", "game": "mkd", "mode": "kombat"})
     assert [(r["name"], r["wins"], r["losses"]) for r in board["rows"]] == [(p1, 1, 0), (p2, 0, 1)]
     row = server.db.set_row(over1["series"])
     assert row["outcome"] == "won" and (row["p1_wins"], row["p2_wins"]) == (3, 0)
-    assert (row["p1_elo_after"], row["p2_elo_after"]) == (491, 459)
+    assert (row["p1_elo_after"], row["p2_elo_after"]) == (507, 459)
     assert not server.series and not server.series_of
 
 
@@ -107,11 +107,11 @@ async def test_ranked_set_goes_to_a_fifth_match_at_two_all(server, connect, udp_
     assert over2["state"] == "over" and over2["outcome"] == "won" and over2["winner"] == p2 and over2["played"] == 5
     assert (over2["you"], over2["them"]) == (3, 2)
     # the server's log says the set's score and both new ratings with their titles
-    assert any(f"over: won, {p1} 2-3 {p2}, {p2} wins it, {p1} 475 -> 459 Beginner, {p2} 475 -> 491 Beginner"
+    assert any(f"over: won, {p1} 2-3 {p2}, {p2} wins it, {p1} 475 -> 459 Beginner, {p2} 475 -> 507 Beginner"
                in r.getMessage() for r in caplog.records)
     # two matches won each way, but one set lost and one won
     assert await ranked_stats(c1, p1) == {"elo": 459, "title": "Beginner", "wins": 0, "losses": 1}
-    assert await ranked_stats(c1, p2) == {"elo": 491, "title": "Beginner", "wins": 1, "losses": 0}
+    assert await ranked_stats(c1, p2) == {"elo": 507, "title": "Beginner", "wins": 1, "losses": 0}
 
 
 async def test_one_match_won_and_gone_loses_the_set(server, connect, udp_peers):
@@ -123,10 +123,10 @@ async def test_one_match_won_and_gone_loses_the_set(server, connect, udp_peers):
     assert left["type"] == "series_left"
     over = await c2.expect("series", state="over")
     assert over["outcome"] == "forfeit" and over["left"] == p1 and over["winner"] == p2
-    assert over["elo"][p1]["delta"] == -16 and over["elo"][p2]["delta"] == 16
+    assert over["elo"][p1]["delta"] == -16 and over["elo"][p2]["delta"] == 32
     # the match P1 won does not count on its own: the set it left is a loss
     assert await ranked_stats(c2, p1) == {"elo": 459, "title": "Beginner", "wins": 0, "losses": 1}
-    assert await ranked_stats(c2, p2) == {"elo": 491, "title": "Beginner", "wins": 1, "losses": 0}
+    assert await ranked_stats(c2, p2) == {"elo": 507, "title": "Beginner", "wins": 1, "losses": 0}
 
 
 async def test_searching_again_in_a_set_loses_it(server, connect, udp_peers):
@@ -389,7 +389,7 @@ async def test_closing_the_game_mid_match_loses_a_ranked_set_even_at_nil(server,
     await c2.request({"type": "result", "match": gos[1]["match"], "outcome": "left"})
     over = await c1.expect("series", state="over")
     assert over["outcome"] == "forfeit" and over["left"] == p2 and over["winner"] == p1
-    assert over["elo"][p1]["delta"] == 16 and over["elo"][p2]["delta"] == -16
+    assert over["elo"][p1]["delta"] == 32 and over["elo"][p2]["delta"] == -16
 
 
 async def test_a_game_that_never_started_a_sets_first_match_changes_no_rating(server, connect, udp_peers, caplog):

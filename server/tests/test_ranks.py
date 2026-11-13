@@ -82,7 +82,8 @@ async def test_every_ranked_rating_comes_with_its_title(server, connect, udp_pee
     assert over["winner"] == "Raijin"
     assert (over["elo"]["Fujin"]["title_before"], over["elo"]["Fujin"]["title_after"]) == ("Elder God", "Elder God")
     # up a rank, God to Elder God (a 120 Elo step), from beating an Elder God who left the set
-    assert over["elo"]["Raijin"] == {"before": 1780, "after": 1799, "delta": 19, "title_before": "God",
+    # (a set won gains twice the Elo change: 2 x 19)
+    assert over["elo"]["Raijin"] == {"before": 1780, "after": 1818, "delta": 38, "title_before": "God",
                                      "title_after": "Elder God"}
 
 

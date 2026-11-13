@@ -279,7 +279,7 @@ class Database:
         with self.transaction() as conn:
             before_w = self.rating(winner_id, game, mode)["elo"]
             before_l = self.rating(loser_id, game, mode)["elo"]
-            after_w, after_l = elo.update(before_w, before_l, 1.0)
+            after_w, after_l = elo.set_result(before_w, before_l)  # the winner gains twice what the loser loses
             self._bump(conn, winner_id, game, mode, "ranked", True, after_w, now)
             self._bump(conn, loser_id, game, mode, "ranked", False, after_l, now)
         return {winner_id: (before_w, after_w), loser_id: (before_l, after_l)}

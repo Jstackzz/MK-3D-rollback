@@ -58,3 +58,14 @@ def update(rating_a: int, rating_b: int, score_a: float, k: int = K_FACTOR) -> t
     """New (A, B) ratings after a game where A scored `score_a` (1 win, 0 loss)."""
     d = delta(rating_a, rating_b, score_a, k)
     return rating_a + d, rating_b - d
+
+
+# A ranked set's winner gains this many times the Elo change, the loser loses the change itself (since 2026-11-12, the
+# user: "double the amount of elo gained for each set win"), so ratings climb faster than they fall.
+SET_WIN_GAIN = 2
+
+
+def set_result(winner: int, loser: int, k: int = K_FACTOR) -> tuple[int, int]:
+    """New (winner, loser) ratings after a ranked set: the winner gains SET_WIN_GAIN times the plain change."""
+    d = delta(winner, loser, 1.0, k)
+    return winner + SET_WIN_GAIN * d, loser - d

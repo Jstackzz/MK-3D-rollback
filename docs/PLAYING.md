@@ -98,7 +98,8 @@ whether to trust it: compare it with your host's.
   LEAVE (or Find match), or lets the 60 seconds pass. The Kasual page shows the
   same choice.
 - Ranked is played in sets against one opponent: the first to win 3 matches
-  takes the set, and your Elo changes once, when it ends. The set's next match
+  takes the set, and your Elo changes once, when it ends: winning a set gains
+  twice the Elo that losing it costs. The set's next match
   starts by itself once both games are ready, at character select. The winner
   of the last match keeps their fighter (and costume): the game picks it for
   them. The loser picks again (nobody picks for them, and they may choose the
@@ -178,7 +179,8 @@ whether to trust it: compare it with your host's.
   the lobby (the Death traps box under its name) between matches; both players
   then press Ready again. Online matches also play with the game's default
   round time and blood, whatever your own game's options say, so both players
-  play the same fight.
+  play the same fight. Deadly Alliance's Acid Bath never sprays its acid
+  (since 1.0.4), online and offline.
 - Every online match (Kasual, Ranked, lobbies) has every fighter, alternate
   costume and arena open, whatever your own profile has unlocked: hold START
   as you confirm your fighter on the select screen for their alternate

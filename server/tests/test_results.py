@@ -114,6 +114,10 @@ async def test_single_report_times_out_unconfirmed(server, connect, udp_peers):
 
 async def test_elo_math():
     assert elo.update(1500, 1500, 1.0) == (1516, 1484)
+    # a ranked set: the winner gains twice the change, the loser loses the change
+    assert elo.set_result(1500, 1500) == (1532, 1484)
+    assert elo.set_result(1600, 1400) == (1616, 1392)
+    assert elo.set_result(1400, 1600) == (1448, 1576)
     assert elo.update(1600, 1400, 1.0) == (1608, 1392)
     assert elo.update(1400, 1600, 1.0) == (1424, 1576)
     a, b = elo.update(1523, 1611, 0.0)
