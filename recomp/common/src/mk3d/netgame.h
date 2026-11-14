@@ -40,8 +40,9 @@ void OnMatchSetup(void (*hook)(X86Context& ctx));
 // what this game tells the other one at the meeting point (its mode, picks, frame counters, a side mode's setup)
 void ReadyWords(std::vector<uint32_t>& out);
 std::string Describe();  // the match about to start, for the log ("mode 1, 3 vs 7")
-// both games' words are here: make this game's state what both agree on (the larger frame counters, the left player's
-// arena, each player's own team...). side: this player's (0 left, 1 right)
+// both games' words are here: make this game's state what both agree on (frame counters no lower than either game's
+// own, the left player's arena, each player's own team...). side: this player's (0 left, 1 right). A spectator's game
+// agrees as each of the two players in turn, so what it takes comes from the words alone, never from its own state
 void Agree(X86Context& ctx, int side, const std::vector<uint32_t>& mine, const std::vector<uint32_t>& theirs, FILE* log);
 // the engine's random generator from the agreed seed (the setup's own draws included)
 void Reseed(X86Context& ctx, uint32_t seed);

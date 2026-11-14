@@ -213,12 +213,25 @@ std::string Describe() {
     return buf;
 }
 
+// The frame counters a match starts from are kCounterLead past the larger of the two players' own, so that no game's
+// counters go back at the meeting point, a spectator's included. The engine marks work done in a frame with the frame
+// counter and skips it while the mark is the counter (an animation's update, sub_000D3C10 and sub_000D0C80 at +0x24,
+// and about a hundred places more): a game whose counters went back meets this frame's marks again a frame or more
+// later and skips that frame's work. A player's own counters are one of the two, a spectator's are not (its game takes
+// the two players' words, netplay.cpp WatchMeet), and in King of the Hill the last match's loser watches the next one
+// with counters within a frame of the king's (their games left that match together): one frame ahead of both players
+// was enough for its fighters' animations to miss frame 0's update and stay a frame behind theirs from frame 5 on,
+// "DESYNC at frame 30" (every such watch in the tests, and only those). 4096 keeps the counters' phase in any power of
+// two up to 4096 as it was. Games before this one start from the larger counters alone: a match's two games and its
+// spectators must agree in the same way.
+constexpr uint32_t kCounterLead = 4096;
+
 // Both games reach the meeting point after their own time in the menus: the main loop's frame counters differ (the
-// engine's timers count on them), so both take the larger values. The match's options are the left player's (the
-// round time is set inside the fight setup, after this; the difficulty goes into the match record sub_0001B700
-// keeps), and each player's button configuration is the one their own game has, so each plays with their own
-// buttons on both games. The arena loaded already: both games got it from the launcher's seed (linkgame.cpp), here it
-// is only checked.
+// engine's timers count on them), so both take the larger values and kCounterLead more. The match's options are the
+// left player's (the round time is set inside the fight setup, after this; the difficulty goes into the match record
+// sub_0001B700 keeps), and each player's button configuration is the one their own game has, so each plays with their
+// own buttons on both games. The arena loaded already: both games got it from the launcher's seed (linkgame.cpp), here
+// it is only checked.
 void Agree(X86Context&, int side, const std::vector<uint32_t>& mine, const std::vector<uint32_t>& theirs_in, FILE* log) {
     std::vector<uint32_t> theirs = theirs_in;
     theirs.resize(kWordCount, 0);
@@ -233,10 +246,16 @@ void Agree(X86Context&, int side, const std::vector<uint32_t>& mine, const std::
              theirs[kWordCostumeP1], theirs[kWordCostumeP2], mine[kWordCostumeP1], mine[kWordCostumeP2]);
     else
         LOGR("netplay: arena %u, costumes %u and %u", mine[kWordArena], mine[kWordCostumeP1], mine[kWordCostumeP2]);
-    uint32_t frames = std::max(mine[kWordFrames], theirs[kWordFrames]);
-    uint32_t game_frames = std::max(mine[kWordGameFrames], theirs[kWordGameFrames]);
+    const uint32_t frames = std::max(mine[kWordFrames], theirs[kWordFrames]) + kCounterLead;
+    const uint32_t game_frames = std::max(mine[kWordGameFrames], theirs[kWordGameFrames]) + kCounterLead;
     LOGI("netplay: frame counters %u and %u (ours were %u and %u)", frames, game_frames, mine[kWordFrames],
          mine[kWordGameFrames]);
+    // only a spectator's game more than kCounterLead ahead of both players' still goes back: said, as a desync it brings
+    // shows later, at the frame its marks come round again
+    const uint32_t now = kernel::R32(kFrameCounter), now_game = kernel::R32(kGameCounter);
+    if (now > frames || now_game > game_frames)
+        LOGR("netplay: this game's frame counters go back from %u and %u to the match's %u and %u", now, now_game,
+             frames, game_frames);
     kernel::W32(kFrameCounter, frames);
     kernel::W32(kGameCounter, game_frames);
     const std::vector<uint32_t>& left = side == 0 ? mine : theirs;

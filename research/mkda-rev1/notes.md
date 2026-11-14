@@ -687,3 +687,40 @@ No runtime code was changed for this game: everything is config (`recomp/mkda/co
 - Sound levels (`recomp/common/src/mk3d/volume.cpp`): the five category floats 0x31FD00..0x31FD10 (music, environment, announcer, effects, fighter voices) written at every frame's top
   while they differ from the launcher's levels (percent of the game's own: 0.9 each, 0x274D1C), 0 % as 0.0005; the master is the
   runtime's output voice (patch 0049).
+
+## Spectators and the frame counters (2026-11-14)
+
+In King of the Hill the last match's loser watches the next one, and its game sometimes went out of step at once:
+"DESYNC at frame 30 ... loading", the fighters (0x2E88D8, 0x2E9704) and the blocks at 0x42C700 and 0x2EA530 different,
+the rand counters alike, the players' own match in sync. Per frame (the net logs of all three games): the spectator's
+fighters were the players' of the frame before from frame 5 on (149 of 159 frames), and its frame 5 a state the players
+never had. The engine's task list (0x32141C, walked in run order: function +0x30, wait +0x0C, flags +0x20) was the same
+in order and waits on every game but for frame 1, where six tasks running 0xDFA00 (an idle body, it returns 1000.0)
+read 999 in the spectator and 1000 in the players: the two tasks running sub_000D3C10 just before them had not updated
+their animation object in the spectator's frame 0, so the fighters' animations stayed a frame behind.
+
+sub_000D3C10 updates its object (sub_000D3970 moves it by the time scale 0x42A880) only while the object's mark +0x24 is
+not the frame counter 0x42A888; sub_000D0C80 sets that mark (and one at +0x5C) to the counter: work done once a frame.
+About a hundred places read 0x42A888 like that. At the meeting point a player's game takes the larger of the two
+players' counters, so its own never go back. A spectator's game takes the two players' words (netplay.cpp WatchMeet
+agrees as each of them in turn) and its own counters are not among them: when they were ahead, they went back, and the
+marks it had set in the meeting frame (tasks ahead of the fight task in the run order run before the meeting point)
+came round again. One frame ahead was enough: the mark was frame 0's counter. In King of the Hill the loser's game and
+the king's left their match together and wait in the menus the same time, so their counters stay within a frame of
+each other. Measured (a diagnostic line in Agree, 12 matches): the loser's lead -1, 0 or +1, the challenger's -16 to
+-103, a fresh spectator's +7; every +1 desynced (3 of 3), nothing else did (an object marked a frame earlier is
+updated over at frame 0, so only +1 met frame 0's counter). The 9 desyncs of the runs before had the same signature.
+
+Fix (netgame.cpp Agree): a match starts from the larger counters plus kCounterLead (4096) on both players' games, and
+a spectator's game computes the same from their words, so every game's counters go forward at the meeting point, as a
+trailing player's always did. 4096 keeps the counters' phase in every power of two up to 4096. A spectator more than
+4096 ahead of both players still goes back (logged: "this game's frame counters go back from ..."). Games before the
+fix start from the larger counters alone, so a match's games and its spectators must all have it (a required release).
+tools/koth-e2e.ps1 -Passive a,c reproduces the case: B stays king, each match after the second is watched by the last
+loser.
+
+Tested (the fix's release build: its own worktree, main's game code DLL; the -Passive a,c runs with every game's net
+log, each watch compared frame by frame with both players' logs): before the fix, 12 of 28 watches by the last loser
+desynced in five such runs (each at frame 30, each the same one-frame lag from frame 5); with it, two runs of 7
+matches: 14 matches and 14 watches (12 by the last loser), every frame of every match alike in the spectator and both
+players, every result agreed, no counters going back. Each game's frame 0 had the same counters (the larger plus 4097).

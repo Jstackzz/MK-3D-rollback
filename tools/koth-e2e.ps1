@@ -12,9 +12,15 @@
   (a PC someone uses). -Snaps saves pictures of the lobby page as it changes, and D's of the Create lobby window and
   the leaderboard in both orders (build\koth-e2e\snaps). Everything the run started is closed at its end.
 
+  -Passive a,c leaves those launchers' games without scripted presses: B wins every match, stays king, and each match
+  after the second is watched by the last one's loser, whose game left that match together with the king's, so their
+  frame counters are within a frame of each other (one frame ahead of both players' put a Deadly Alliance spectator
+  out of step at frame 30 before netgame.cpp kCounterLead).
+
 .EXAMPLE
   powershell -File tools\koth-e2e.ps1 -Game mkda -Matches 3
   powershell -File tools\koth-e2e.ps1 -Game mkd -Matches 4 -Snaps -Checkout C:\path\to\the\main\checkout
+  powershell -File tools\koth-e2e.ps1 -Game mkda -Matches 7 -Passive a,c
 #>
 param(
     [int]$Seconds = 1800,
@@ -24,6 +30,7 @@ param(
     [string]$Checkout = '',      # where the built games and their assets, Qt and the dev certificate are (default:
                                  # this checkout; a worktree has none of them)
     [string]$Launcher = '',      # default: build\launcher\MK3DLauncher.exe of this checkout
+    [string[]]$Passive = @(),    # launchers (a, b, c) whose games press nothing, e.g. a,c
     [switch]$Snaps
 )
 $ErrorActionPreference = 'Stop'
@@ -101,6 +108,9 @@ $stamp = Get-Date -Format 'HHmmss'
 $common = @('--lobby-name', "koth$stamp", '--lobby-matches', "$Matches", '--game', $Game, '--mode', 'kombat')
 function Start-Launcher($who, $user, $extra) {
     if ($Snaps) { $extra += @('--snap-dir', "`"$work\snaps\$who`"") }
+    # its game inherits the presses, or none (-Passive: a,c as one argument or as a list)
+    if (@($Passive | ForEach-Object { $_ -split '[,\s]+' }) -contains $who) { Remove-Item "env:${x}_INPUT" -ErrorAction SilentlyContinue }
+    else { Set-Item "env:${x}_INPUT" $attacks }
     $p = Start-Process -FilePath $Launcher -ArgumentList (@('--config', "`"$work\$who\mk3d-launcher.ini`"", '--user', $user, '--register') + $extra) -PassThru
     Start-Sleep -Milliseconds 500
     $p.PriorityClass = 'BelowNormal'  # its games start below normal too
