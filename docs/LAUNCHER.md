@@ -354,6 +354,11 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    path to every game it starts (`XBE_CONTROLS`), and a running game reads it
    again within a second (runtime patch 0016). Without the file the games keep
    the layout of patch 0013.
+10. **Support** (`SupportPage`): where to follow ImTheBlindGuy: a card each
+   for YouTube (`youtube.com/@lmTheBIindGuy`, its videos)
+   and Twitch (`twitch.tv/imtheblindguy`), whose button opens it in the
+   browser. The tab row's buttons keep their names whole (fixed width, 10 px
+   padding, letter spacing 1.5): all ten fit the narrowest window (1120).
 
 Files next to the exe (or `%LOCALAPPDATA%\MK3D\MK3D Online` when that folder
 is read-only): `mk3d-launcher.ini`, `controls.toml`, `mk3d-launcher.log` and
@@ -561,7 +566,7 @@ Command-line options for development and automation:
 | `--lobby host\|join\|watch --lobby-name NAME --game mkd --mode kombat --character Scorpion` | host a lobby of that name and mark ready (its match starts by itself once both are), join it by name and mark ready, or watch it as a spectator (`tools/online-e2e.ps1 -Watch`) |
 | `--koth` | with `--lobby host`: a King of the Hill lobby; `--lobby join` then also joins one whose places are taken (into the line) and readies only while it is one of the two players |
 | `--rate N` | in a King of the Hill lobby: rate each match watched, N from 1 to 10, once the game has shown its end |
-| `--snap-dir <folder>` | save pictures of the window there as the lobby changes (`lobby-NN.png`) and, on the Leaderboard page, of both orders (`leaderboard-elo.png`, `leaderboard-respect.png`); started on the Lobby page without `--lobby`, first the Create lobby window (`create-lobby.png`, and `create-lobby-practice.png` with Online Practice picked), then the leaderboard's |
+| `--snap-dir <folder>` | save pictures of the window there as the lobby changes (`lobby-NN.png`) and, on the Leaderboard page, of both orders (`leaderboard-elo.png`, `leaderboard-respect.png`); started on the Lobby page without `--lobby`, first the Create lobby window (`create-lobby.png`, and `create-lobby-practice.png` with Online Practice picked), then the leaderboard's; with `--page <name>`, a picture of that page once the window is up (`page-<name>.png`) |
 | `--death-traps on\|off` | the arenas' death traps this player searches for or hosts, saved like the Kasual page's box (`tools/online-e2e.ps1 -DeathTraps`) |
 | `--page ranked\|casual\|lobby\|single\|leaderboard\|build\|controls\|settings` | start page (`practice`, its old name, opens `single`) |
 | `--local-test` | start the two-instance loopback test |

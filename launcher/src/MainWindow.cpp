@@ -37,6 +37,7 @@
 #include "ServerClient.h"
 #include "Style.h"
 #include "TitleImage.h"
+#include "SupportPage.h"
 #include "ToolPages.h"
 #include "Updater.h"
 #include "Widgets.h"
@@ -44,11 +45,12 @@
 
 namespace {
 #ifdef MK3D_JUKEBOX
-enum PageIndex { kRanked, kCasual, kLobby, kSingle, kJukebox, kLeaderboard, kBuild, kControls, kSettings };
-const char* kPageNames[] = {"ranked", "casual", "lobby", "single", "jukebox", "leaderboard", "build", "controls", "settings"};
+enum PageIndex { kRanked, kCasual, kLobby, kSingle, kJukebox, kLeaderboard, kBuild, kControls, kSettings, kSupport };
+const char* kPageNames[] = {"ranked", "casual",   "lobby",    "single",   "jukebox",
+                            "leaderboard", "build", "controls", "settings", "support"};
 #else
-enum PageIndex { kRanked, kCasual, kLobby, kSingle, kLeaderboard, kBuild, kControls, kSettings };
-const char* kPageNames[] = {"ranked", "casual", "lobby", "single", "leaderboard", "build", "controls", "settings"};
+enum PageIndex { kRanked, kCasual, kLobby, kSingle, kLeaderboard, kBuild, kControls, kSettings, kSupport };
+const char* kPageNames[] = {"ranked", "casual", "lobby", "single", "leaderboard", "build", "controls", "settings", "support"};
 #endif
 }  // namespace
 
@@ -96,7 +98,7 @@ MainWindow::MainWindow(const LaunchOptions& opts, QWidget* parent)
 #ifdef MK3D_JUKEBOX
               new JukeboxPage,
 #endif
-              new LeaderboardPage(server_), build_, new ControlsPage, settings_};
+              new LeaderboardPage(server_), build_, new ControlsPage, settings_, new SupportPage};
     for (Page* p : pages_) stack_->addWidget(p);
     v->addWidget(stack_, 1);
     v->addWidget(buildFooter());
@@ -285,7 +287,7 @@ MainWindow::MainWindow(const LaunchOptions& opts, QWidget* parent)
     selectGame(startGame);
     int startPage = kRanked;
     const QString pageName = opts_.page.isEmpty() ? cfg::get(QStringLiteral("ui/page"), QStringLiteral("ranked")).toString() : opts_.page;
-    for (int i = 0; i < kSettings + 1; ++i)
+    for (int i = 0; i < kSupport + 1; ++i)
         if (pageName == QLatin1String(kPageNames[i])) startPage = i;
     if (pageName == QLatin1String("practice")) startPage = kSingle;  // its name before 0.1.3
     if (opts_.queue == QLatin1String("casual")) startPage = kCasual;
@@ -293,6 +295,9 @@ MainWindow::MainWindow(const LaunchOptions& opts, QWidget* parent)
     if (opts_.localTest) startPage = kSingle;
     if (!opts_.extractImage.isEmpty()) startPage = kBuild;
     selectPage(startPage);
+    // development: --snap-dir with --page, a picture of that page once the window is up
+    if (!opts_.snapDir.isEmpty() && !opts_.page.isEmpty())
+        QTimer::singleShot(1500, this, [this] { snap(QStringLiteral("page-") + QLatin1String(kPageNames[stack_->currentIndex()])); });
     if (opts_.localTest)
         QTimer::singleShot(500, this, [this] {
             QString err;
@@ -421,13 +426,14 @@ QWidget* MainWindow::buildNav() {
 #ifdef MK3D_JUKEBOX
                                tr("JUKEBOX"),
 #endif
-                               tr("LEADERBOARD"), tr("BUILD GAME"), tr("CONTROLS"), tr("SETTINGS")};
+                               tr("LEADERBOARD"), tr("BUILD GAME"), tr("CONTROLS"), tr("SETTINGS"), tr("SUPPORT")};
     for (int i = 0; i < names.size(); ++i) {
         auto* b = new QPushButton(names[i]);
         b->setObjectName(QStringLiteral("NavButton"));
+        b->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);  // never squeezed into a cut-off name
         b->setCheckable(true);
         b->setCursor(Qt::PointingHandCursor);
-        ui::letterSpacing(b, 2);
+        ui::letterSpacing(b, 1.5);
         navGroup_->addButton(b, i);
         if (i == kBuild) h->addStretch();
         h->addWidget(b);
@@ -584,7 +590,10 @@ void MainWindow::openAccountDialog(bool firstTime) {
 void MainWindow::snap(const QString& name) {
     QDir().mkpath(opts_.snapDir);
     const QString path = QDir(opts_.snapDir).filePath(name + QStringLiteral(".png"));
-    applog::write(QStringLiteral("snap: %1 %2").arg(path, grab().save(path) ? QStringLiteral("saved") : QStringLiteral("failed")));
+    const QWidget* nav = findChild<QWidget*>(QStringLiteral("NavBar"));
+    applog::write(QStringLiteral("snap: %1 %2 (window %3x%4, at least %5 wide, the tab row %6)")
+                      .arg(path, grab().save(path) ? QStringLiteral("saved") : QStringLiteral("failed"))
+                      .arg(width()).arg(height()).arg(minimumWidth()).arg(nav ? nav->minimumSizeHint().width() : 0));
 }
 
 // development: what the Create lobby window offers against this server (as it opens, then with Online Practice

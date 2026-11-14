@@ -494,6 +494,12 @@ FreeSync has to be on in your graphics driver). Off: each frame is shown at
 once and may tear.
 
 
+Support
+-------
+
+The Support page has ImTheBlindGuy's YouTube and Twitch: each card's button opens the channel in your
+browser.
+
 When something goes wrong
 -------------------------
 

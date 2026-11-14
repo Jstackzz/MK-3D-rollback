@@ -27,6 +27,11 @@
 // Quan Chi, Mavado and Drahmin from one side of the arena or the other, so the strikes from its second on are larger too
 // while the opponent reels.
 //
+// Her Yuan Yang string 4, 4, 1, 1, style change and the 1s after it (into the ice daggers, 8 hits; MK3D Online 1.0.10): the
+// same. Its third hit, the first 1, reaches about 1.24: a start a few hundredths further off (what the fight before it
+// left) and it missed, the opponent stood up and the rest began a new combo (the user's clip, against Li Mei: 2 hits,
+// then 5). Its strikes from the second on, the daggers' too, are larger while the opponent reels.
+//
 // A fighter slipping in Bo' Rai Cho's Puke Puddle cannot block (MK3D Online 0.1.24). The slip (state 0x4207, the
 // scripted reaction 0x11AE80) sets the slipping fighter's +0x15C, which keeps a hit from being blocked, until it
 // stands again. The end of the other fighter's move (sub_000558E0, the recovery 0x55AC0) or of its reaction's
@@ -75,7 +80,15 @@ constexpr Hit kFrostHits[] = {{"tongbei_1", 0x2C8, 2, 2.5f},
                               {"yuanyang_entry_4", 0x20C, 5, 2.5f},
                               {"yuanyang_entry_4", 0xAB4, 6, 2.5f},
                               {"yuanyang_entry_4", 0x3B4, 7, 2.5f},
-                              {"yuanyang_entry_4", 0x47C, 8, 2.5f}};
+                              {"yuanyang_entry_4", 0x47C, 8, 2.5f},
+                              // Yuan Yang's 4, 4, 1, 1 into the daggers
+                              {"yuanyang_4", 0x9A4, 2, 2.5f},
+                              {"yuanyang_4", 0x2A4, 3, 2.5f},
+                              {"yuanyang_4", 0x36C, 4, 2.5f},
+                              {"double_entry_1", 0x208, 5, 2.5f},
+                              {"double_entry_1", 0x380, 6, 2.5f},
+                              {"double_entry_1", 0x428, 7, 2.5f},
+                              {"double_entry_1", 0x4C8, 8, 2.5f}};
 
 bool BlockIs(uint32_t block, const char* name) {
     const uint32_t n = uint32_t(std::strlen(name)) + 1;  // with its zero

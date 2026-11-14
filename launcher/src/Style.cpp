@@ -65,7 +65,7 @@ QWidget#NavBar { background: #111114; border-bottom: 1px solid #26262C; }
 QPushButton#NavButton {
     font-family: "Bahnschrift"; font-size: 11pt; font-weight: 600;
     background: transparent; color: #A8A19A; border: none; border-bottom: 3px solid transparent;
-    padding: 11px 20px 8px 20px;
+    padding: 11px 10px 8px 10px;
 }
 QPushButton#NavButton:hover { color: #FFFFFF; }
 QPushButton#NavButton:checked { color: #FFFFFF; border-bottom: 3px solid #D0142A; }
