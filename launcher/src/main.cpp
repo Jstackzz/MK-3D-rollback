@@ -146,6 +146,20 @@ int main(int argc, char* argv[]) {
         QStringLiteral("leave-lobby-in-match"),
         QStringLiteral("Development: leave the lobby this many seconds into its first match (its game closes at once)."),
         QStringLiteral("seconds"));
+    const QCommandLineOption kothOpt(
+        QStringLiteral("koth"),
+        QStringLiteral("Development: --lobby host makes it a King of the Hill lobby (the winner stays on, the rest wait "
+                       "in line and watch)."));
+    const QCommandLineOption rateOpt(
+        QStringLiteral("rate"),
+        QStringLiteral("Development: in a King of the Hill lobby, rate the winner of each match watched (1 to 10), "
+                       "once this game has shown its end."),
+        QStringLiteral("n"));
+    const QCommandLineOption snapDirOpt(
+        QStringLiteral("snap-dir"),
+        QStringLiteral("Development: save pictures of the window to this folder as the lobby changes, and of the "
+                       "leaderboard page in both orders."),
+        QStringLiteral("folder"));
     const QCommandLineOption rematchesOpt(
         QStringLiteral("rematches"),
         QStringLiteral("Development: after a --queue casual match, choose a rematch this many times (a ranked set "
@@ -194,7 +208,7 @@ int main(int argc, char* argv[]) {
                                            QStringLiteral("Development: install an update offered at once, without asking."));
     for (const auto* o : {&configOpt, &serverOpt, &fpOpt, &userOpt, &pwEnvOpt, &regOpt, &queueOpt, &gameOpt, &modeOpt,
                           &charOpt, &pageOpt, &acceptOpt, &cancelOpt, &localTestOpt, &extractOpt, &lobbyOpt, &lobbyNameOpt, &lobbyCodeFileOpt,
-                          &lobbyMatchesOpt, &leaveLobbyOpt, &leaveLobbyInMatchOpt, &upnpProbeOpt, &rematchesOpt, &rematchChoiceOpt,
+                          &lobbyMatchesOpt, &leaveLobbyOpt, &leaveLobbyInMatchOpt, &kothOpt, &rateOpt, &snapDirOpt, &upnpProbeOpt, &rematchesOpt, &rematchChoiceOpt,
                           &leaveSeriesOpt, &soloOpt,
                           &practiceOpt, &searchAgainOpt, &deathTrapsOpt, &updatedOpt, &autoUpdateOpt, &jukeboxOpt,
                           &jukeboxSetOpt, &jukeboxLoopsOpt})
@@ -254,6 +268,9 @@ int main(int argc, char* argv[]) {
     opts.lobbyMatches = cli.isSet(lobbyMatchesOpt) ? std::max(1, cli.value(lobbyMatchesOpt).toInt()) : 1;
     opts.leaveLobby = cli.isSet(leaveLobbyOpt);
     opts.leaveLobbyInMatch = cli.isSet(leaveLobbyInMatchOpt) ? std::max(1, cli.value(leaveLobbyInMatchOpt).toInt()) : 0;
+    opts.koth = cli.isSet(kothOpt);
+    opts.snapDir = cli.value(snapDirOpt);
+    opts.rate = cli.isSet(rateOpt) ? std::clamp(cli.value(rateOpt).toInt(), 1, 10) : 0;
     opts.rematches = cli.isSet(rematchesOpt) ? std::max(0, cli.value(rematchesOpt).toInt()) : 0;
     opts.rematchChoices = cli.value(rematchChoiceOpt).split(QLatin1Char(','), Qt::SkipEmptyParts);
     opts.leaveSeries = cli.isSet(leaveSeriesOpt);

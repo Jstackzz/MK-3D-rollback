@@ -126,11 +126,13 @@ public:
     explicit LeaderboardPage(ServerClient* server, QWidget* parent = nullptr);
     void setGame(const QString& gameId) override;
     void refresh();
+    void setOrder(const QString& by);  // "elo" or "respect" (development: --snap-dir shows both)
 
 private:
     void onMessage(const QJsonObject& msg);
     ServerClient* server_;
     QComboBox* mode_;
+    QComboBox* by_;  // by Elo (the ranked players) or by Respect Points (King of the Hill)
     QTableWidget* table_;
     QLabel* meBadge_;  // your rank's badge
     QLabel* me_;

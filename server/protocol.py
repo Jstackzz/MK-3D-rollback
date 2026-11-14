@@ -41,6 +41,10 @@ LOBBY_NAME_MAX = 32
 CHAT_MAX = 200
 ROUNDS_ALLOWED = (1, 3, 5)
 DELAY_MAX = 4
+# what a launcher can do beyond the protocol's start, as its hello says (`features`) and the server's welcome lists:
+# "koth", King of the Hill lobbies (docs/PROTOCOL.md 1.10.2)
+FEATURES: tuple[str, ...] = ("koth",)
+RATING_MIN, RATING_MAX = 1, 10  # a King of the Hill rating of the winner, a whole number
 
 
 class ProtocolError(Exception):

@@ -1,4 +1,5 @@
-"""SQLite storage: accounts, login tokens, per game/mode stats, match log, result reports and ranked sets."""
+"""SQLite storage: accounts, login tokens, per game/mode stats, match log, result reports, ranked sets, and the
+Respect Points King of the Hill spectators give (each rating kept, and each player's sum per game and mode)."""
 
 from __future__ import annotations
 
@@ -93,6 +94,26 @@ CREATE TABLE IF NOT EXISTS sets (
     p1_elo_after  INTEGER,
     p2_elo_before INTEGER,
     p2_elo_after  INTEGER
+);
+CREATE TABLE IF NOT EXISTS respect (
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    game       TEXT NOT NULL,
+    mode       TEXT NOT NULL,
+    points     INTEGER NOT NULL DEFAULT 0,
+    ratings    INTEGER NOT NULL DEFAULT 0,
+    updated    REAL,
+    PRIMARY KEY (account_id, game, mode)
+);
+CREATE INDEX IF NOT EXISTS respect_board ON respect (game, mode, points DESC);
+CREATE TABLE IF NOT EXISTS ratings (
+    match_id TEXT NOT NULL,
+    rater    INTEGER NOT NULL,
+    winner   INTEGER NOT NULL,
+    game     TEXT NOT NULL,
+    mode     TEXT NOT NULL,
+    score    INTEGER NOT NULL CHECK (score BETWEEN 1 AND 10),
+    rated    REAL NOT NULL,
+    PRIMARY KEY (match_id, rater)
 );
 """
 
@@ -301,6 +322,7 @@ class Database:
         return self.conn.execute("SELECT * FROM sets WHERE id = ?", (set_id,)).fetchone()
 
     def leaderboard(self, game: str, mode: str, limit: int, offset: int) -> tuple[list[dict[str, Any]], int]:
+        """The ranked players of a game and mode by Elo, each with their Respect Points there too."""
         total = self.conn.execute(
             "SELECT COUNT(*) FROM stats WHERE game = ? AND mode = ? AND kind = 'ranked' AND wins + losses > 0",
             (game, mode),
@@ -308,14 +330,16 @@ class Database:
         rows = []
         for i, row in enumerate(
             self.conn.execute(
-                "SELECT a.name, s.elo, s.wins, s.losses FROM stats s JOIN accounts a ON a.id = s.account_id "
+                "SELECT a.name, s.elo, s.wins, s.losses, COALESCE(r.points, 0) AS respect FROM stats s "
+                "JOIN accounts a ON a.id = s.account_id "
+                "LEFT JOIN respect r ON r.account_id = s.account_id AND r.game = s.game AND r.mode = s.mode "
                 "WHERE s.game = ? AND s.mode = ? AND s.kind = 'ranked' AND s.wins + s.losses > 0 "
                 "ORDER BY s.elo DESC, s.wins DESC, a.name COLLATE NOCASE ASC LIMIT ? OFFSET ?",
                 (game, mode, limit, offset),
             )
         ):
             rows.append({"rank": offset + i + 1, "name": row["name"], "elo": row["elo"], "title": elo.title(row["elo"]),
-                         "wins": row["wins"], "losses": row["losses"]})
+                         "wins": row["wins"], "losses": row["losses"], "respect": row["respect"]})
         return rows, int(total)
 
     def rank_of(self, account_id: int, game: str, mode: str) -> dict[str, int] | None:
@@ -334,7 +358,75 @@ class Database:
             (game, mode, row["elo"], row["elo"], row["wins"], row["elo"], row["wins"], row["name"]),
         ).fetchone()[0]
         return {"rank": int(better) + 1, "elo": row["elo"], "title": elo.title(row["elo"]), "wins": row["wins"],
-                "losses": row["losses"]}
+                "losses": row["losses"], "respect": self.respect(account_id, game, mode)["points"]}
+
+    # --- Respect Points (King of the Hill) ------------------------------------------------------
+
+    def add_rating(self, match_id: str, rater: int, winner: int, game: str, mode: str, score: int,
+                   now: float | None = None) -> bool:
+        """A spectator's rating of a King of the Hill match's winner (1 to 10): kept, and added to the winner's Respect
+        Points in that game and mode. False when that spectator had rated that match already (nothing changes)."""
+        now = now or time.time()
+        with self.transaction() as conn:
+            added = conn.execute(
+                "INSERT OR IGNORE INTO ratings (match_id, rater, winner, game, mode, score, rated) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)", (match_id, rater, winner, game, mode, score, now)).rowcount
+            if added:
+                conn.execute("INSERT OR IGNORE INTO respect (account_id, game, mode, points, ratings, updated) "
+                             "VALUES (?, ?, ?, 0, 0, ?)", (winner, game, mode, now))
+                conn.execute("UPDATE respect SET points = points + ?, ratings = ratings + 1, updated = ? "
+                             "WHERE account_id = ? AND game = ? AND mode = ?", (score, now, winner, game, mode))
+        return bool(added)
+
+    def respect(self, account_id: int, game: str, mode: str) -> dict[str, int]:
+        """A player's Respect Points in a game and mode, and how many ratings gave them."""
+        row = self.conn.execute("SELECT points, ratings FROM respect WHERE account_id = ? AND game = ? AND mode = ?",
+                                (account_id, game, mode)).fetchone()
+        return {"points": row["points"], "ratings": row["ratings"]} if row else {"points": 0, "ratings": 0}
+
+    def respect_all(self, account_id: int) -> dict[tuple[str, str], dict[str, int]]:
+        """Every game and mode a player has Respect Points in."""
+        return {(row["game"], row["mode"]): {"points": row["points"], "ratings": row["ratings"]}
+                for row in self.conn.execute("SELECT game, mode, points, ratings FROM respect WHERE account_id = ? "
+                                             "ORDER BY game, mode", (account_id,))}
+
+    def ratings(self, match_id: str) -> list[sqlite3.Row]:
+        return list(self.conn.execute("SELECT * FROM ratings WHERE match_id = ? ORDER BY rated", (match_id,)))
+
+    _RESPECT_ROWS = (
+        "SELECT a.name, r.points, r.ratings, s.elo, s.wins, s.losses FROM respect r "
+        "JOIN accounts a ON a.id = r.account_id "
+        "LEFT JOIN stats s ON s.account_id = r.account_id AND s.game = r.game AND s.mode = r.mode AND s.kind = 'ranked' "
+        "WHERE r.game = ? AND r.mode = ? AND r.points > 0 ")
+
+    def _respect_row(self, row: sqlite3.Row) -> dict[str, Any]:
+        # their ranked record there, or the start of one (as the lobbies show a player new to ranked)
+        rating = row["elo"] if row["elo"] is not None else elo.INITIAL
+        return {"name": row["name"], "respect": row["points"], "ratings": row["ratings"], "elo": rating,
+                "title": elo.title(rating), "wins": row["wins"] or 0, "losses": row["losses"] or 0}
+
+    def respect_board(self, game: str, mode: str, limit: int, offset: int) -> tuple[list[dict[str, Any]], int]:
+        """Everyone with Respect Points in a game and mode, the most first (then the fewer ratings that gave them,
+        then by name), each with their ranked rating there."""
+        total = self.conn.execute("SELECT COUNT(*) FROM respect WHERE game = ? AND mode = ? AND points > 0",
+                                  (game, mode)).fetchone()[0]
+        rows = [{"rank": offset + i + 1, **self._respect_row(row)} for i, row in enumerate(self.conn.execute(
+            self._RESPECT_ROWS + "ORDER BY r.points DESC, r.ratings ASC, a.name COLLATE NOCASE ASC LIMIT ? OFFSET ?",
+            (game, mode, limit, offset)))]
+        return rows, int(total)
+
+    def respect_rank_of(self, account_id: int, game: str, mode: str) -> dict[str, Any] | None:
+        row = self.conn.execute(self._RESPECT_ROWS + "AND r.account_id = ?", (game, mode, account_id)).fetchone()
+        if row is None:
+            return None
+        better = self.conn.execute(
+            "SELECT COUNT(*) FROM respect r JOIN accounts a ON a.id = r.account_id "
+            "WHERE r.game = ? AND r.mode = ? AND r.points > 0 AND "
+            "(r.points > ? OR (r.points = ? AND r.ratings < ?) OR "
+            " (r.points = ? AND r.ratings = ? AND a.name < ? COLLATE NOCASE))",
+            (game, mode, row["points"], row["points"], row["ratings"], row["points"], row["ratings"], row["name"]),
+        ).fetchone()[0]
+        return {"rank": int(better) + 1, **self._respect_row(row)}
 
     # --- match log ------------------------------------------------------------------------------
 

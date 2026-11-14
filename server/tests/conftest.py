@@ -9,6 +9,7 @@ import pytest
 import pytest_asyncio
 
 from server import elo
+from server import protocol as P
 from server.app import Server, ServerConfig
 from server.client import Connection, UdpPeer
 from server.makecert import generate
@@ -48,9 +49,10 @@ async def connect(server: Server) -> AsyncIterator[Connector]:
     conns: list[Connection] = []
 
     async def factory(name: str | None = None, *, password: str = PASSWORD, register: bool = True,
-                      fingerprint: str | None = None) -> Connection:
+                      fingerprint: str | None = None, features: tuple[str, ...] = P.FEATURES) -> Connection:
+        """features: what the launcher says it can do in its hello (() : a launcher from before King of the Hill)."""
         conn = Connection("127.0.0.1", server.tcp_port, fingerprint=fingerprint or server.fingerprint)
-        await conn.connect()
+        await conn.connect(features=features)
         conns.append(conn)
         if name is not None:
             if register:

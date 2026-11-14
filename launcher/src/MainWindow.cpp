@@ -5,7 +5,9 @@
 #include <QApplication>
 #include <QButtonGroup>
 #include <QCloseEvent>
+#include <QComboBox>
 #include <QDesktopServices>
+#include <QDir>
 #include <QFile>
 #include <QHBoxLayout>
 #include <QJsonArray>
@@ -217,6 +219,8 @@ MainWindow::MainWindow(const LaunchOptions& opts, QWidget* parent)
         }
         QTimer::singleShot(300, this, &MainWindow::cliQueue);
         QTimer::singleShot(300, this, &MainWindow::cliLobby);
+        if (!opts_.snapDir.isEmpty() && opts_.lobby.isEmpty() && stack_->currentIndex() == kLobby)
+            QTimer::singleShot(800, this, &MainWindow::snapCreateLobby);
     });
     connect(server_, &ServerClient::resumeFailed, this, [this] {
         cfg::set(QStringLiteral("account/token"), QString());
@@ -577,9 +581,72 @@ void MainWindow::openAccountDialog(bool firstTime) {
     }
 }
 
+void MainWindow::snap(const QString& name) {
+    QDir().mkpath(opts_.snapDir);
+    const QString path = QDir(opts_.snapDir).filePath(name + QStringLiteral(".png"));
+    applog::write(QStringLiteral("snap: %1 %2").arg(path, grab().save(path) ? QStringLiteral("saved") : QStringLiteral("failed")));
+}
+
+// development: what the Create lobby window offers against this server (as it opens, then with Online Practice
+// picked), then the leaderboard's pictures in both orders
+void MainWindow::snapCreateLobby() {
+    const Game* g = GameData::instance().game(gameId_);
+    if (!g) return;
+    auto* dlg = new CreateLobbyDialog(*g, tr("%1's lobby").arg(server_->accountName()),
+                                      server_->serverHas(QStringLiteral("koth")), this);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->show();
+    const auto save = [this, dlg](const QString& name) {
+        QDir().mkpath(opts_.snapDir);
+        const QString path = QDir(opts_.snapDir).filePath(name + QStringLiteral(".png"));
+        applog::write(QStringLiteral("snap: %1 %2").arg(path, dlg->grab().save(path) ? QStringLiteral("saved")
+                                                                                     : QStringLiteral("failed")));
+    };
+    QTimer::singleShot(400, dlg, [this, dlg, save] {
+        save(QStringLiteral("create-lobby"));
+        for (QComboBox* box : dlg->findChildren<QComboBox*>())
+            if (const int at = box->findData(QStringLiteral("sparring")); at >= 0) box->setCurrentIndex(at);
+        QTimer::singleShot(400, dlg, [this, dlg, save] {
+            save(QStringLiteral("create-lobby-practice"));
+            dlg->close();
+            selectPage(kLeaderboard);
+            if (auto* board = qobject_cast<LeaderboardPage*>(pages_[kLeaderboard])) board->refresh();
+        });
+    });
+}
+
 void MainWindow::onServerMessage(const QJsonObject& msg) {
     const QString type = msg.value(QStringLiteral("type")).toString();
     if (!opts_.lobby.isEmpty()) cliLobbyMessage(msg);
+    // --snap-dir: the lobby each time what it shows changes (the line, the king, a rating), the leaderboard by Elo and
+    // then by Respect Points
+    if (!opts_.snapDir.isEmpty() && snaps_ < 60) {
+        if (type == QLatin1String("lobby")) {
+            const QJsonObject lb = msg.value(QStringLiteral("lobby")).toObject();
+            QStringList key{lb.value(QStringLiteral("state")).toString(), lb.value(QStringLiteral("king")).toString(),
+                            lb.value(QStringLiteral("rating")).toObject().value(QStringLiteral("match")).toString()};
+            for (const auto& v : lb.value(QStringLiteral("members")).toArray()) {
+                const QJsonObject m = v.toObject();
+                key << QStringLiteral("%1/%2/%3/%4").arg(m.value(QStringLiteral("name")).toString())
+                           .arg(int(m.value(QStringLiteral("spectator")).toBool()))
+                           .arg(m.value(QStringLiteral("line")).toInt())
+                           .arg(int(m.value(QStringLiteral("ready")).toBool()));
+            }
+            if (key.join(QLatin1Char('|')) != snapKey_) {
+                snapKey_ = key.join(QLatin1Char('|'));
+                const QString name = QStringLiteral("lobby-%1").arg(++snaps_, 2, 10, QLatin1Char('0'));
+                QTimer::singleShot(400, this, [this, name] { snap(name); });
+            }
+        } else if (type == QLatin1String("leaderboard") && stack_->currentIndex() == kLeaderboard) {
+            const QString by = msg.value(QStringLiteral("by")).toString(QStringLiteral("elo"));
+            ++snaps_;
+            QTimer::singleShot(400, this, [this, by] {
+                snap(QStringLiteral("leaderboard-") + by);
+                if (by == QLatin1String("elo"))
+                    if (auto* board = qobject_cast<LeaderboardPage*>(pages_[kLeaderboard])) board->setOrder(QStringLiteral("respect"));
+            });
+        }
+    }
     if (type == QLatin1String("welcome") && msg.contains(QStringLiteral("update")))
         offerUpdate(msg.value(QStringLiteral("update")), false);
     else if (type == QLatin1String("update"))
@@ -854,16 +921,19 @@ void MainWindow::cliLobby() {
     const QString name = opts_.lobbyName.isEmpty() ? QStringLiteral("e2e lobby") : opts_.lobbyName;
     const QString mode = opts_.mode.isEmpty() ? QStringLiteral("kombat") : opts_.mode;
     if (opts_.lobby == QLatin1String("host")) {
-        applog::write(QStringLiteral("cli: creating lobby \"%1\" for %2 %3").arg(name, gameId_, mode));
-        server_->send({{QStringLiteral("type"), QStringLiteral("lobby_create")},
-                       {QStringLiteral("name"), name},
-                       {QStringLiteral("game"), gameId_},
-                       {QStringLiteral("mode"), mode},
-                       {QStringLiteral("password"), QString()},
-                       {QStringLiteral("rounds"), 3},
-                       {QStringLiteral("region"), cfg::region()},
-                       {QStringLiteral("character"), opts_.character},
-                       {QStringLiteral("death_traps"), cfg::deathTraps()}});
+        applog::write(QStringLiteral("cli: creating %1lobby \"%2\" for %3 %4")
+                          .arg(opts_.koth ? QStringLiteral("King of the Hill ") : QString(), name, gameId_, mode));
+        QJsonObject create{{QStringLiteral("type"), QStringLiteral("lobby_create")},
+                           {QStringLiteral("name"), name},
+                           {QStringLiteral("game"), gameId_},
+                           {QStringLiteral("mode"), mode},
+                           {QStringLiteral("password"), QString()},
+                           {QStringLiteral("rounds"), 3},
+                           {QStringLiteral("region"), cfg::region()},
+                           {QStringLiteral("character"), opts_.character},
+                           {QStringLiteral("death_traps"), cfg::deathTraps()}};
+        if (opts_.koth) create.insert(QStringLiteral("koth"), true);
+        server_->send(create);
         return;
     }
     applog::write(QStringLiteral("cli: looking for lobby \"%1\"").arg(name));
@@ -897,8 +967,10 @@ void MainWindow::cliLobbyMessage(const QJsonObject& msg) {
     if (type == QLatin1String("lobbies") && (opts_.lobby == QLatin1String("join") || watch) && !cliLobbyJoined_) {
         for (const auto& v : msg.value(QStringLiteral("lobbies")).toArray()) {
             const QJsonObject lb = v.toObject();
+            // King of the Hill: a lobby whose places are taken has a line to wait in
             if (lb.value(QStringLiteral("name")).toString() != name ||
-                (!watch && lb.value(QStringLiteral("state")).toString() != QLatin1String("open")))
+                (!watch && !lb.value(QStringLiteral("koth")).toBool() &&
+                 lb.value(QStringLiteral("state")).toString() != QLatin1String("open")))
                 continue;
             cliLobbyJoined_ = true;
             if (cliLobbyPoll_) cliLobbyPoll_->stop();
@@ -913,7 +985,7 @@ void MainWindow::cliLobbyMessage(const QJsonObject& msg) {
         }
         return;
     }
-    if (type != QLatin1String("lobby") || watch) return;  // a spectator never readies
+    if (type != QLatin1String("lobby")) return;
     cliLastLobby_ = msg;
     const QJsonObject lobby = msg.value(QStringLiteral("lobby")).toObject();
     if (opts_.lobby == QLatin1String("host") && !opts_.lobbyCodeFile.isEmpty() && !cliLobbyCodeWritten_) {
@@ -922,9 +994,26 @@ void MainWindow::cliLobbyMessage(const QJsonObject& msg) {
         if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) f.write(lobby.value(QStringLiteral("id")).toString().toLatin1());
         applog::write(QStringLiteral("cli: lobby code %1 in %2").arg(lobby.value(QStringLiteral("id")).toString(), opts_.lobbyCodeFile));
     }
+    // --rate: a spectator of a King of the Hill match rates its winner, as a player would once their game has shown
+    // the match's end (the launcher in front again)
+    const QJsonObject rating = lobby.value(QStringLiteral("rating")).toObject();
+    if (opts_.rate > 0 && !rating.isEmpty() && rating.value(QStringLiteral("match")).toString() != cliRatedMatch_ &&
+        rating.value(QStringLiteral("raters")).toArray().contains(server_->accountName()) &&
+        !rating.value(QStringLiteral("rated")).toArray().contains(server_->accountName()) && !controller_->inMatch()) {
+        cliRatedMatch_ = rating.value(QStringLiteral("match")).toString();
+        applog::write(QStringLiteral("cli: rating %1's win %2").arg(rating.value(QStringLiteral("winner")).toString())
+                          .arg(opts_.rate));
+        server_->send({{QStringLiteral("type"), QStringLiteral("lobby_rate")}, {QStringLiteral("match"), cliRatedMatch_},
+                       {QStringLiteral("score"), opts_.rate}});
+    }
+    if (watch) return;  // a spectator never readies
     QJsonArray members;  // the players: spectators neither ready nor play
-    for (const auto& v : lobby.value(QStringLiteral("members")).toArray())
-        if (!v.toObject().value(QStringLiteral("spectator")).toBool()) members.append(v);
+    bool mePlaying = false;  // King of the Hill: one waiting in line readies once it is their turn
+    for (const auto& v : lobby.value(QStringLiteral("members")).toArray()) {
+        if (v.toObject().value(QStringLiteral("spectator")).toBool()) continue;
+        members.append(v);
+        mePlaying = mePlaying || v.toObject().value(QStringLiteral("name")).toString() == server_->accountName();
+    }
     if (lobby.value(QStringLiteral("state")).toString() == QLatin1String("in_match")) {
         // --leave-lobby-in-match: out that many seconds into the first match, which is still under way
         if (opts_.leaveLobbyInMatch > 0 && !cliLobbyInMatch_ && !cliLobbyLeft_ && cliLobbyDone_ == 0) {
@@ -953,7 +1042,7 @@ void MainWindow::cliLobbyMessage(const QJsonObject& msg) {
         server_->send({{QStringLiteral("type"), QStringLiteral("lobby_leave")}});
         return;
     }
-    if (members.size() < 2 || cliLobbyDone_ >= opts_.lobbyMatches) return;
+    if (members.size() < 2 || !mePlaying || cliLobbyDone_ >= opts_.lobbyMatches) return;
     if (controller_->phase() != MatchController::Phase::Idle) return;  // the game still plays the last match's end
     bool all_ready = true, me_ready = false;
     for (const auto& v : members) {

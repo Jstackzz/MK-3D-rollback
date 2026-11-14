@@ -409,7 +409,8 @@ void UpdateDialog::setFailed(const QString& text) {
 
 // --- CreateLobbyDialog -----------------------------------------------------------------------------
 
-CreateLobbyDialog::CreateLobbyDialog(const Game& game, const QString& defaultName, QWidget* parent) : QDialog(parent) {
+CreateLobbyDialog::CreateLobbyDialog(const Game& game, const QString& defaultName, bool kingOfTheHill, QWidget* parent)
+    : QDialog(parent) {
     setWindowTitle(tr("Create lobby"));
     setMinimumWidth(400);
     auto* v = new QVBoxLayout(this);
@@ -432,11 +433,20 @@ CreateLobbyDialog::CreateLobbyDialog(const Game& game, const QString& defaultNam
     deathTraps_ = new QCheckBox(tr("Death traps"));
     deathTraps_->setChecked(cfg::deathTraps());
     deathTraps_->setToolTip(tr("Arenas whose death traps kill on the spot, in this lobby's matches."));
+    koth_ = new QCheckBox(tr("King of the Hill"));
+    koth_->setChecked(kingOfTheHill && cfg::get(QStringLiteral("online/koth"), false).toBool());
+    // always in the window (Online Practice aside), on with a server that has it
+    koth_->setEnabled(kingOfTheHill);
+    koth_->setToolTip(tr("The winner stays on as the king, player 1 in the next match; the loser goes to the back of "
+                         "the line and the next in line plays the king. Everyone else watches, and after each match "
+                         "they rate the winner from 1 to 10: Respect Points, shown on the leaderboard.") +
+                      (kingOfTheHill ? QString() : tr("\nThis server has no King of the Hill lobbies yet.")));
     form->addRow(tr("Name"), name_);
     form->addRow(tr("Mode"), mode_);
     form->addRow(tr("Password"), password_);
     form->addRow(tr("Rounds"), rounds_);
     form->addRow(QString(), deathTraps_);
+    form->addRow(QString(), koth_);
     v->addLayout(form);
     // Online Practice: two players by the code, no rounds to count (rounds and death traps stay out of it)
     auto* practiceNote = ui::label(tr("Online Practice: share the lobby's code with one friend. No timer, health "
@@ -457,6 +467,7 @@ CreateLobbyDialog::CreateLobbyDialog(const Game& game, const QString& defaultNam
         rounds_->setVisible(!practice);
         if (QWidget* label = form->labelForField(rounds_)) label->setVisible(!practice);
         practiceNote->setVisible(practice);
+        koth_->setVisible(!practice);  // Online Practice: two players, nobody watching, no line
     };
     showTraps();
     connect(mode_, &QComboBox::currentIndexChanged, this, showTraps);
@@ -468,11 +479,15 @@ CreateLobbyDialog::CreateLobbyDialog(const Game& game, const QString& defaultNam
     buttons->addWidget(cancel);
     buttons->addWidget(ok);
     v->addLayout(buttons);
-    connect(ok, &QPushButton::clicked, this, &QDialog::accept);
+    connect(ok, &QPushButton::clicked, this, [this] {
+        if (!koth_->isHidden() && koth_->isEnabled()) cfg::set(QStringLiteral("online/koth"), koth_->isChecked());  // the next one's default
+        accept();
+    });
     connect(cancel, &QPushButton::clicked, this, &QDialog::reject);
     winutil::useDarkTitleBar(this);
 }
 
+bool CreateLobbyDialog::kingOfTheHill() const { return !koth_->isHidden() && koth_->isEnabled() && koth_->isChecked(); }
 QString CreateLobbyDialog::name() const { return name_->text().trimmed(); }
 QString CreateLobbyDialog::mode() const { return mode_->currentData().toString(); }
 QString CreateLobbyDialog::password() const { return password_->text(); }

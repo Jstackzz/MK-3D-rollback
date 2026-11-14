@@ -106,12 +106,14 @@ private:
 class CreateLobbyDialog : public QDialog {
     Q_OBJECT
 public:
-    CreateLobbyDialog(const Game& game, const QString& defaultName, QWidget* parent = nullptr);
+    // kingOfTheHill: the server has King of the Hill lobbies (the box is greyed out otherwise; Online Practice has none)
+    CreateLobbyDialog(const Game& game, const QString& defaultName, bool kingOfTheHill, QWidget* parent = nullptr);
     QString name() const;
     QString mode() const;
     QString password() const;
     int rounds() const;
     bool deathTraps() const;
+    bool kingOfTheHill() const;
 
 private:
     QLineEdit* name_;
@@ -119,4 +121,5 @@ private:
     QLineEdit* password_;
     QComboBox* rounds_;
     QCheckBox* deathTraps_;
+    QCheckBox* koth_;
 };

@@ -270,6 +270,24 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    side mode only after minutes); a watched match ends first; a search, a
    lobby's *Ready* or a match to watch wanting the game before then keeps it, and
    a dropped connection never closes it.
+   **King of the Hill** (*Create lobby*'s box, greyed out when the server's
+   `welcome` does not list `koth`, and not for Online Practice; docs/PROTOCOL.md
+   1.10.2): the members' table lists the two
+   players (the king first, *KING*), then the line (*NEXT*, *IN LINE, n*), then
+   who watches only, with a *Respect* column; the role button is *Watch* for a
+   player, *Leave line* for one waiting and *Get in line* for one who watches
+   only, and a member in line keeps the fighter box (`lobby_character` is
+   allowed to a spectator while a match runs). The server calls a spectator up
+   while their game may still show the match just played: the page never stops
+   that watch, and *Ready* stays off while `MatchController::inMatch()` (the
+   game watches, or plays a match's end) and comes on with the phase change. A
+   rater of the last match gets a row of buttons, 1 to 10, with the rating's
+   seconds (`lobby_rate`); after a match the window comes back in front with
+   the focus on its middle button, then on *Ready*. The status line says where
+   the member stands, the rating's time and the players' ready deadline
+   (`ready_by`). The Leaderboard page has *By Elo* and *By Respect Points*
+   (`leaderboard` with `by`) and a *Respect* column, both only on a server
+   with `koth`.
 6. **Single player**: *PLAY* starts the game plainly (no `MK3D_NET`), so it
    runs its own menus as on the console, its practice mode included;
    *PRACTICE* starts it with `MK3D_TRAINING=1` (below), straight to practice's
@@ -541,6 +559,9 @@ Command-line options for development and automation:
 | `--solo` | with `--queue`: start single player first and search alongside it, standby (`tools/online-e2e.ps1 -StandbyA`) |
 | `--practice on\|off` | practice while a search waits, saved like the queue pages' box (`tools/online-e2e.ps1 -PracticeA` writes it into launcher A's ini) |
 | `--lobby host\|join\|watch --lobby-name NAME --game mkd --mode kombat --character Scorpion` | host a lobby of that name and mark ready (its match starts by itself once both are), join it by name and mark ready, or watch it as a spectator (`tools/online-e2e.ps1 -Watch`) |
+| `--koth` | with `--lobby host`: a King of the Hill lobby; `--lobby join` then also joins one whose places are taken (into the line) and readies only while it is one of the two players |
+| `--rate N` | in a King of the Hill lobby: rate each match watched, N from 1 to 10, once the game has shown its end |
+| `--snap-dir <folder>` | save pictures of the window there as the lobby changes (`lobby-NN.png`) and, on the Leaderboard page, of both orders (`leaderboard-elo.png`, `leaderboard-respect.png`); started on the Lobby page without `--lobby`, first the Create lobby window (`create-lobby.png`, and `create-lobby-practice.png` with Online Practice picked), then the leaderboard's |
 | `--death-traps on\|off` | the arenas' death traps this player searches for or hosts, saved like the Kasual page's box (`tools/online-e2e.ps1 -DeathTraps`) |
 | `--page ranked\|casual\|lobby\|single\|leaderboard\|build\|controls\|settings` | start page (`practice`, its old name, opens `single`) |
 | `--local-test` | start the two-instance loopback test |
@@ -557,7 +578,12 @@ chain on one PC: the server, two launchers and the two games they start
 casual|ranked|lobby`; ranked starts the server with `--allow-same-ip` and runs
 until the set is over; `-Rematches N` plays a casual series;
 `-Launcher <folder>\MK3DLauncher.exe` runs an unpacked player package with
-its own games).
+its own games). `tools\koth-e2e.ps1 -Game mkda|mkd|mka` runs a King of the
+Hill lobby with three launchers and their games (one waits in line), the
+line rotating and every spectator rating each win, then the leaderboard
+(`-Snaps` saves pictures of the lobby and both leaderboard orders;
+`-Checkout <folder>` takes the games, Qt and the dev certificate from another
+checkout, as a worktree has none of them).
 
 ## Hosting a public server
 

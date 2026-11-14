@@ -30,6 +30,8 @@ public:
     QString udpToken() const;
     QJsonObject account() const { return account_; }
     QJsonObject welcome() const { return welcome_; }
+    // the server has this beyond the protocol's start (welcome's `features`): "koth", King of the Hill lobbies
+    bool serverHas(const QString& feature) const;
     QString peerFingerprint() const { return peerFingerprint_; }
     QHostAddress serverAddress() const;
     quint16 serverUdpPort() const;

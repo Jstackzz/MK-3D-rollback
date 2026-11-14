@@ -925,23 +925,30 @@ LeaderboardPage::LeaderboardPage(ServerClient* server, QWidget* parent) : Page(p
     root->setContentsMargins(28, 20, 28, 16);
     root->setSpacing(12);
     root->addWidget(ui::pageHeader(tr("Leaderboard"), tr("Top ranked players per game and mode, by Elo, with the rank "
-                                                         "it gives (hover over Rank for every rank's Elo).")));
+                                                         "it gives (hover over Rank for every rank's Elo), or by the "
+                                                         "Respect Points King of the Hill spectators gave them.")));
     auto* row = new QHBoxLayout;
     mode_ = new QComboBox;
     mode_->setMinimumWidth(200);
+    by_ = new QComboBox;
+    by_->addItem(tr("By Elo"), QStringLiteral("elo"));
+    by_->addItem(tr("By Respect Points"), QStringLiteral("respect"));
+    by_->setToolTip(tr("Respect Points: after each King of the Hill match its spectators rate the winner from 1 to "
+                       "10, and every rating adds to the winner's points in that game and mode."));
     auto* refreshBtn = new QPushButton(tr("Refresh"));
     me_ = ui::label(QString(), "Big");
     meBadge_ = new QLabel;
     meBadge_->hide();
     row->addWidget(mode_);
+    row->addWidget(by_);
     row->addWidget(refreshBtn);
     row->addStretch();
     row->addWidget(meBadge_);
     row->addWidget(me_);
     root->addLayout(row);
-    table_ = new QTableWidget(0, 7);
+    table_ = new QTableWidget(0, 8);
     table_->setHorizontalHeaderLabels({tr("#"), tr("Player"), tr("Rank"), tr("Elo"), tr("Wins"), tr("Losses"),
-                                       tr("Win %")});
+                                       tr("Win %"), tr("Respect")});
     table_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     table_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     table_->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);  // the badge and "Grandmaster"
@@ -955,6 +962,7 @@ LeaderboardPage::LeaderboardPage(ServerClient* server, QWidget* parent) : Page(p
     root->addWidget(info_);
     connect(refreshBtn, &QPushButton::clicked, this, &LeaderboardPage::refresh);
     connect(mode_, &QComboBox::currentIndexChanged, this, &LeaderboardPage::refresh);
+    connect(by_, &QComboBox::currentIndexChanged, this, &LeaderboardPage::refresh);
     connect(server_, &ServerClient::message, this, &LeaderboardPage::onMessage);
     connect(server_, &ServerClient::stateChanged, this, [this](ServerClient::State s) {
         if (s == ServerClient::State::Online || s == ServerClient::State::LoggedIn) refresh();
@@ -974,20 +982,38 @@ void LeaderboardPage::setGame(const QString& gameId) {
     refresh();
 }
 
+void LeaderboardPage::setOrder(const QString& by) {
+    const int at = by_->findData(by);
+    if (at >= 0 && at != by_->currentIndex()) by_->setCurrentIndex(at);  // refreshes
+}
+
 void LeaderboardPage::refresh() {
     if (!server_->isOnline()) {
         info_->setText(tr("Offline."));
         return;
     }
+    // Respect Points come with the server's King of the Hill lobbies
+    const bool respect = server_->serverHas(QStringLiteral("koth"));
+    by_->setVisible(respect);
+    table_->setColumnHidden(7, !respect);
+    if (!respect && by_->currentIndex() != 0) {
+        const QSignalBlocker block(by_);
+        by_->setCurrentIndex(0);
+    }
     server_->send({{QStringLiteral("type"), QStringLiteral("leaderboard")}, {QStringLiteral("game"), gameId_},
-                   {QStringLiteral("mode"), mode_->currentData().toString()}, {QStringLiteral("limit"), 100}});
+                   {QStringLiteral("mode"), mode_->currentData().toString()}, {QStringLiteral("limit"), 100},
+                   {QStringLiteral("by"), by_->currentData().toString()}});
 }
 
 void LeaderboardPage::onMessage(const QJsonObject& msg) {
+    // a server from before King of the Hill sends no `by`: its board is by Elo
+    const QString by = msg.value(QStringLiteral("by")).toString(QStringLiteral("elo"));
     if (msg.value(QStringLiteral("type")).toString() != QLatin1String("leaderboard") ||
         msg.value(QStringLiteral("game")).toString() != gameId_ ||
-        msg.value(QStringLiteral("mode")).toString() != mode_->currentData().toString())
+        msg.value(QStringLiteral("mode")).toString() != mode_->currentData().toString() ||
+        by != by_->currentData().toString())
         return;
+    const bool byRespect = by == QLatin1String("respect");
     const QJsonArray rows = msg.value(QStringLiteral("rows")).toArray();
     table_->setRowCount(static_cast<int>(rows.size()));
     for (int i = 0; i < rows.size(); ++i) {
@@ -999,7 +1025,8 @@ void LeaderboardPage::onMessage(const QJsonObject& msg) {
                                    QString::number(r.value(QStringLiteral("elo")).toInt()),
                                    QString::number(w),
                                    QString::number(l),
-                                   w + l ? QStringLiteral("%1%").arg(100 * w / (w + l)) : QStringLiteral("-")};
+                                   w + l ? QStringLiteral("%1%").arg(100 * w / (w + l)) : QStringLiteral("-"),
+                                   QString::number(r.value(QStringLiteral("respect")).toInt())};
         for (int c = 0; c < cells.size(); ++c) {
             auto* item = new QTableWidgetItem(cells[c]);
             item->setTextAlignment(c == 1 || c == 2 ? (Qt::AlignLeft | Qt::AlignVCenter) : Qt::AlignCenter);
@@ -1008,6 +1035,10 @@ void LeaderboardPage::onMessage(const QJsonObject& msg) {
             if (c == 2)
                 if (const QPixmap badge = style::rankBadge(cells[c], kBoardBadge); !badge.isNull())
                     item->setData(Qt::DecorationRole, badge);
+            if (c == 7 && r.contains(QStringLiteral("ratings")))
+                item->setToolTip(r.value(QStringLiteral("ratings")).toInt() == 1
+                                     ? tr("From 1 rating")
+                                     : tr("From %1 ratings").arg(r.value(QStringLiteral("ratings")).toInt()));
             table_->setItem(i, c, item);
         }
     }
@@ -1015,13 +1046,21 @@ void LeaderboardPage::onMessage(const QJsonObject& msg) {
     const QJsonArray ranks = server_->welcome().value(QStringLiteral("ranks")).toArray();
     if (QTableWidgetItem* head = table_->horizontalHeaderItem(2))
         head->setToolTip(ranks.isEmpty() ? QString() : tr("Ranks by Elo:\n%1").arg(rankLadder(ranks)));
+    if (QTableWidgetItem* head = table_->horizontalHeaderItem(7))
+        head->setToolTip(tr("Respect Points in this game and mode: what King of the Hill spectators gave each win, "
+                            "1 to 10 each"));
     const QJsonObject me = msg.value(QStringLiteral("me")).toObject();
-    me_->setText(me.isEmpty() ? QString()
-                              : tr("You: #%1  |  %2  |  %3").arg(me.value(QStringLiteral("rank")).toInt())
-                                    .arg(me.value(QStringLiteral("elo")).toInt())
-                                    .arg(me.value(QStringLiteral("title")).toString()));
+    me_->setText(me.isEmpty()  ? QString()
+                 : byRespect ? tr("You: #%1  |  %2 Respect").arg(me.value(QStringLiteral("rank")).toInt())
+                                   .arg(me.value(QStringLiteral("respect")).toInt())
+                             : tr("You: #%1  |  %2  |  %3").arg(me.value(QStringLiteral("rank")).toInt())
+                                   .arg(me.value(QStringLiteral("elo")).toInt())
+                                   .arg(me.value(QStringLiteral("title")).toString()));
     const QPixmap myBadge = me.isEmpty() ? QPixmap() : style::rankBadge(me.value(QStringLiteral("title")).toString(), 36);
     meBadge_->setPixmap(myBadge);
     meBadge_->setVisible(!myBadge.isNull());
-    info_->setText(tr("%1 ranked players").arg(msg.value(QStringLiteral("total")).toInt()));
+    const int total = msg.value(QStringLiteral("total")).toInt();
+    info_->setText(!byRespect   ? tr("%1 ranked players").arg(total)
+                   : total == 1 ? tr("1 player with Respect Points")
+                                : tr("%1 players with Respect Points").arg(total));
 }

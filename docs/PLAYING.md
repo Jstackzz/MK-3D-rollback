@@ -180,6 +180,30 @@ whether to trust it: compare it with your host's.
   player left) is dropped. If your connection drops for a moment, your game keeps watching.
   Up to eight people can watch a lobby.
   Press Play to take a free place to play between matches, Watch to step aside.
+- King of the Hill: tick King of the Hill when you create a lobby (any mode but
+  Online Practice, which is for two players alone). Two players
+  fight; the winner is the king and stays on as player 1, the loser goes to the
+  back of the line, and the next in line plays the king. When the king loses,
+  the one who beat them is the new king. Everyone not fighting watches the match
+  in their own game, as spectators do. Join a full King of the Hill lobby (Join
+  selected, or a double click) to wait in line; the lobby shows who is king,
+  who is next and your place. Leave line to only watch, Get in line to play
+  again. While you wait you can pick the fighter for your turn. When it is your
+  turn the launcher comes back in front once your game has shown the last match,
+  Ready highlighted. With someone waiting in line, the two players have 90
+  seconds to press Ready; one who has not goes to the back of the line (a king
+  loses the crown), so nobody who stepped away holds the line up. With only two
+  in the lobby, the loser plays the king again.
+- Respect Points: after each King of the Hill match, everyone who watched it
+  gets the launcher back in front with a row of buttons, 1 to 10, to rate the
+  winner's fight (whole numbers only; on a controller, left and right to choose,
+  A to give it). The ratings add up to the winner's Respect Points in that game
+  and mode, and the lobby says how many they got. The next match starts once the
+  spectators have rated, or 40 seconds after the match ended at most. Each
+  player's Respect Points show in the lobby and on the Leaderboard (its Respect
+  column, and By Respect Points to list everyone by them). King of the Hill
+  matches count as Kasual like every lobby match: your Kasual record moves, your
+  Elo does not.
 - Death traps: the arenas' death traps (Deception and Armageddon: the Dead
   Pool's acid, the Lower Mines' spikes and the others) kill on the spot. The
   Death traps box under Matchmaking on the Kasual page says whether you want

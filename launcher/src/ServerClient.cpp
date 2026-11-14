@@ -1,6 +1,7 @@
 #include "ServerClient.h"
 
 #include <QCryptographicHash>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QNetworkInterface>
 #include <QSslCertificate>
@@ -105,6 +106,9 @@ void ServerClient::setState(State s) {
 
 QString ServerClient::accountName() const { return account_.value(QStringLiteral("name")).toString(); }
 QString ServerClient::udpToken() const { return account_.value(QStringLiteral("udp_token")).toString(); }
+bool ServerClient::serverHas(const QString& feature) const {
+    return welcome_.value(QStringLiteral("features")).toArray().contains(feature);
+}
 QHostAddress ServerClient::serverAddress() const { return plainV4(sock_->peerAddress()); }
 quint16 ServerClient::serverUdpPort() const {
     return static_cast<quint16>(welcome_.value(QStringLiteral("udp_port")).toInt(7778));
@@ -176,7 +180,9 @@ void ServerClient::sendHello() {
                       {QStringLiteral("proto"), 1},
                       {QStringLiteral("client"), QLatin1String(kClientName)},
                       {QStringLiteral("version"), QStringLiteral(MK3D_LAUNCHER_VERSION)},
-                      {QStringLiteral("os"), QStringLiteral("windows")}};
+                      {QStringLiteral("os"), QStringLiteral("windows")},
+                      // King of the Hill lobbies (docs/PROTOCOL.md 1.10.2): a launcher without it only watches them
+                      {QStringLiteral("features"), QJsonArray{QStringLiteral("koth")}}};
     send(hello);
 }
 

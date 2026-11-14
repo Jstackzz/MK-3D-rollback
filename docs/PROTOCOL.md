@@ -77,6 +77,8 @@ Display names and rosters live in `launcher/data/<game>.json`.
 | `bad_game`, `bad_mode`, `bad_region` | unknown game, mode or region |
 | `busy` | already queued, in a lobby or in a match |
 | `no_such_match`, `no_such_lobby`, `lobby_full`, `bad_lobby_password`, `not_host`, `not_ready`, `not_in_lobby` | match / lobby requests |
+| `update_needed` | a King of the Hill lobby asked of a launcher whose `hello` did not say it has them (1.10.2) |
+| `rating_closed`, `not_rater`, `already_rated` | `lobby_rate` (1.10.2) |
 | `slow_down` | chat sent faster than the limit |
 | `not_admin` | `admin_notice` from a normal account |
 | `no_such_account` | `profile` for an unknown name |
@@ -85,14 +87,21 @@ Display names and rosters live in `launcher/data/<game>.json`.
 ### 1.3 Session start and version check
 
 ```json
-C: {"type":"hello","proto":1,"client":"mk3d-launcher","version":"0.1.0","os":"windows"}
+C: {"type":"hello","proto":1,"client":"mk3d-launcher","version":"0.1.0","os":"windows","features":["koth"]}
 S: {"type":"welcome","proto":1,"server":"mk3d-server","version":"0.1.0","udp_port":7778,
     "motd":"Welcome!","online":12,"min_client":"0.1.0",
     "games":{"mkda":["kombat"],"mkd":["kombat","chess","puzzle"],"mka":["kombat","motor"]},
     "regions":["na","sa","eu","me","af","as","oc"],"direct_above_ms":100,
     "ranks":[{"title":"Beginner","from":null},{"title":"Learner","from":575},
-             {"title":"Fighter","from":675}, ...,{"title":"Eldest God","from":2035}]}
+             {"title":"Fighter","from":675}, ...,{"title":"Eldest God","from":2035}],
+    "features":["koth"]}
 ```
+
+- `features` (King of the Hill): what each side has beyond the protocol's
+  start. A launcher lists what it can do in `hello` (one without it has none);
+  the server lists what it has in `welcome`. `koth`: King of the Hill lobbies
+  and their Respect Points (1.10.2). The launcher shows its King of the Hill
+  box and the Leaderboard's Respect only when the server lists it.
 
 - `proto` must equal the server's `PROTO`, else `error{code:"proto_mismatch"}`.
 - `ranks` (0.1.21): the ranked titles by Elo, lowest first, each held from its
@@ -179,7 +188,8 @@ Stats exist per game per mode: ranked Elo (start 475, moved per set) with
 its title (1.3 `ranks`, 0.1.21) and ranked wins/losses, which count sets
 (1.9.1; since 1.0.1, matches before), and casual wins/losses, which count
 matches. A mode never played ranked comes with its start (Elo 475, a Beginner,
-0-0).
+0-0). A mode where King of the Hill spectators rated the player's wins has
+`"respect":{"points":26,"ratings":4}` too (1.10.2).
 
 ### 1.6 Online count and notices
 
@@ -534,12 +544,12 @@ casual in v1.
 
 ```json
 C: {"type":"lobby_create","name":"Friday sets","game":"mkd","mode":"kombat",
-    "password":"","rounds":3,"region":"eu","character":"Scorpion","death_traps":true}
+    "password":"","rounds":3,"region":"eu","character":"Scorpion","death_traps":true,"koth":false}
 C: {"type":"lobby_list","game":"mkd"}                          (game optional)
 S: {"type":"lobbies","lobbies":[{"id":"K7WQ2","name":"Friday sets","host":"Raijin",
     "game":"mkd","mode":"kombat","region":"eu","players":1,"max_players":2,
     "spectators":0,"max_spectators":8,"locked":false,"state":"open","rounds":3,
-    "death_traps":true}]}
+    "death_traps":true,"koth":false,"in_line":0}]}
 C: {"type":"lobby_join","lobby":"K7WQ2","password":"","character":"Kenshi","spectate":false}
 C: {"type":"lobby_role","role":"spectator"}                    (or "player")
 C: {"type":"lobby_leave"}
@@ -551,7 +561,7 @@ C: {"type":"lobby_start"}                       (host only: at once; launchers f
 C: {"type":"lobby_settings","death_traps":false}               (host only, 0.1.8)
 S: {"type":"lobby","lobby":{"id":"K7WQ2","name":"Friday sets","host":"Raijin","game":"mkd",
     "mode":"kombat","region":"eu","rounds":3,"locked":false,"state":"open","match":null,"starts_in":2.4,
-    "death_traps":true,"max_spectators":8,
+    "death_traps":true,"max_spectators":8,"koth":false,
     "members":[{"name":"Raijin","character":"Scorpion","ready":true,"host":true,"spectator":false,
                 "title":"Grandmaster"},
                {"name":"Fujin","character":"Kenshi","ready":true,"host":false,"spectator":false,
@@ -596,7 +606,9 @@ S: {"type":"lobby_left","lobby":"K7WQ2"}
   `lobby_full`). `lobby_role` moves a member between the two: to `player`
   needs a free place and no match running (`lobby_full`, `busy`), to
   `spectator` is refused to a player whose match is set up or runs (`busy`).
-  Spectators neither ready (`not_player`) nor play.
+  Spectators neither ready (`not_player`) nor play. `lobby_character` is
+  refused to a player whose match is set up or runs (`busy`); a spectator may
+  change theirs meanwhile (King of the Hill: for their turn).
 - If the host leaves, a player (else another member) becomes host, and a
   lobby named "<old host>'s lobby" (the launcher's default) is renamed
   "<new host>'s lobby" (0.1.11); an empty lobby is deleted. A member who disconnects leaves the lobby (and a player
@@ -611,7 +623,11 @@ S: {"type":"lobby_left","lobby":"K7WQ2"}
   Both players pick on the game's own select screen (their `character` is
   always empty), there are no death traps, and the players stay ready after
   each match, so the next one counts down by itself: a player who presses
-  BACK in the game goes back to the select screen with the other.
+  BACK in the game goes back to the select screen with the other. It has no
+  King of the Hill (`koth` with it: `bad_mode`).
+- `koth`: a King of the Hill lobby (1.10.2), chosen with `lobby_create` and
+  kept for the lobby's life; the list's `in_line` counts the spectators who
+  wait in line to play (also counted in `spectators`).
 
 ### 1.10.1 Spectators
 
@@ -657,18 +673,92 @@ S: {"type":"spectate_end","match":"5f2c9a01d4e3","status":"agreed","winner":1,
   players are (0.1.18; before, three frames of four unseen, a fast-forward).
   Its own checks are compared with the players'.
 
+### 1.10.2 King of the Hill
+
+A lobby created with `"koth":true`: two players fight, the winner stays on as
+the king and plays the next match as side 1, the loser goes to the back of the
+line and the first in line plays the king; when the king loses, the player who
+beat them is the new king. Everyone else in the lobby watches, as a spectator
+(1.10.1). After each match its spectators rate how the winner played, a whole
+number from 1 to 10 each, and every rating adds that many Respect Points to the
+winner's, in the lobby's game and mode. The matches are casual as every lobby
+match (the Kasual record moves, Elo does not).
+
+```json
+S: {"type":"lobby","lobby":{"id":"K7WQ2", ..., "koth":true,"king":"Fujin","streak":2,
+    "rating":{"match":"5f2c9a01d4e3","winner":"Fujin","loser":"Raijin","seconds":31.5,
+              "raters":["Kitana","Sindel"],"rated":["Kitana"]},
+    "ready_by":82.0,
+    "members":[{"name":"Raijin","spectator":true,"line":2,"respect":40, ...},
+               {"name":"Fujin","spectator":false,"line":null,"respect":112, ...},
+               {"name":"Kitana","spectator":false,"line":null,"respect":0, ...},
+               {"name":"Sindel","spectator":true,"line":1,"respect":7, ...}], ...}}
+C: {"type":"lobby_rate","match":"5f2c9a01d4e3","score":8}
+S: {"type":"lobby_rated","match":"5f2c9a01d4e3","score":8,"winner":"Fujin"}
+S: {"type":"lobby_chat","lobby":"K7WQ2","from":"","text":"Fujin gets 15 Respect Points from 2 ratings (127 in all).",
+    "ts":1761300112.4}
+```
+
+- The line: a `lobby_join` to play (`spectate:false`) while both places are
+  taken or a match runs joins as a spectator at the end of the line; with a
+  place free and nobody waiting it plays at once, as in any lobby. Each
+  member's `line` is their place in it (1: next), `null` for the two players and
+  for spectators who watch only (`lobby_join` with `spectate:true`).
+  `lobby_role` `player` gets a spectator in line (playing at once when a place
+  is free and nobody waits), `spectator` takes them out of it to watch only, or
+  steps a player aside (not while their match is set up or runs, `busy`): the
+  first in line takes the free place. A player who leaves (or whose connection
+  drops) gives their place to the first in line at once, a king their crown;
+  one back within the 60 s of 1.10 is put at the end of the line.
+- After a match with a winner (1.9 `agreed`): `king` is the winner (`streak`
+  their wins in a row), side 1 in the next match (with no king, the host when
+  they play, as in any lobby). With someone in line the loser becomes a
+  spectator at its end and the first in line plays; with nobody waiting the
+  two play again. A match one player's game left (`abandoned`) is lost by that
+  player and rated by nobody; one nobody won (a desync, a lost connection, a
+  dispute) has the same two play again. The lobby says what happened in its
+  chat, in lines with an empty `from`: who is king, who is next, Respect Points.
+- `rating`: open from the result of a match with a winner that had spectators,
+  for 40 s (`seconds` left) or until every spectator of it still in the lobby
+  has rated; `raters` are the lobby's spectators when the match ended, `rated`
+  those who have. `lobby_rate` (`score` a whole number 1-10, else
+  `bad_request`) counts once: `not_rater` (the two players, or someone who did
+  not watch it), `already_rated`, `rating_closed` (another match, or its time
+  is up). Each rating is kept (table `ratings`) and added to the winner's
+  Respect Points (table `respect`, points and how many ratings) as it comes;
+  when the rating closes the lobby's chat says the sum. The next match's 3-2-1
+  countdown does not start while a rating is open (a host's `lobby_start`
+  closes it).
+- `ready_by`: with someone in line and no match, the seconds the two players
+  have left to ready (90 from when they became the two); one who has not by
+  then goes to the back of the line (a king loses the crown) and the first in
+  line plays instead. `null` when nobody waits.
+- A launcher without `koth` in its `hello` (1.3) may only watch such a lobby:
+  creating one, joining it to play and `lobby_role` `player` get
+  `update_needed`.
+
 ### 1.11 Leaderboard
 
 ```json
-C: {"type":"leaderboard","game":"mkd","mode":"kombat","limit":100,"offset":0}
-S: {"type":"leaderboard","game":"mkd","mode":"kombat","total":57,
-    "rows":[{"rank":1,"name":"Raijin","elo":1712,"title":"Master","wins":40,"losses":12}],
-    "me":{"rank":9,"elo":1580,"title":"Warrior","wins":8,"losses":3}}
+C: {"type":"leaderboard","game":"mkd","mode":"kombat","limit":100,"offset":0,"by":"elo"}
+S: {"type":"leaderboard","game":"mkd","mode":"kombat","by":"elo","total":57,
+    "rows":[{"rank":1,"name":"Raijin","elo":1712,"title":"Master","wins":40,"losses":12,"respect":40}],
+    "me":{"rank":9,"elo":1580,"title":"Warrior","wins":8,"losses":3,"respect":0}}
+C: {"type":"leaderboard","game":"mkd","mode":"kombat","by":"respect"}
+S: {"type":"leaderboard","game":"mkd","mode":"kombat","by":"respect","total":12,
+    "rows":[{"rank":1,"name":"Fujin","respect":112,"ratings":14,"elo":1600,"title":"Demi God",
+             "wins":9,"losses":4}],
+    "me":{"rank":5,"name":"Sindel","respect":7,"ratings":1,"elo":475,"title":"Beginner","wins":0,"losses":0}}
 ```
 
-Accounts with at least one ranked game in that game and mode, ordered by Elo,
-then wins, then name, each with the title of their Elo (1.3 `ranks`); `limit`
-at most 200. `me` is present when the asking account is ranked there.
+`by` (default `elo`; else `bad_request`): `elo` lists the accounts with at
+least one ranked game in that game and mode, ordered by Elo, then wins, then
+name, each with the title of their Elo (1.3 `ranks`); `respect` lists every
+account with Respect Points there (1.10.2), the most first, then the fewer
+`ratings` that gave them, then name, each with their ranked record (or the
+start of one: Elo 475, 0-0). Every row and `me` carry the player's `respect`
+there. `limit` at most 200. `me` is present when the asking account is on that
+board.
 
 ### 1.12 Keepalive and disconnects
 

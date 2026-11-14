@@ -39,7 +39,7 @@ NEEDS_LOGIN = {
     "logout", "queue_join", "queue_leave", "match_accept", "match_decline", "ping_report", "match_state",
     "result", "lobby_create", "lobby_list", "lobby_join", "lobby_leave", "lobby_chat", "lobby_character",
     "lobby_ready", "lobby_start", "admin_notice", "series_ready", "lobby_role", "feed", "lobby_settings",
-    "crash_report", "udp_tunnel", "tunnel", "desync_report", "report_file", "report_done",
+    "crash_report", "udp_tunnel", "tunnel", "desync_report", "report_file", "report_done", "lobby_rate",
 }
 CRASH_REPORTS_PER_SESSION = 20  # a game crashing over and over says so this many times, then no more
 DESYNC_REPORTS_PER_SESSION = 10  # matches out of step a session reports, then no more
@@ -124,6 +124,13 @@ class ServerConfig:
     # before they park, link.cpp RequestPark); 15 s cut a fatality off and both games stood still until then
     relay_linger: float = 60.0
     max_spectators: int = 8       # a lobby's spectators, besides its two players
+    # King of the Hill lobbies (docs/PROTOCOL.md 1.10.2): how long a match's spectators have to rate its winner, from
+    # the result (their games still play the match's end first, up to 30 s, behind the players); the next match
+    # starts once the rating is done
+    respect_window: float = 40.0
+    # and with someone waiting in line, how long the two players have to ready once they are the two to play; one
+    # who has not goes to the back of the line (a king loses the crown), so nobody away holds the line up
+    koth_ready_timeout: float = 90.0
     feed_max_bytes: int = 8 << 20  # a lobby match's spectator feed, at most (a long chess game writes ~2 MB)
     feed_linger: float = 180.0    # seconds a feed outlives its match: its end still plays, spectators run behind
     upnp: bool = False            # open the TCP and UDP ports on the router of a home PC (UPnP)
@@ -159,6 +166,7 @@ class Session:
         self.ip: str = peer[0]
         self.hello = False
         self.client_version = ""
+        self.features: set[str] = set()  # what its launcher can do beyond the protocol's start (hello, P.FEATURES)
         self.crash_reports = 0
         self.desync_reports = 0
         self.reports: dict[str, Report] = {}  # F3 reports coming in, and the ones saved (by id)
@@ -327,6 +335,21 @@ class LobbySeat:
     character: str
     spectator: bool
     until: float
+    in_line: bool = False  # King of the Hill: they played or waited to (back at the end of the line)
+
+
+@dataclass(eq=False)
+class Rating:
+    """A King of the Hill match's rating (docs/PROTOCOL.md 1.10.2): its spectators rate how its winner played, each a
+    whole number from 1 to 10, until `closes` or until every one of them still in the lobby has; each rating adds its
+    number to the winner's Respect Points in the lobby's game and mode."""
+    match: str
+    winner: int  # account
+    winner_name: str
+    loser_name: str
+    raters: dict[int, str]  # account -> name: the lobby's spectators when the match ended
+    closes: float
+    scores: dict[int, int] = field(default_factory=dict)  # account -> their rating
 
 
 @dataclass(eq=False)
@@ -348,6 +371,15 @@ class Lobby:
     feed: Feed | None = None  # the spectator feed of the lobby's last match
     starts_at: float | None = None  # both players ready: the match starts by itself then (the 3-2-1 countdown)
     countdown: int = 0  # the countdowns begun, so a called-off one's timer does nothing
+    # King of the Hill (docs/PROTOCOL.md 1.10.2): the winner stays on as the king, side 1 in the next match; the loser
+    # goes to the back of the line and the first in line plays the king next. Everyone not playing watches.
+    koth: bool = False
+    line: list[LobbyMember] = field(default_factory=list)  # spectators waiting for their turn to play, the next first
+    king: LobbyMember | None = None
+    streak: int = 0  # the king's wins in a row
+    rating: Rating | None = None  # the last match's, while its spectators rate its winner
+    ready_by: float | None = None  # with someone in line: the two players ready by then, or go to the back of it
+    ready_pair: frozenset[int] | None = None  # the two players ready_by was set for (accounts)
 
     @property
     def state(self) -> str:
@@ -373,24 +405,44 @@ class Lobby:
             "region": self.region, "players": len(self.players()), "max_players": 2,
             "spectators": len(self.spectators()), "max_spectators": self.max_spectators,
             "locked": bool(self.password), "state": self.state, "rounds": self.rounds, "death_traps": self.death_traps,
+            "koth": self.koth, "in_line": len(self.line),
         }
 
-    def full_state(self, title_of: Callable[[Session], str | None] | None = None) -> dict[str, Any]:
-        """title_of: a member's ranked title in the lobby's game and mode (none without it)."""
-        return {
+    def full_state(self, title_of: Callable[[Session], str | None] | None = None,
+                   respect_of: Callable[[Session], int] | None = None) -> dict[str, Any]:
+        """title_of: a member's ranked title in the lobby's game and mode (none without it); respect_of: their Respect
+        Points there (King of the Hill lobbies)."""
+        now = time.time()
+        members = []
+        for m in self.members:
+            entry = {"name": m.session.name, "character": m.character, "ready": m.ready, "host": m.session is self.host,
+                     "spectator": m.spectator, "link": m.link or None, "ping": m.server_rtt,
+                     "title": title_of(m.session) if title_of else None}
+            if self.koth:
+                entry["line"] = self.line.index(m) + 1 if m in self.line else None
+                entry["respect"] = respect_of(m.session) if respect_of else 0
+            members.append(entry)
+        state = {
             "id": self.id, "name": self.name, "host": self.host.name, "game": self.game, "mode": self.mode,
             "region": self.region, "rounds": self.rounds, "locked": bool(self.password), "state": self.state,
             "death_traps": self.death_traps, "max_spectators": self.max_spectators,
             "match": self.match.id if self.match is not None else None,
-            "starts_in": round(max(0.0, self.starts_at - time.time()), 2) if self.starts_at is not None else None,
-            "members": [
-                {"name": m.session.name, "character": m.character, "ready": m.ready, "host": m.session is self.host,
-                 "spectator": m.spectator, "link": m.link or None, "ping": m.server_rtt,
-                 "title": title_of(m.session) if title_of else None}
-                for m in self.members
-            ],
+            "starts_in": round(max(0.0, self.starts_at - now), 2) if self.starts_at is not None else None,
+            "koth": self.koth,
+            "members": members,
             "chat": list(self.chat),
         }
+        if self.koth:
+            r = self.rating
+            state["king"] = self.king.session.name if self.king is not None else None
+            state["streak"] = self.streak if self.king is not None else 0
+            state["rating"] = None if r is None else {
+                "match": r.match, "winner": r.winner_name, "loser": r.loser_name,
+                "seconds": round(max(0.0, r.closes - now), 2), "raters": sorted(r.raters.values(), key=str.lower),
+                "rated": sorted((r.raters[a] for a in r.scores), key=str.lower),
+            }
+            state["ready_by"] = round(max(0.0, self.ready_by - now), 2) if self.ready_by is not None else None
+        return state
 
 
 @dataclass(eq=False)
@@ -538,6 +590,7 @@ class Server:
             "lobby_start": self.on_lobby_start,
             "lobby_role": self.on_lobby_role,
             "lobby_settings": self.on_lobby_settings,
+            "lobby_rate": self.on_lobby_rate,
             "feed": self.on_feed,
             "series_ready": self.on_series_ready,
             "leaderboard": self.on_leaderboard,
@@ -682,6 +735,11 @@ class Server:
                 feed.lobby.feed = None
         for lobby in [lb for lb in self.lobbies.values() if lb.starts_at is not None and lb.starts_at <= now]:
             self._lobby_countdown_due(lobby)  # a countdown its timer missed
+        for lobby in [lb for lb in self.lobbies.values() if lb.koth]:
+            if lobby.rating is not None and lobby.rating.closes <= now:
+                self._broadcast_lobby(lobby)  # the rating's time is up: it closes (_koth_update)
+            if lobby.ready_by is not None and lobby.ready_by <= now and self.lobbies.get(lobby.id) is lobby:
+                self._koth_ready_due(lobby)
         self._run_matchmaking(now)
         self._push_online(now)
         self._push_update(now)
@@ -800,12 +858,16 @@ class Server:
             return
         s.hello = True
         s.client_version = version
+        features = msg.get("features")
+        if isinstance(features, list):
+            s.features = {f for f in features if isinstance(f, str) and f in P.FEATURES}
         welcome = {
             "type": "welcome", "proto": P.PROTO, "server": P.SERVER_NAME, "version": P.SERVER_VERSION,
             "udp_port": self.udp_port, "motd": self.cfg.motd, "online": len(self.by_account),
             "min_client": self.cfg.min_client, "games": {g: list(m) for g, m in P.GAMES.items()},
             "regions": list(P.REGIONS), "direct_above_ms": self.cfg.direct_above_ms,
             "ranks": elo.ladder(),  # the ranked titles by Elo (0.1.21)
+            "features": list(P.FEATURES),  # King of the Hill lobbies and their Respect Points
         }
         if update:
             welcome["update"] = update
@@ -975,12 +1037,23 @@ class Server:
         lobby = seat.lobby
         if self.lobbies.get(lobby.id) is not lobby:
             return
-        spectator = seat.spectator or len(lobby.players()) >= 2
+        # King of the Hill: one who played or waited to is back in line, at its end (their place went on meanwhile),
+        # or plays at once when a place is free and nobody waits
+        in_line = lobby.koth and seat.in_line and "koth" in s.features
+        if lobby.koth:
+            free = lobby.match is None and len(lobby.players()) < 2 and not lobby.line
+            spectator = not (in_line and free)  # a launcher without King of the Hill only ever watches one
+        else:
+            spectator = seat.spectator or len(lobby.players()) >= 2
         if spectator and len(lobby.spectators()) >= lobby.max_spectators:
             return
-        lobby.members.append(LobbyMember(s, seat.character, spectator=spectator))
+        member = LobbyMember(s, seat.character, spectator=spectator)
+        lobby.members.append(member)
+        if in_line and spectator:
+            lobby.line.append(member)
         s.lobby = lobby
-        log.info("lobby %s: %s back after a dropped connection%s", lobby.id, s.name, " to watch" if spectator else "")
+        log.info("lobby %s: %s back after a dropped connection%s", lobby.id, s.name,
+                 " in line" if in_line and spectator else " to watch" if spectator else "")
         self._broadcast_lobby(lobby)
         if spectator and lobby.feed is not None and lobby.feed.end is None:
             self._watch(s, lobby.feed)
@@ -996,8 +1069,9 @@ class Server:
         if s.lobby is not None:
             member = s.lobby.member(s)
             if keep_seat and s.account_id is not None and member is not None:
-                self.lobby_seats[s.account_id] = LobbySeat(s.lobby, member.character, member.spectator,
-                                                           time.time() + self.cfg.lobby_rejoin_grace)
+                self.lobby_seats[s.account_id] = LobbySeat(
+                    s.lobby, member.character, member.spectator, time.time() + self.cfg.lobby_rejoin_grace,
+                    in_line=s.lobby.koth and (member in s.lobby.line or not member.spectator))
             self._leave_lobby(s)
         m = s.match
         if m is not None:
@@ -1043,6 +1117,9 @@ class Server:
             for mode in modes:
                 if mode not in P.LOBBY_ONLY_MODES:  # Online Practice keeps no records
                     stats.setdefault(game, {}).setdefault(mode, {}).setdefault("ranked", dict(start))
+        # King of the Hill: the Respect Points spectators gave them in each game and mode they have any
+        for (game, mode), respect in self.db.respect_all(int(row["id"])).items():
+            stats.setdefault(game, {}).setdefault(mode, {})["respect"] = respect
         return {"name": row["name"], "created": int(row["created"]), "stats": stats}
 
     def on_profile(self, s: Session, msg: dict[str, Any]) -> None:
@@ -1751,7 +1828,15 @@ class Server:
                 sess.send(dict(out))
         self._end_feed(m, out, now)
         if m.lobby is not None:
-            self._lobby_match_over(m.lobby, m)
+            # King of the Hill: the winner stays on, the loser goes to the back of the line; one whose game closed
+            # during it (or who vanished) lost it, and nobody rates a match won that way
+            if status == "agreed":
+                w, lose = (p1, p2) if winner == 1 else (p2, p1)
+                self._lobby_match_over(m.lobby, m, w, lose, rate=True)
+            elif fault is not None:
+                self._lobby_match_over(m.lobby, m, m.other(fault), fault)
+            else:
+                self._lobby_match_over(m.lobby, m)
         elif m.from_queue or m.series is not None:
             fighters = None
             if status == "agreed" and r1.get("fighters") == r2.get("fighters"):
@@ -2041,8 +2126,10 @@ class Server:
 
     def _broadcast_lobby(self, lobby: Lobby, reply_to: tuple[Session, dict[str, Any]] | None = None) -> None:
         self._mark_online()  # the players per game count its members
+        self._koth_update(lobby)
         self._lobby_countdown(lobby)
-        state = lobby.full_state(lambda s: self._title_of(s.account_id, lobby.game, lobby.mode))
+        state = lobby.full_state(lambda s: self._title_of(s.account_id, lobby.game, lobby.mode),
+                                 lambda s: self._respect_of(s.account_id, lobby.game, lobby.mode))
         for member in lobby.members:
             out = {"type": "lobby", "lobby": state}
             if reply_to is not None and member.session is reply_to[0] and "id" in reply_to[1]:
@@ -2052,9 +2139,11 @@ class Server:
     def _lobby_countdown(self, lobby: Lobby) -> None:
         """Both players ready and no match: it starts by itself once a 3-2-1 countdown has run, which anything that
         clears a ready (a player un-readying, a new fighter, a role or settings change) or takes a player away calls
-        off. Run before every lobby state goes out, so the state carries it."""
+        off. Run before every lobby state goes out, so the state carries it. King of the Hill: not while the last
+        match's spectators rate its winner."""
         players = lobby.players()
-        both = lobby.match is None and len(players) == 2 and all(m.ready for m in players)
+        both = (lobby.match is None and lobby.rating is None and len(players) == 2 and
+                all(m.ready for m in players))
         if both and lobby.starts_at is None:
             lobby.starts_at = time.time() + self.cfg.lobby_countdown
             lobby.countdown += 1
@@ -2081,7 +2170,10 @@ class Server:
         else:
             self._broadcast_lobby(lobby)
 
-    def _lobby_match_over(self, lobby: Lobby, m: Match) -> None:
+    def _lobby_match_over(self, lobby: Lobby, m: Match, winner: MatchPlayer | None = None,
+                          loser: MatchPlayer | None = None, rate: bool = False) -> None:
+        """A lobby match is done or called off: both players ready again for the next one. King of the Hill: with a
+        `winner` (and `loser`) the line moves on, and `rate` opens the winner's rating to the match's spectators."""
         if lobby.match is not m:
             return
         lobby.match = None
@@ -2091,8 +2183,170 @@ class Server:
         for member in lobby.members:
             if not keep or member.spectator:
                 member.ready = False
-        if lobby.id in self.lobbies:
-            self._broadcast_lobby(lobby)
+        if lobby.id not in self.lobbies:
+            return
+        if lobby.koth:
+            self._koth_after_match(lobby, m, winner, loser, rate)
+        self._broadcast_lobby(lobby)
+
+    # --- King of the Hill (docs/PROTOCOL.md 1.10.2) -----------------------------------------------
+
+    def _respect_of(self, account_id: int | None, game: str, mode: str) -> int:
+        if self.db is None or account_id is None:
+            return 0
+        return self.db.respect(account_id, game, mode)["points"]
+
+    def _lobby_note(self, lobby: Lobby, text: str) -> None:
+        """A line from the lobby itself in its chat (no one's name): who is king, who is next, Respect Points."""
+        entry = {"from": "", "text": text, "ts": round(time.time(), 3)}
+        lobby.chat.append(entry)
+        for member in lobby.members:
+            member.session.send({"type": "lobby_chat", "lobby": lobby.id, **entry})
+
+    def _koth_fill(self, lobby: Lobby) -> list[LobbyMember]:
+        """Free places to play go to the first in line, while no match is set up or runs; returns who got one."""
+        moved: list[LobbyMember] = []
+        if not lobby.koth or lobby.match is not None:
+            return moved
+        while len(lobby.players()) < 2 and lobby.line:
+            nxt = lobby.line.pop(0)
+            if nxt not in lobby.members:
+                continue
+            # their game may still play the end of the match they watched: the feed of it goes on to them, and their
+            # launcher readies once the game is free again
+            nxt.spectator = False
+            nxt.ready = False
+            moved.append(nxt)
+        return moved
+
+    def _koth_after_match(self, lobby: Lobby, m: Match, winner: MatchPlayer | None, loser: MatchPlayer | None,
+                          rate: bool) -> None:
+        """The winner is (or stays) the king, side 1 in the next match; the loser goes to the back of the line and the
+        first in line plays the king next (with nobody waiting the two play again). The spectators of the match rate
+        the winner meanwhile; the next match waits for it."""
+        def member_for(p: MatchPlayer) -> LobbyMember | None:
+            return next((mem for mem in lobby.members if mem.session.account_id == p.account_id), None)
+
+        if winner is None or loser is None:  # nobody won it: the same two again (a place left free is filled)
+            for mem in self._koth_fill(lobby):
+                self._lobby_note(lobby, f"Next up: {mem.session.name}.")
+            return
+        now = time.time()
+        wm, lm = member_for(winner), member_for(loser)
+        if rate:
+            raters = {mem.session.account_id: mem.session.name or "?" for mem in lobby.spectators()
+                      if mem.session.account_id is not None
+                      and mem.session.account_id not in (winner.account_id, loser.account_id)}
+            if raters:
+                lobby.rating = Rating(match=m.id, winner=winner.account_id, winner_name=winner.name,
+                                      loser_name=loser.name, raters=raters, closes=now + self.cfg.respect_window)
+        old = lobby.king
+        was_king = old is not None and old.session.account_id == winner.account_id
+        dethroned = old is not None and old.session.account_id == loser.account_id
+        lobby.streak = (lobby.streak + 1 if was_king else 1) if wm is not None else 0
+        lobby.king = wm
+        if lm is not None and lobby.line:
+            lm.spectator = True
+            lm.ready = False
+            lobby.line.append(lm)
+        moved = self._koth_fill(lobby)
+        if wm is None:
+            text = f"{winner.name} won and left the lobby: the next match crowns a new king."
+        elif was_king:
+            text = f"{winner.name} stays king: {lobby.streak} wins in a row."
+        elif dethroned:
+            text = f"{winner.name} beat the king {loser.name}: {winner.name} is the new king."
+        else:
+            text = f"{winner.name} is the king."
+        if moved:
+            text += f" Next up: {', '.join(mem.session.name or '?' for mem in moved)}."
+        if lobby.rating is not None:
+            text += f" Spectators, rate {winner.name}'s win (1 to 10)."
+        self._lobby_note(lobby, text)
+        log.info("lobby %s: %s is king (%d in a row)%s%s", lobby.id, winner.name, lobby.streak,
+                 f", next up {', '.join(mem.session.name or '?' for mem in moved)}" if moved else "",
+                 f", {len(lobby.rating.raters)} spectators rate the win" if lobby.rating is not None else "")
+
+    def _koth_update(self, lobby: Lobby) -> None:
+        """Before every King of the Hill lobby state goes out: a rating that is done (every spectator still in the
+        lobby who may rate has, or its time is up) closes, and while someone waits in line the two players get a time
+        to ready by (_koth_ready_due)."""
+        if not lobby.koth:
+            return
+        now = time.time()
+        r = lobby.rating
+        if r is not None:
+            present = {mem.session.account_id for mem in lobby.members}
+            if now >= r.closes or not any(a in present and a not in r.scores for a in r.raters):
+                self._close_rating(lobby)
+        players = lobby.players()
+        if lobby.match is None and len(players) == 2 and lobby.line:
+            pair = frozenset(mem.session.account_id or 0 for mem in players)
+            if lobby.ready_by is None or lobby.ready_pair != pair:
+                lobby.ready_by = now + self.cfg.koth_ready_timeout
+                lobby.ready_pair = pair
+        else:
+            lobby.ready_by = None
+            lobby.ready_pair = None
+
+    def _close_rating(self, lobby: Lobby) -> None:
+        """The rating is over: the lobby is told what the winner got (each rating went to their Respect Points as it
+        came in)."""
+        r, lobby.rating = lobby.rating, None
+        if r is None:
+            return
+        points, count = sum(r.scores.values()), len(r.scores)
+        log.info("lobby %s: match %s rated, %s gets %d Respect Points from %d of %d spectators", lobby.id, r.match,
+                 r.winner_name, points, count, len(r.raters))
+        if count and self.db is not None:
+            total = self.db.respect(r.winner, lobby.game, lobby.mode)["points"]
+            self._lobby_note(lobby, f"{r.winner_name} gets {points} Respect Points from {count} "
+                                    f"{'rating' if count == 1 else 'ratings'} ({total} in all).")
+
+    def _koth_ready_due(self, lobby: Lobby) -> None:
+        """Someone waits in line and the time to ready is up: a player who has not readied goes to the back of the
+        line (a king loses the crown), and the first in line plays instead."""
+        lobby.ready_by = None
+        players = lobby.players()
+        if lobby.match is not None or len(players) < 2 or not lobby.line:
+            return
+        late = [mem for mem in players if not mem.ready]
+        for mem in late:
+            mem.spectator = True
+            if lobby.king is mem:
+                lobby.king = None
+                lobby.streak = 0
+            lobby.line.append(mem)
+        moved = self._koth_fill(lobby)
+        if late:
+            names = " and ".join(mem.session.name or "?" for mem in late)
+            text = f"{names} did not ready in time: to the back of the line."
+            if moved:
+                text += f" Next up: {', '.join(mem.session.name or '?' for mem in moved)}."
+            self._lobby_note(lobby, text)
+            log.info("lobby %s: %s did not ready in time, back of the line", lobby.id, names)
+        self._broadcast_lobby(lobby)
+
+    def on_lobby_rate(self, s: Session, msg: dict[str, Any]) -> None:
+        """A spectator of a King of the Hill match rates how its winner played, a whole number from 1 to 10: their
+        Respect Points go up by it at once."""
+        lobby = self._need_lobby(s)
+        match = P.get_str(msg, "match", max_len=64)
+        score = P.get_int(msg, "score", lo=P.RATING_MIN, hi=P.RATING_MAX)
+        r = lobby.rating
+        now = time.time()
+        if r is None or r.match != match or now >= r.closes:
+            raise P.ProtocolError("rating_closed", "That match can no longer be rated.")
+        if s.account_id not in r.raters:
+            raise P.ProtocolError("not_rater", "Only the match's spectators rate its winner.")
+        if s.account_id in r.scores:
+            raise P.ProtocolError("already_rated", "You rated that match already.")
+        assert self.db is not None and s.account_id is not None
+        r.scores[s.account_id] = score
+        self.db.add_rating(match, s.account_id, r.winner, lobby.game, lobby.mode, score, now)
+        log.info("lobby %s: %s rates %s %d for match %s", lobby.id, s.name, r.winner_name, score, match)
+        self._reply(s, msg, {"type": "lobby_rated", "match": match, "score": score, "winner": r.winner_name})
+        self._broadcast_lobby(lobby)  # closes the rating once every spectator has
 
     # --- spectators: a lobby match's feed ----------------------------------------------------------
 
@@ -2230,16 +2484,22 @@ class Server:
         if mode in P.LOBBY_ONLY_MODES:
             character = ""  # both players pick on the game's select screen, and go back to it whenever they like
             rounds = 1      # nobody is knocked out: no rounds to count
+        koth = P.get_bool(msg, "koth", default=False)
+        if koth and mode in P.LOBBY_ONLY_MODES:  # two players, nobody watching: no line, no one to rate
+            raise P.ProtocolError("bad_mode", "Online Practice is for two players: it has no King of the Hill.")
+        if koth and "koth" not in s.features:
+            raise P.ProtocolError("update_needed", "Update your launcher to host a King of the Hill lobby.")
         host = LobbyMember(s, character)
         self._member_connection(host, msg)
         # Online Practice is for its two players alone: nobody watches it
         spectators = 0 if mode in P.LOBBY_ONLY_MODES else self.cfg.max_spectators
         lobby = Lobby(id=self._new_lobby_code(), name=name, game=game, mode=mode, region=region, rounds=rounds,
                       password=password, host=s, members=[host], created=time.time(),
-                      death_traps=death_traps, max_spectators=spectators)
+                      death_traps=death_traps, max_spectators=spectators, koth=koth)
         self.lobbies[lobby.id] = lobby
         s.lobby = lobby
-        log.info("lobby %s created by %s (%s/%s%s)", lobby.id, s.name, game, mode, ", locked" if password else "")
+        log.info("lobby %s created by %s (%s/%s%s%s)", lobby.id, s.name, game, mode, ", King of the Hill" if koth else "",
+                 ", locked" if password else "")
         self._broadcast_lobby(lobby, reply_to=(s, msg))
 
     def on_lobby_list(self, s: Session, msg: dict[str, Any]) -> None:
@@ -2261,22 +2521,33 @@ class Server:
         spectate = P.get_bool(msg, "spectate", default=False)
         if lobby.mode in P.LOBBY_ONLY_MODES and (spectate or len(lobby.players()) >= 2):
             raise P.ProtocolError("lobby_full", "Online Practice is for two players, and this one has both.")
-        if spectate and len(lobby.spectators()) >= lobby.max_spectators:
-            raise P.ProtocolError("lobby_full", "That lobby has no room for more spectators.")
-        if not spectate and (lobby.match is not None or len(lobby.players()) >= 2):
+        if lobby.koth and not spectate and "koth" not in s.features:
+            raise P.ProtocolError("update_needed", "This is a King of the Hill lobby: update your launcher to play in "
+                                                   "it, or join it to watch.")
+        # King of the Hill: one who comes to play while both places are taken (or a match runs) waits in line,
+        # watching meanwhile
+        in_line = lobby.koth and not spectate and (lobby.match is not None or len(lobby.players()) >= 2
+                                                   or bool(lobby.line))
+        if (spectate or in_line) and len(lobby.spectators()) >= lobby.max_spectators:
+            raise P.ProtocolError("lobby_full", "That lobby has no room for more spectators."
+                                  if spectate else "That lobby is full.")
+        if not spectate and not lobby.koth and (lobby.match is not None or len(lobby.players()) >= 2):
             raise P.ProtocolError("lobby_full", "Both places to play are taken: join it to watch instead.")
         password = P.get_str(msg, "password", default="", max_len=64)
         if lobby.password and not hmac.compare_digest(lobby.password.encode(), password.encode()):
             raise P.ProtocolError("bad_lobby_password", "Wrong lobby password.")
         self._quit_series(s)
         character = "" if lobby.mode in P.LOBBY_ONLY_MODES else P.get_character(msg)  # Online Practice: picked in game
-        member = LobbyMember(s, character, spectator=spectate)
+        member = LobbyMember(s, character, spectator=spectate or in_line)
         self._member_connection(member, msg)
         lobby.members.append(member)
+        if in_line:
+            lobby.line.append(member)
         s.lobby = lobby
-        log.info("lobby %s: %s joined%s", lobby.id, s.name, " to watch" if spectate else "")
+        log.info("lobby %s: %s joined%s", lobby.id, s.name,
+                 f", number {len(lobby.line)} in line" if in_line else " to watch" if spectate else "")
         self._broadcast_lobby(lobby, reply_to=(s, msg))
-        if spectate and lobby.feed is not None and lobby.feed.end is None:
+        if member.spectator and lobby.feed is not None and lobby.feed.end is None:
             self._watch(s, lobby.feed)  # a match under way: from its start
 
     def _leave_lobby(self, s: Session) -> None:
@@ -2288,6 +2559,11 @@ class Server:
         member = lobby.member(s)
         if member is not None:
             lobby.members.remove(member)
+            if member in lobby.line:
+                lobby.line.remove(member)
+            if lobby.king is member:
+                lobby.king = None
+                lobby.streak = 0
         self._unwatch(s, lobby)
         if not lobby.members:
             self.lobbies.pop(lobby.id, None)
@@ -2304,6 +2580,8 @@ class Server:
         if m is not None and p is not None and m.state in PENDING_STATES:
             self._cancel_match(m, "peer_left", blame={p.side})  # broadcasts the lobby
         elif lobby.members:
+            for mem in self._koth_fill(lobby):  # King of the Hill: a place left free goes to the first in line
+                self._lobby_note(lobby, f"{s.name} left. Next up: {mem.session.name}.")
             self._broadcast_lobby(lobby)
 
     def on_lobby_leave(self, s: Session, msg: dict[str, Any]) -> None:
@@ -2445,7 +2723,8 @@ class Server:
 
     def on_lobby_character(self, s: Session, msg: dict[str, Any]) -> None:
         lobby = self._need_lobby(s)
-        if lobby.match is not None:
+        # a spectator may pick meanwhile (King of the Hill: for their turn in line)
+        if lobby.match is not None and lobby.match.player_for(s.account_id) is not None:
             raise P.ProtocolError("busy", "A match is running.")
         member = lobby.member(s)
         assert member is not None
@@ -2480,6 +2759,9 @@ class Server:
         role = msg.get("role")
         if role not in ("player", "spectator"):
             raise P.ProtocolError("bad_request", "role must be player or spectator.")
+        if lobby.koth:
+            self._koth_role(lobby, member, role, s, msg)
+            return
         if (role == "spectator") == member.spectator:
             self._broadcast_lobby(lobby, reply_to=(s, msg))
             return
@@ -2502,6 +2784,43 @@ class Server:
                 other.ready = False
         member.ready = False
         log.info("lobby %s: %s %s", lobby.id, s.name, "plays" if role == "player" else "watches")
+        self._broadcast_lobby(lobby, reply_to=(s, msg))
+        if member.spectator and lobby.feed is not None and lobby.feed.end is None:
+            self._watch(s, lobby.feed)
+
+    def _koth_role(self, lobby: Lobby, member: LobbyMember, role: str, s: Session, msg: dict[str, Any]) -> None:
+        """King of the Hill: "player" gets in line (playing at once when a place is free and nobody waits),
+        "spectator" watches only: out of the line, or a player steps aside (not while their match is set up or
+        runs) and the first in line takes their place."""
+        if role == "player":
+            if "koth" not in s.features:
+                raise P.ProtocolError("update_needed", "Update your launcher to play in a King of the Hill lobby.")
+            if member.spectator and member not in lobby.line:
+                if lobby.match is None and len(lobby.players()) < 2 and not lobby.line:
+                    member.spectator = False
+                    member.ready = False
+                    log.info("lobby %s: %s plays", lobby.id, s.name)
+                else:
+                    lobby.line.append(member)
+                    log.info("lobby %s: %s gets in line, number %d", lobby.id, s.name, len(lobby.line))
+        else:
+            if member in lobby.line:
+                lobby.line.remove(member)
+                log.info("lobby %s: %s leaves the line to watch", lobby.id, s.name)
+            elif not member.spectator:
+                if lobby.match is not None and lobby.match.player_for(s.account_id) is not None:
+                    raise P.ProtocolError("busy", "Your match is running.")
+                if len(lobby.spectators()) >= lobby.max_spectators:
+                    raise P.ProtocolError("lobby_full", "That lobby has no room for more spectators.")
+                member.spectator = True
+                if lobby.king is member:
+                    lobby.king = None
+                    lobby.streak = 0
+                for other in lobby.members:
+                    other.ready = False
+                log.info("lobby %s: %s steps aside to watch", lobby.id, s.name)
+                for mem in self._koth_fill(lobby):
+                    self._lobby_note(lobby, f"{s.name} steps aside. Next up: {mem.session.name}.")
         self._broadcast_lobby(lobby, reply_to=(s, msg))
         if member.spectator and lobby.feed is not None and lobby.feed.end is None:
             self._watch(s, lobby.feed)
@@ -2537,7 +2856,11 @@ class Server:
                            reply_to: tuple[Session, dict[str, Any]] | None = None) -> None:
         now = time.time()
         lobby.starts_at = None
-        ordered = sorted(lobby.players(), key=lambda mem: mem.session is not lobby.host)  # a host who plays first
+        if lobby.rating is not None:  # a host's lobby_start does not wait for it
+            self._close_rating(lobby)
+        lobby.ready_by = lobby.ready_pair = None
+        # King of the Hill: the king is player 1; else a host who plays
+        ordered = sorted(lobby.players(), key=lambda mem: (mem is not lobby.king, mem.session is not lobby.host))
         players = [
             MatchPlayer(side=i + 1, account_id=mem.session.account_id or 0, name=mem.session.name or "?",
                         session=mem.session, character=mem.character, delay=mem.delay, max_ping=0,
@@ -2567,10 +2890,18 @@ class Server:
         game, mode = P.get_game_mode(msg)
         limit = P.get_int(msg, "limit", lo=1, hi=200, default=100)
         offset = P.get_int(msg, "offset", lo=0, hi=1_000_000, default=0)
-        rows, total = self.db.leaderboard(game, mode, limit, offset)
-        out: dict[str, Any] = {"type": "leaderboard", "game": game, "mode": mode, "total": total, "rows": rows}
+        by = msg.get("by", "elo")
+        if by not in ("elo", "respect"):
+            raise P.ProtocolError("bad_request", "by must be elo or respect.")
+        # by Elo: the ranked players; by Respect Points: everyone King of the Hill spectators rated (both with each
+        # player's Respect Points)
+        board, rank_of = ((self.db.respect_board, self.db.respect_rank_of) if by == "respect"
+                          else (self.db.leaderboard, self.db.rank_of))
+        rows, total = board(game, mode, limit, offset)
+        out: dict[str, Any] = {"type": "leaderboard", "game": game, "mode": mode, "by": by, "total": total,
+                               "rows": rows}
         if s.account_id is not None:
-            me = self.db.rank_of(s.account_id, game, mode)
+            me = rank_of(s.account_id, game, mode)
             if me is not None:
                 out["me"] = me
         self._reply(s, msg, out)

@@ -45,6 +45,9 @@ struct LaunchOptions {
     int lobbyMatches = 1;    // matches to play there, one after the other
     bool leaveLobby = false; // once they are played, leave the lobby (its game closes once idle)
     int leaveLobbyInMatch = 0;  // seconds into its first match: leave the lobby then (its game closes at once)
+    bool koth = false;       // --lobby host: a King of the Hill lobby (join: one that is full puts you in line)
+    int rate = 0;            // King of the Hill: rate each match watched, 1 to 10, once the game showed it (0: never)
+    QString snapDir;         // development: pictures of the window as the lobby changes, and of the leaderboard
     int rematches = 0;       // --queue casual: rematches to choose after the first match
     QStringList rematchChoices;  // what each of them chooses, "rematch" or "select" (the last one repeats)
     bool leaveSeries = false;    // once those are chosen, leave the series at once instead of letting it run out
@@ -150,5 +153,10 @@ private:
     int cliLobbyDone_ = 0, cliLobbyReadyFor_ = -1, cliLobbyStarts_ = 0;  // matches over, ready sent for, starts sent
     QTimer* cliLobbyPoll_ = nullptr;
     QJsonObject cliLastLobby_;  // the lobby's last state, looked at again once the controller is idle
+    QString cliRatedMatch_;     // --rate: the last match rated
+    QString snapKey_;           // --snap-dir: what the last lobby picture showed
+    int snaps_ = 0;
+    void snap(const QString& name);
+    void snapCreateLobby();  // --snap-dir on the Lobby page: the Create lobby window, then the leaderboard
     bool darkApplied_ = false;
 };

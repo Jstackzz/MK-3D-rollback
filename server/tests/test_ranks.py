@@ -51,7 +51,7 @@ async def test_every_ranked_rating_comes_with_its_title(server, connect, udp_pee
     board = await conns[2].request({"type": "leaderboard", "game": "mkd", "mode": "kombat"})
     assert [(r["name"], r["elo"], r["title"]) for r in board["rows"]] == [
         ("Fujin", 1840, "Elder God"), ("Raijin", 1780, "God"), ("Shinnok", 500, "Beginner")]
-    assert board["me"] == {"rank": 3, "elo": 500, "title": "Beginner", "wins": 3, "losses": 2}
+    assert board["me"] == {"rank": 3, "elo": 500, "title": "Beginner", "wins": 3, "losses": 2, "respect": 0}
 
     players = conns[:2]
     udps = [await udp_peers(), await udp_peers()]
