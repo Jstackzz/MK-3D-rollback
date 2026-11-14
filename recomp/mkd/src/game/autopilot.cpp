@@ -73,6 +73,16 @@ struct ChessPort {
     uint8_t a = 0;
 };
 ChessPort g_chess[2];
+// Chess Kombat's team select runs by the game's frames, not the clock: a press held kChessPress frames of every
+// kChessCycle, from kChessStart frames after the autopilot first sees the screen, each cycle decided at its first frame
+// from what the screen shows then. Both games press on the same frames of the screen however fast each PC draws it, so
+// both build the same teams. By the clock (0.25 s cycles, 0.08 s presses), a PC drawing the screen at 8 frames a
+// second missed presses and built other teams, and the match parted as it loaded; a slower one took so long that its
+// player gave up while the other game waited at the meeting point (every lobby Chess start on 1.0.6 ended that way).
+constexpr uint64_t kChessStart = 30, kChessCycle = 6, kChessPress = 2;
+bool g_chess_seen = false;   // the team select has been seen in this select phase
+uint64_t g_chess_from = 0;   // the frame it was
+long g_chess_logged = -1;    // the last slow-select line's 4 s slot
 Request g_req;
 bool g_have_request = false;
 bool g_wait_for_request = false;
@@ -111,7 +121,11 @@ const bool g_one_hit = [] {
 }();
 
 void Enter(Phase p) {
-    if (p == Phase::Select) g_chess[0] = g_chess[1] = ChessPort{};
+    if (p == Phase::Select) {
+        g_chess[0] = g_chess[1] = ChessPort{};
+        g_chess_seen = false;
+        g_chess_logged = -1;
+    }
     g_phase = p;
     g_since = Clock::now();
     static const char* names[] = {"off", "to menu", "settle", "hold", "choose", "select", "done"};
@@ -143,7 +157,7 @@ int ActionFor(const std::string& mode) {
     struct {
         const char* name;
         int action;
-    } modes[] = {{"versus", 7}, {"kombat", 7}, {"chess", 8}, {"puzzle", 9}, {"arcade", 6}, {"practice", 0xB},
+    } modes[] = {{"versus", 7}, {"kombat", 7}, {"sparring", 7}, {"chess", 8}, {"puzzle", 9}, {"arcade", 6}, {"practice", 0xB},
                  {"konquest", 2}};
     for (auto& m : modes)
         if (mode == m.name) return m.action;
@@ -441,6 +455,24 @@ void ChessDecide(int port, ChessPort& c) {
     c.buttons = Steer(cur, c.probe, 8);
 }
 
+// a team select still going 12 s on (the autopilot takes a few): a line every 4 s with how far each side got and in how
+// many of this PC's frames, so a report of a Chess match that never started says where it stood
+void LogSlowChessSelect(double t, uint64_t now) {
+    if (t < 12.0) return;
+    const long slot = long(t / 4.0);
+    if (slot == g_chess_logged) return;
+    g_chess_logged = slot;
+    const uint32_t block = ChessTeams();
+    int placed[2] = {};
+    for (int p = 0; p < 2; p++)
+        for (uint32_t i = 0; i < 5 && block; i++)
+            if (kernel::R32(block + (p ? 0x2C : 0xC) + 4 * i) != kChessEmpty) placed[p]++;
+    LOGR("autopilot: chess teams after %.0f s, %llu frames: P1 %d of 5 placed (state %u, cursor %d), P2 %d of 5 "
+         "(state %u, cursor %d)",
+         t, (unsigned long long)(now - g_chess_from), placed[0], kernel::R32(kRecord[0] + 8),
+         int(kernel::R32(kCursor[0])), placed[1], kernel::R32(kRecord[1] + 8), int(kernel::R32(kCursor[1])));
+}
+
 // one port's character select: steer to the slot, then confirm. In practice (game mode 4) port 0 picks both, its own
 // fighter and then the dummy with the second cursor
 void Select(int port, input::Pad& pad, double t) {
@@ -631,12 +663,20 @@ void Apply(int port, input::Pad& pad) {
                 // this PC's player builds their own team; the other player's side is filled once theirs is complete
                 if (port == g_req.local_side && g_req.by_player[port]) return;
                 if (g_req.characters[port] == kWaitPick) return;
-                long cycle = long(t / 0.25);
+                const uint64_t now = Frame();
+                if (!g_chess_seen) {
+                    g_chess_seen = true;
+                    g_chess_from = now;
+                }
+                LogSlowChessSelect(t, now);
+                if (now - g_chess_from < kChessStart) return;
+                const uint64_t f = now - g_chess_from - kChessStart;
+                const long cycle = long(f / kChessCycle);
                 if (cycle != c.cycle) {
                     c.cycle = cycle;
                     ChessDecide(port, c);
                 }
-                if (Pulse(t, 0.25, 0.08)) {
+                if (f % kChessCycle < kChessPress) {
                     pad.buttons |= c.buttons;
                     if (c.a) pad.analog[0] = c.a;
                 }

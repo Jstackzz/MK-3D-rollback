@@ -15,9 +15,22 @@ As Tekken 8's jukebox, each game plays a music set, picked from a row of tiles a
   Acid Bath a "Dead Pool"; the main menu its menu music, the select screen its select-screen music) or **Shuffled**
   (new songs each time the game starts).
 - **Every soundtrack**, shuffled.
-- **My Playlist 1, 2 and 3**: the player's own pick for each stage, the main menu and the select screen. A playlist has
-  a screen of its own (Edit): the stages and menus on the left, the soundtracks game by game on the right (tabs), each
-  song with a play button to hear it first; Fill from a soundtrack starts one from a preset, Reset puts a stage back.
+- **My Playlist 1, 2 and 3**: the player's own pick for each stage, the main menu and the select screen, the "finish
+  him" music and (Deadly Alliance, Deception) the fatality's. A playlist has a screen of its own (Edit): the stages and
+  menus on the left, the soundtracks game by game on the right (tabs), each song with a play button to hear it first;
+  Fill from a soundtrack starts one from a preset, Reset puts a stage back.
+
+**Finish Him** (1.0.7, all three games): one song for the "finish him" music of every stage. It has no bank of its own
+(`"streams": "finish"` in jukebox.json): every stage's bank copy gets it in its finish him loop (`finishStreams`: each cue
+that loops a stream shorter than 20 s and plays none of the round music's streams; the round music's loops are longer,
+the round-end sting loops nothing, Deadly Alliance's cue of every piece in a row plays the round music, Moloch's Lair's
+other loop is 28.6 s), beside the stage's own song when it has one. So a Finish Him song makes a copy of every stage
+bank; a stage shares a copy only with stages that want the very same songs (one with its own music never gets
+another's through a shared bank), and on Armageddon's jukebox bank, where a stage's song fills every stream, the song on
+named streams takes them over (`replaceStreamsMany`): the stage's song everywhere but the 20 finish him loops (6 to
+16 s, one a stage tune). Presets and shuffles leave it the game's own. **Fatality** (Deadly Alliance and Deception: the
+`music_fatality` bank, every stream; Armageddon has none): a playlist's song, or a soundtrack's fatality song (MK1's,
+MK2's, MKX's) in its preset or a shuffle.
 
 Under the tiles the page shows what the chosen set plays where (a click hears it). The soundtracks are listed in the
 order the games came out (`year` in a soundtrack.json, else a table of the known ones). Each of the three games is set

@@ -718,8 +718,37 @@ GameProcess* MatchController::ensureGame(const QString& gameId, QString* error) 
         return nullptr;
     }
     game_ = g;
+    gamePlayed_ = false;
+    gamePlayedKey_.clear();
     log(tr("Game %1 starting (session %2)").arg(gameId, g->sessionDir()));
     return game_;
+}
+
+bool MatchController::needsFreshGame(const QJsonObject& found) const {
+    if (!game_ || !game_->isRunning() || !gamePlayed_ || game_->gameId() != str(found, "game")) return false;
+    const QString mode = str(found, "mode");
+    if (mode != QLatin1String("puzzle") && mode != QLatin1String("chess") && mode != QLatin1String("motor"))
+        return false;
+    const QString opponent = str(found.value(QStringLiteral("opponent")).toObject(), "name");
+    return opponent.isEmpty() || gamePlayedKey_ != mode + QLatin1Char('|') + opponent;
+}
+
+GameProcess* MatchController::matchGame(const QJsonObject& found, QString* error) {
+    const QString gameId = str(found, "game");
+    if (needsFreshGame(found) && codeReady(gameId, nullptr)) {
+        GameProcess* old = game_;
+        const bool lobby = lobbyGame_ == old;
+        log(tr("A fresh game for this %1 match: the open one has played another match").arg(str(found, "mode")));
+        thawGame();  // a frozen game would not see its quit
+        game_ = nullptr;
+        disconnect(old, nullptr, this, nullptr);  // its going is not this match's end
+        connect(old, &GameProcess::exited, old, &QObject::deleteLater);
+        old->quit();
+        GameProcess* g = ensureGame(gameId, error);
+        if (g && lobby) lobbyGame_ = g;
+        return g;
+    }
+    return ensureGame(gameId, error);
 }
 
 bool MatchController::prepareGame(const QString& gameId, QString* error) {
@@ -808,7 +837,7 @@ void MatchController::accept() {
         if (practice) closeSolo(tr("Practice closed: the match's game starts"));
         else freezeSolo();
         QString err;
-        if (!ensureGame(str(found_, "game"), &err)) {
+        if (!matchGame(found_, &err)) {
             log(err);
             thawSolo();
             decline();
@@ -857,7 +886,7 @@ void MatchController::onServerMessage(const QJsonObject& msg) {
         QString err;
         // standby: the match's game waits for the accept, which sets single player aside
         const bool standby = solo_ && !soloFrozen_ && msg.value(QStringLiteral("accept_required")).toBool();
-        if (!standby && !ensureGame(str(msg, "game"), &err)) {
+        if (!standby && !matchGame(msg, &err)) {
             log(err);
             phase_ = Phase::Found;
             decline();
@@ -1158,12 +1187,14 @@ void MatchController::onWatchStatus(const QString& state) {
     if (state == QLatin1String("ready")) {
         tryStart();
     } else if (state == QLatin1String("in_match")) {
+        gamePlayed_ = true;
+        gamePlayedKey_.clear();
         watchTimeout_.stop();
         watchEndTimeout_.stop();
         watchInMatch_ = true;
         setPhase(Phase::Watching, tr("Watching %1 vs %2").arg(str(watch_, "p1_name"), str(watch_, "p2_name")));
         emit gameShown();
-    } else if (state == QLatin1String("result")) {
+    } else if (state == QLatin1String("result") || state == QLatin1String("sparring_over")) {
         endWatch(tr("Done watching %1 vs %2").arg(str(watch_, "p1_name"), str(watch_, "p2_name")));
     } else if (state == QLatin1String("desync")) {
         endWatch(tr("The watched match went out of step with the players' games; stopped watching"));
@@ -1310,7 +1341,9 @@ void MatchController::onGameStatus(const QString& line) {
     } else if (st == QLatin1String("in_match")) {
         if (phase_ == Phase::Starting && forThisMatch) {
             startTimeout_.stop();
-            setPhase(Phase::Playing, tr("In match against %1").arg(opponentName()));
+            gamePlayed_ = true;
+            gamePlayedKey_ = str(found_, "mode") + QLatin1Char('|') +
+                             str(found_.value(QStringLiteral("opponent")).toObject(), "name");            setPhase(Phase::Playing, tr("In match against %1").arg(opponentName()));
             server_->send({{QStringLiteral("type"), QStringLiteral("match_state")},
                            {QStringLiteral("match"), goMatch},
                            {QStringLiteral("state"), QStringLiteral("in_match")}});
@@ -1323,6 +1356,9 @@ void MatchController::onGameStatus(const QString& line) {
         for (const QString k : {QStringLiteral("p1_char"), QStringLiteral("p2_char")})
             if (keys.contains(k)) result.insert(k, keys.value(k));
         reportResult(result);
+    } else if (st == QLatin1String("sparring_over") && inOnline && forThisMatch) {
+        // Online Practice: a player went back to the select screen (BACK); the lobby's next match brings both there
+        reportResult({{QStringLiteral("outcome"), QStringLiteral("sparring")}});
     } else if (st == QLatin1String("desync") && inOnline && forThisMatch) {
         reportResult({{QStringLiteral("outcome"), QStringLiteral("desync")},
                       {QStringLiteral("frame"), keys.value(QStringLiteral("frame")).toInt()}});

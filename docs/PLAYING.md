@@ -160,6 +160,14 @@ whether to trust it: compare it with your host's.
   by itself) and you are put back in your lobby. Leave closes the game the
   lobby started (once a match it is playing is over), so there is nothing left
   to close by hand; a dropped connection keeps it.
+- Online Practice, to train with a friend (all three games): create a lobby
+  with the mode Online Practice and give your friend its code (it is never
+  in the list, and nobody else can join or watch it: two players only). Both
+  of you pick on the game's own select screen. There is no timer, health fills
+  up again a moment after a combo (and before anyone could be knocked out),
+  and nothing is recorded. Press **BACK** (Backspace on a keyboard) in the game
+  to go back to character select: both games go there and the next fight
+  starts once you have both picked again.
 - Watching a lobby: select it in the list and press Watch selected (or join it,
   then press Watch). Each of its matches plays in your own game, a moment
   behind the players, select screen and ending included; a match already under
@@ -215,8 +223,10 @@ whether to trust it: compare it with your host's.
   plays at the top of the page: Original (its own music), a soundtrack as its
   Preset (each stage gets the song that fits it best) or Shuffled (new songs
   each time the game starts), Every soundtrack shuffled, or My Playlist 1, 2 or
-  3 (a song of your choice for each stage and menu; Edit, then click a song or
-  its play button to hear it first). Each game is set up on its own. The songs
+  3 (a song of your choice for each stage and menu, the "finish him" music of
+  every stage, and in Deadly Alliance and Deception the fatality's; Edit, then
+  click a song or its play button to hear it first). Each game is set up on
+  its own. The songs
   play as loud as the game's own music and loop as game music does: the intro
   once, then the loop forever (a song that never repeats runs to its end and
   blends into its beginning). Nothing is downloaded: the music is yours, and
@@ -265,9 +275,25 @@ whether to trust it: compare it with your host's.
   counts as blocked. The dummy stands still in every game's practice; **F8**
   makes it hold block, then
   crouch-block (lows are blocked only crouching), then stand again, for the
-  on-block numbers. **F7** shows or hides the panel; **Settings → Frame data
-  in practice** sets whether it is shown when practice starts. None of it is
-  ever in an online match.
+  on-block numbers. **F6** makes it tech roll when it lands from a knockdown
+  it can roll out of: up, then down, then back (away from you), then one of
+  the three at random, then not at all again (the game's own rolls, as a
+  player holding that direction as they land). **F7** shows or hides the
+  panel; **Settings → Frame data in practice** sets whether it is shown when
+  practice starts. None of it is ever in an online match.
+- The other colours of a costume (all three games): every fighter's costume
+  has a second set of colours, which the games themselves only give the
+  second player of a mirror match. Hold **LT** (L1) while you pick: LT and A
+  for the first costume's other colours, LT and START for the second
+  costume's. Online your opponent sees them too. When both players end up
+  with the same fighter in the same costume and colours, player 2 gets the
+  other colours, so you can always tell the two apart.
+- Sound: **Settings → SOUND** has a slider for the master level and for the
+  music, sound effects, fighter voices, announcer and the arenas' own sounds
+  (environment), each a percent of the game's own level (100 %: as the game
+  sounds on its own). A running game follows a change at once; a sound that
+  already plays keeps its level until it starts again (a fight's music starts
+  again every round).
 - Record the dummy (all three games): practice records what the dummy does
   and plays it back, as the training modes of today's fighting games do.
   Press **F9**: your controller now moves the dummy (your own fighter stands

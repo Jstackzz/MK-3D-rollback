@@ -356,6 +356,7 @@ int keyFromEvent(const QKeyEvent* event) {
         case VK_RMENU:
         case VK_F10:
         case VK_F3:
+        case VK_F6:  // the games' practice dummy's tech roll
         case VK_F7:  // the games' frame data in practice, and its dummy's block
         case VK_F8:
         case VK_F9:  // the games' practice record: record, play (F10 above), slot, playback mode

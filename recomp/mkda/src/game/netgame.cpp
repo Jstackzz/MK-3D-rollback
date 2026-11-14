@@ -144,6 +144,18 @@ void ReadLocal(uint32_t& buttons, uint32_t& sticks) {
     sticks = kernel::R32(LocalSticks());
 }
 
+// BACK's logical bits alone (the button map's digital 0x20)
+bool LocalBack() {
+    static const uint32_t bits = [] {
+        uint32_t out = 0;
+        for (uint32_t i = 0; i < kConfigActions; i++)
+            if (!kernel::R32(kButtonMap + i * 8) && kernel::R32(kButtonMap + 4 + i * 8) == 0x20)
+                out |= kernel::R32(kLogicalBits + i * 12);
+        return out;
+    }();
+    return (kernel::R32(LocalButtons()) & bits) != 0;
+}
+
 // a port is a player here: the pad update keeps the logical buttons per player
 void WritePort(int port, uint32_t buttons, uint32_t sticks, uint32_t prev) {
     uint32_t b = kPlayerBlock + uint32_t(port) * kPlayerStride;

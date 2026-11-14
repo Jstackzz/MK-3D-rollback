@@ -128,16 +128,29 @@ X86_FUNC(sub_000547B0) {
 // fighter (sub_00057E20 and the hit's victim's). No controller drives the practice dummy, so with F8 this answers for
 // it: block held (and down, crouching).
 X86_FUNC(sub_00075B50) {
-    if (mk3d::framedata::DummyBlock() != mk3d::framedata::Dummy::Stands) {
+    const int tech = mk3d::framedata::TechHolds(int(kernel::R32(ctx.esp + 8)));  // -1: no tech roll being decided
+    if (tech >= 0 || mk3d::framedata::DummyBlock() != mk3d::framedata::Dummy::Stands) {
         const uint32_t dummy = mkda::FighterObject(1), player = mkda::FighterObject(0);
         const uint32_t who = kernel::R32(ctx.esp + 4), action = kernel::R32(ctx.esp + 8);
         if (dummy && player && who == kernel::R32(dummy + mkda::kControls) &&
             who != kernel::R32(player + mkda::kControls) &&
-            mk3d::framedata::DummyHolds(int(action), mkda::kActionBlock, mkda::kActionDown)) {
-            ctx.eax = 1;
+            (tech >= 0 || mk3d::framedata::DummyHolds(int(action), mkda::kActionBlock, mkda::kActionDown))) {
+            ctx.eax = tech >= 0 ? uint32_t(tech) : 1;  // a tech roll: its direction alone (no block, no buttons)
             ctx.esp += 4;  // ret (the caller pops the arguments)
             return;
         }
     }
     __imp__sub_00075B50(ctx, base);
 }
+
+// The practice dummy's tech roll (F6, framedata.h): while the game decides whether a fighter landing from a knockdown
+// rolls, the dummy holds the roll's direction. A roll starts through the game's task switch, which leaves these checks
+// by unwinding them, the scope with them.
+// Deadly Alliance's second tech roll check (script command 0x73, sub_0011DC00), beside sub_00051290 (noinfinites.cpp, which opens the dummy's scope there)
+X86_EXTERN_FUNC(__imp__sub_00051420);
+X86_FUNC(sub_00051420) {
+    const uint32_t self = kernel::R32(mkda::kSelf);
+    mk3d::framedata::TechScope tech(self && self == mkda::FighterObject(1));
+    __imp__sub_00051420(ctx, base);
+}
+

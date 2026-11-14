@@ -17,15 +17,18 @@ MAX_LINE = 16 * 1024
 MAX_DATAGRAM = 512
 MAX_RELAY_DATAGRAM = 1472  # what the relay passes on: a game packet, up to a whole Ethernet frame of UDP payload
 
-# game id -> online modes (practice is offline and never reaches the server)
+# game id -> online modes (practice is offline and never reaches the server; Online Practice is "sparring")
 GAMES: dict[str, tuple[str, ...]] = {
-    "mkda": ("kombat",),
-    "mkd": ("kombat", "chess", "puzzle"),
-    "mka": ("kombat", "motor"),
+    "mkda": ("kombat", "sparring"),
+    "mkd": ("kombat", "chess", "puzzle", "sparring"),
+    "mka": ("kombat", "motor", "sparring"),
 }
 # the modes whose players can pick on the game's own select screen (the launcher's "-"): a series' next match goes
 # back there in them
-SELECT_SCREEN_MODES: frozenset[str] = frozenset({"kombat"})
+SELECT_SCREEN_MODES: frozenset[str] = frozenset({"kombat", "sparring"})
+# Online Practice: two friends by a lobby's code (never listed, never queued), fights without a timer or a knockout
+# until one of them goes back to the select screen; nothing is recorded
+LOBBY_ONLY_MODES: frozenset[str] = frozenset({"sparring"})
 REGIONS: tuple[str, ...] = ("na", "sa", "eu", "me", "af", "as", "oc")
 
 NAME_RE = re.compile(r"^[A-Za-z0-9_-]{3,16}$")

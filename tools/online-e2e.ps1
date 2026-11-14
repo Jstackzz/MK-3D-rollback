@@ -17,7 +17,7 @@ param(
     [string]$Exe = '',           # default: recomp\<game>\out\build\debug\<GAME>.exe, or the -Launcher package's game
     [string]$Launcher = '',      # default: build\launcher\MK3DLauncher.exe; a player package's launcher uses its own games
     [string]$Queue = 'casual',   # casual, ranked, or lobby (A hosts a lobby, B joins it, the host starts)
-    [string]$Mode = 'kombat',    # kombat, chess, puzzle (mkd), motor (mka)
+    [string]$Mode = 'kombat',    # kombat, chess, puzzle (mkd), motor (mka), sparring (Online Practice: -Queue lobby)
     [string]$CharA = 'Scorpion',
     [string]$CharB = 'Kobra',
     [string]$NameA = '',         # A's and B's account names, which their games show over the fight (3 to 16 of
@@ -151,7 +151,8 @@ $userB = if ($NameB) { $NameB } else { "e2eB$stamp" }
 if ($Queue -eq 'casual' -and $Rematches -gt 0) { $Matches = 1 + $Rematches }
 $queueArgs = @('--queue', $Queue, '--rematches', "$Rematches")
 if ($RematchChoice) { $queueArgs += @('--rematch-choice', ($RematchChoice -join ',')) }  # one argument, no spaces
-$how = if ($Queue -eq 'lobby') { @('--lobby', 'host', '--lobby-name', "e2e$stamp", '--lobby-matches', "$Matches") } else { $queueArgs }
+# the lobby's code through a file: an Online Practice lobby is never listed, so B (and C) join by the code
+$how = if ($Queue -eq 'lobby') { @('--lobby', 'host', '--lobby-name', "e2e$stamp", '--lobby-matches', "$Matches", '--lobby-code-file', "`"$work\lobby-code.txt`"") } else { $queueArgs }
 if ($StandbyA) { $how += @('--solo', '--leave-series') }
 if ($LeaveLobbyA -and $Queue -eq 'lobby') { $how += @('--leave-lobby') }
 if ($DeathTraps) { $how += @('--death-traps', $DeathTraps) }
@@ -162,14 +163,14 @@ $la = Start-Process -FilePath $launcher -ArgumentList (@('--config', "`"$work\a\
 foreach ($pair in $onlyA) { Remove-Item "env:$(($pair -split '=', 2)[0])" -ErrorAction SilentlyContinue }
 Start-Sleep -Seconds ([Math]::Max(1, $DelayB))
 Set-Item "env:${x}_INPUT" $InputB
-$how = if ($Queue -eq 'lobby') { @('--lobby', 'join', '--lobby-name', "e2e$stamp", '--lobby-matches', "$Matches") } else { $queueArgs }
+$how = if ($Queue -eq 'lobby') { @('--lobby', 'join', '--lobby-name', "e2e$stamp", '--lobby-matches', "$Matches", '--lobby-code-file', "`"$work\lobby-code.txt`"") } else { $queueArgs }
 if ($DeathTraps -and $Queue -ne 'lobby') { $how += @('--death-traps', $DeathTraps) }
 $lb = Start-Process -FilePath $launcher -ArgumentList (@('--config', "`"$work\b\mk3d-launcher.ini`"", '--user', $userB, '--register') + $how + @('--game', $Game, '--mode', $Mode, '--character', $CharB, '--auto-accept', "$AcceptB")) -PassThru
 $lc = $null
 if ($Watch) {
     Start-Sleep -Seconds ([Math]::Max(1, $WatchDelay))
     Remove-Item "env:${x}_INPUT" -ErrorAction SilentlyContinue  # a spectator's game takes no player's input
-    $lc = Start-Process -FilePath $launcher -ArgumentList (@('--config', "`"$work\c\mk3d-launcher.ini`"", '--user', "e2eC$stamp", '--register', '--lobby', 'watch', '--lobby-name', "e2e$stamp", '--game', $Game, '--mode', $Mode)) -PassThru
+    $lc = Start-Process -FilePath $launcher -ArgumentList (@('--config', "`"$work\c\mk3d-launcher.ini`"", '--user', "e2eC$stamp", '--register', '--lobby', 'watch', '--lobby-name', "e2e$stamp", '--lobby-code-file', "`"$work\lobby-code.txt`"", '--game', $Game, '--mode', $Mode)) -PassThru
 }
 foreach ($k in $vars) { Remove-Item "env:$k" -ErrorAction SilentlyContinue }
 "server pid $($server.Id), launchers $($la.Id) $($lb.Id)$(if ($lc) { " $($lc.Id)" }), accounts $userA / $userB$(if ($lc) { " / e2eC$stamp (watching)" })"

@@ -25,6 +25,7 @@ struct GameMode {
     QList<int> rounds;
     int defaultRounds = 3;
     bool deathTraps = false;  // its fights' arenas have death traps (Deception, Armageddon), a match may turn off
+    bool lobbyOnly = false;   // played in a lobby a friend joins by its code, never searched for (Online Practice)
     bool picksInGame() const { return characterSelect == QLatin1String("in_game"); }
 };
 

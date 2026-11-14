@@ -8,14 +8,22 @@
 #include "core/log.h"
 #include "cpu/x86_ops.h"
 #include "game/autopilot.h"
+#include "game/colours.h"
 #include "game/events.h"
 #include "game/netgame.h"
 #include "kernel/kernel.h"
+#include "mk3d/game.h"
 #include "mk3d/netgame.h"
 #include "mk3d/netplay.h"
+#include "mk3d/sparring.h"
+#include "mk3d/volume.h"
 
 namespace mkd {
 namespace {
+
+// The launcher's sound levels (mk3d/volume.h) over the game's own sound categories: music, environment, announcer,
+// effects, fighter voices, the options block's first five floats (0.75 each by default, 0x3FBE38: sub_001B3EA0)
+const bool g_volume_installed = (mk3d::volume::Install(0x5FC980, 0.75f), true);
 
 constexpr uint32_t kStateSwitch = 0xE0190;  // sub_000E0190(priority, task)
 
@@ -82,6 +90,7 @@ void AgreeOnTheFight() {
         kernel::W32(kRecords[s] + kRecordCharacter, uint32_t(character[s]));
         kernel::W32(kRecords[s] + kRecordCostume, costume[s]);
     }
+    colours::SelectEnds();  // P2 the other colours in a mirror of costume and colours (colours.h)
     for (int s = 0; s < 2; s++) g_fight_costumes[s] = kernel::R32(kRecords[s] + kRecordCostume);
     const int own = int32_t(kernel::R32(kArenaChoice));
     const int agreed = AgreedArena(arena[0], arena[1], g_seed);
@@ -113,13 +122,15 @@ struct MatchOptions {
     bool set = false;  // a launcher match was started: these hold from then on
     int wins_needed = 2;
     bool death_traps = true;
+    bool sparring = false;  // Online Practice: no time limit (the round time 95, which the round's timer setup
+                            // sub_00083860 turns into the no time limit flag 0x3EB144, as the practice mode's)
 };
 MatchOptions g_options;
 
 void ApplyOptions() {
     if (!g_options.set) return;
     if (g_options.wins_needed > 0) kernel::W32(kRoundsToWin, uint32_t(g_options.wins_needed));
-    kernel::W32(kRoundTime, 60);
+    kernel::W32(kRoundTime, g_options.sparring ? 95 : 60);
     kernel::W32(kBloodLevel, 3);
     kernel::W32(kDeathTraps, g_options.death_traps ? 1 : 0);
 }
@@ -128,9 +139,19 @@ void SetOptions(const mk3d::link::game::Start& start) {
     g_options.set = true;
     g_options.wins_needed = start.wins_needed;
     g_options.death_traps = start.death_traps;
+    g_options.sparring = start.mode == "sparring";
     ApplyOptions();
-    LOGR("link: round time 60 s, blood 3, death traps %s", start.death_traps ? "on" : "off");
+    LOGR("link: round time %s, blood 3, death traps %s", g_options.sparring ? "none" : "60 s",
+         start.death_traps ? "on" : "off");
 }
+
+// Online Practice's fight: the fighters' health kept up (sparring.h) while a round can be under way
+const bool g_sparring_hook = (mk3d::OnFrameStart([](uint64_t) {
+                                  if (!mk3d::sparring::On()) return;
+                                  const uint32_t health[2] = {kP1Health, kP2Health};
+                                  mk3d::sparring::KeepHealth(health, !InFrontEnd());
+                              }),
+                              true);
 
 void PickArena(uint32_t seed, const std::string& stage) {
     uint32_t n = 0;
@@ -167,10 +188,11 @@ bool Begin(const Start& start) {
     // Puzzle Kombat's fighter, Chess Kombat's team; a spectator's game takes both players' picks from their games)
     req.local_side = start.online && !start.watch ? start.side : -1;
     req.watch = start.watch;
-    const bool picks = start.mode == "kombat" || start.mode == "puzzle" || start.mode == "chess";
+    const bool fight = start.mode == "kombat" || start.mode == "sparring";  // Online Practice picks as Kombat does
+    const bool picks = fight || start.mode == "puzzle" || start.mode == "chess";
     for (int i = 0; i < 2; i++) {
         req.by_player[i] = start.online && picks && start.picks[i].empty();
-        req.costumes[i] = start.online && start.mode == "kombat" ? start.costumes[i] : -1;
+        req.costumes[i] = start.online && fight ? start.costumes[i] : -1;
         g_fight_costumes[i] = -1;
     }
     g_request = req;
@@ -270,5 +292,6 @@ X86_FUNC(sub_001BF070) {
 // the versus fight's arena setup (no arguments): online and watched, the arena and picks both games agreed on
 X86_FUNC(sub_000834C0) {
     if (mkd::g_online_match) mkd::AgreeOnTheFight();
+    else mkd::colours::SelectEnds();
     __imp__sub_000834C0(ctx, base);
 }

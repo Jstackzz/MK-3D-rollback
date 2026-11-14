@@ -135,6 +135,13 @@ private:
     void onPunchDone(bool ok, int rtt, const QString& remote, const QString& via);
     void onLocalStatus();
     GameProcess* ensureGame(const QString& gameId, QString* error);
+    // Puzzle, Chess and Motor Kombat load their match from what the game already holds: a game that has played or
+    // watched another match loads it differently from one just started, and the two part as it loads (one fight before
+    // was enough for Puzzle and Motor Kombat, and the computer's karts differed after another race). So such a match
+    // gets a freshly started game, unless this game's last match was the same mode against the same opponent (a series
+    // or rematch: both games have played the same)
+    bool needsFreshGame(const QJsonObject& found) const;
+    GameProcess* matchGame(const QJsonObject& found, QString* error);  // ensureGame, fresh when needsFreshGame
     bool codeReady(const QString& gameId, QString* error) const;  // not waiting for prepareStaleCode
     // a game that crashes is reported to the server: what it was doing (`during`, else the phase), where it crashed
     void watchForCrash(GameProcess* g, const QString& during = QString());
@@ -181,6 +188,8 @@ private:
     ServerClient* server_;
     UdpRendezvous* udp_;
     GameProcess* game_ = nullptr;
+    bool gamePlayed_ = false;  // game_ has started or watched a match since it started
+    QString gamePlayedKey_;    // the last one's "<mode>|<opponent>" (empty: watched)
     GameProcess* solo_ = nullptr;
     bool soloPractice_ = false;  // solo_ was started for practice while a search waits
     bool soloVersus_ = false;    // solo_ was started as the offline versus

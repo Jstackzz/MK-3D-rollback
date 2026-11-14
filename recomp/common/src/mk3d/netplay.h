@@ -44,6 +44,7 @@ struct Settings {
     int lag_ms = 0, jitter_ms = 0, loss_percent = 0;  // simulated network (tests)
     std::string feed;            // ip:port of the launcher's spectator feed (TCP), empty for none
     bool watch = false;          // a spectator: both players come from the feed, no peer, nothing sent
+    bool sparring = false;       // Online Practice: a player's BACK ends the match in sync (sparring.h)
 };
 
 // Lockstep and Rollback: a match in sync with the other game

@@ -625,3 +625,24 @@ No runtime patch was needed: everything above is config (`recomp/mka/config/game
 - sub_00105040 hands the computer racers their karts from a counter (0x5B8344) that goes on from race to race and nothing
   resets, so a game that had raced before fielded other racers than a fresh one and parted at once. Reseed sets it from
   the match's seed (seed % 10), which keeps the variety.
+
+## 1.0.7: Online Practice, tech rolls, the other colours, sound levels (2026-11-13)
+
+- Online Practice (`sparring`, `recomp/common/src/mk3d/sparring.cpp`, netplay.cpp `BackPressed`): a lobby-only versus
+  match whose players pick on the select screen. Each game sets its options' round time to the game's own "no time
+  limit" (0x723BC4 = 95: the round's timer setup sub_00098A40 sets the no time limit flag 0x54DFBC (read by sub_0009CB20)), and at the top of every frame in sync a fighter's health goes back to full after 90 frames without
+  a change, and at once below 0.3 (no hit takes more in one frame, so nobody is knocked out); what it remembers is
+  guest memory taken at the first frame after boot (the same moment on every game). A player's BACK (stripped from
+  the game's blocks like START) goes in their netplay input as bit 31; once it is in an input both games ran with,
+  each game leaves the match in sync at its next frame's top (neither waits for the other's inputs past it), the
+  link reports `sparring_over`, and the lobby's next match brings both to the select screen again.
+- Tech rolls in practice (F6, `framedata.cpp` TechScope / TechHolds): around the game's tech roll checks, for the dummy,
+  the "is this action held" hook answers the roll's direction alone (up 0xC, down 0xE, back 0xD and 0xF: the games
+  ask only the side away from the opponent), nothing else (no block, no buttons). A roll leaves the check through the
+  task switch's exception, which ends the scope as it unwinds. Checks: sub_00080560 (sixteen knockdown reactions and the script wrapper sub_00225180), sub_00080D30, sub_00080B00, sub_000807A0, sub_00080950; BLOCK held on landing would keep the fighter down (sub_00088EA0), so the scope answers it 0.
+- The other colours (the select block's colours flags +0x28 / +0x5C beside the second costume's +0x24 / +0x58, which the screen's end ORs into the records' +0x14; the pick sub_00207930(record), held LT through sub_000A0FD0(port, 2); the pick words' second word is now bit 0 the second costume, bit 1 the colours (it was 0 or 1)): LT held as a pick is taken sets the costume's bit 1; the select screen's end settles
+  both players' bits from what both games agreed (the pick words carry them), and P2 the other colours when both have
+  the same fighter, costume and colours.
+- Sound levels (`recomp/common/src/mk3d/volume.cpp`): the five category floats 0x723BA0..0x723BB0 (index 5 unused) written at every frame's top
+  while they differ from the launcher's levels (percent of the game's own: 0.75 each, 0x5684B0; sub_00235BD0 puts the defaults back after a profile's), 0 % as 0.0005; the master is the
+  runtime's output voice (patch 0049).

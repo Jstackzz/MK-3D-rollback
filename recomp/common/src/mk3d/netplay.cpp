@@ -87,6 +87,10 @@ constexpr uint32_t kCheckEvery = 30;
 constexpr uint32_t kMaxPredict = 12;             // frames past the last agreed one (rollback keeps 16)
 constexpr uint32_t kMixFrames = 48000 / 60;      // the sound of one frame
 constexpr int kMaxReadyWords = 64;
+// Online Practice (Settings.sparring): a player's BACK goes in their input as this bit, which never reaches the game's
+// blocks (no game's logical buttons reach it); once it is in an input both games have, the match in sync ends
+constexpr uint32_t kBackBit = 0x80000000u;
+constexpr uint32_t kNoFrame = 0xFFFFFFFFu;
 
 struct Input {
     uint32_t buttons = 0;
@@ -109,6 +113,7 @@ struct Config {
     bool feed_on = false;  // the launcher's spectator feed
     sockaddr_in feed{};
     bool watch = false;    // a spectator
+    bool sparring = false;  // Online Practice
 };
 
 Config g_cfg;
@@ -143,6 +148,8 @@ std::map<uint32_t, Input> g_used;  // the other player's input each frame's last
 uint32_t g_target = 0;             // running again up to this frame (exclusive)
 bool g_replaying = false;
 uint32_t g_confirmed = 0;          // every frame below ran with the other player's real input
+uint32_t g_back_frame = kNoFrame;  // Online Practice: the first frame both agree a player pressed BACK at
+uint32_t g_back_scan = 0;          // the next frame to look at for it
 bool g_had_focus = true;           // the game's window was in front at the last frame (WatchFocus)
 uint32_t g_their_now = 0;          // the frame the other game said it runs
 int g_their_adv = 0;               // how far ahead of us it thinks it runs
@@ -401,6 +408,7 @@ bool OpenWatch(const Settings& st) {
     }
     g_cfg.feed_on = true;
     g_cfg.watch = true;
+    g_cfg.sparring = st.sparring;
     g_cfg.side = 0;  // P1's inputs go to port 0, P2's to port 1, as in the players' games
     g_cfg.rollback = true;
     g_cfg.delay = 0;
@@ -446,6 +454,7 @@ bool OpenNow(const Settings& st) {
     g_cfg.peer = peer;
     g_cfg.side = st.side ? 1 : 0;
     g_cfg.rollback = st.rollback;
+    g_cfg.sparring = st.sparring;
     int delay = st.delay >= 0 ? st.delay : (st.rollback ? 1 : 2);
     g_cfg.delay = std::max(0, std::min(8, delay));
     g_cfg.lag = std::max(0, st.lag_ms);
@@ -934,6 +943,7 @@ uint32_t WanderingSticks() {
 Input ReadLocal() {
     Input in;
     game::ReadLocal(in.buttons, in.sticks);
+    if (g_cfg.sparring && game::LocalBack()) in.buttons |= kBackBit;
     g_local_sticks = in.sticks;
     g_local_sticks_in = true;
     if (g_test_stick_noise) in.sticks = WanderingSticks();
@@ -941,7 +951,9 @@ Input ReadLocal() {
     return in;
 }
 
-void WritePort(int port, const Input& in, uint32_t prev) { game::WritePort(port, in.buttons, in.sticks, prev); }
+void WritePort(int port, const Input& in, uint32_t prev) {
+    game::WritePort(port, in.buttons & ~kBackBit, in.sticks, prev & ~kBackBit);
+}
 
 uint32_t Fnv(uint32_t h, uint32_t v) {
     for (int i = 0; i < 4; i++) h = (h ^ ((v >> (i * 8)) & 0xFF)) * 16777619u;
@@ -1574,6 +1586,8 @@ void StartSync(X86Context& ctx) {
     if (!g_cfg.watch) g_their_checks.clear();  // a spectator's came with the feed, maybe before this
     g_desynced = false;  // the random numbers' counters run from the barrier's reseed (MeetBeforeSetup)
     g_confirmed = 0;
+    g_back_frame = kNoFrame;
+    g_back_scan = 0;
     g_replaying = false;
     g_had_focus = true;  // a match that starts without it says so at its first frame
     game::MatchBegins();
@@ -1676,13 +1690,19 @@ void MeetBeforeSetup(X86Context& ctx) {
     g_their_delay = -1;
     g_phase = Phase::Barrier;
     SetStatus(Status::Barrier);
-    LOGI("netplay: match %u about to be set up (%s), waiting for the other game", g_seq + 1, game::Describe().c_str());
+    // in a player's log too: a match that never started shows which game got here and which did not
+    LOGR("netplay: match %u about to be set up (%s), waiting for the other game", g_seq + 1, game::Describe().c_str());
     auto t0 = Clock::now(), last = Clock::time_point{};
+    int noted = 0;  // seconds of waiting said so far
     WaitScope waiting;
     while (!g_peer_ready) {
         if (Clock::now() - last > std::chrono::milliseconds(100)) {
             SendReady();
             last = Clock::now();
+        }
+        if (Clock::now() - t0 > std::chrono::seconds(noted + 10)) {
+            noted += 10;
+            LOGR("netplay: %d s at the meeting point, the other game not there yet", noted);
         }
         Receive();
         if (g_abort || Clock::now() - t0 > std::chrono::seconds(60)) {
@@ -1886,6 +1906,16 @@ bool WaitForRealInput(uint32_t next) {
 
 void CaptureForTests(uint32_t frame);
 
+// Online Practice: a player's BACK, in an input both games ran with, ends the match in sync at the next frame's top.
+// Each game leaves at its own such frame (one may run ahead of the other): neither needs the other's inputs past the
+// BACK's frame, which both have, so neither waits for inputs that never come.
+bool BackPressed(uint32_t next) {
+    for (; g_back_frame == kNoFrame && g_back_scan < g_confirmed && g_back_scan < next; g_back_scan++)
+        if ((Mine(g_back_scan).buttons | Theirs(g_back_scan).buttons) & kBackBit) g_back_frame = g_back_scan;
+    if (g_back_frame < next) LOGR("netplay: P%d pressed BACK at frame %u", (Mine(g_back_frame).buttons & kBackBit) ? g_cfg.side + 1 : 2 - g_cfg.side, g_back_frame);
+    return g_back_frame < next;
+}
+
 // the top of a frame in a match with rollback
 void RollbackFrameStart(X86Context& ctx) {
     rb::CloseFrame();
@@ -1904,6 +1934,11 @@ void RollbackFrameStart(X86Context& ctx) {
             std::lock_guard<std::mutex> lock(g_stats_lock);
             g_stats.late++;
             if (g_rolled && g_rolled + 2 >= g_timed) g_stats.late_rollback++;  // the frames still behind its drawing
+        }
+        if (g_cfg.sparring && BackPressed(next)) {
+            Settle();
+            Leave("a player went back to the select screen");
+            return;
         }
         // the match in sync is over when the game says so at a frame both agree on (the next fight of a match, a
         // rematch, stays in sync: both games set it up in the same frame)
@@ -2171,6 +2206,7 @@ void LockstepPads() {
     }
     const Input mine = g_mine[g_frame];
     const Input theirs = g_theirs[g_frame];
+    if (g_cfg.sparring && g_back_frame == kNoFrame && ((mine.buttons | theirs.buttons) & kBackBit)) g_back_frame = g_frame;
     WritePort(g_cfg.side, mine, g_prev_buttons[g_cfg.side]);
     g_prev_buttons[g_cfg.side] = mine.buttons;
     WritePort(1 - g_cfg.side, theirs, g_prev_buttons[1 - g_cfg.side]);
@@ -2272,6 +2308,11 @@ void WatchFrameStart(X86Context& ctx) {
         Leave("the match is over");
         return;
     }
+    if (g_back_frame < next) {
+        Settle();
+        Leave("a player went back to the select screen");
+        return;
+    }
     if (!WaitForFeed(next)) return;
     const bool unseen = FastForward(next);
     g_frame = next;
@@ -2287,6 +2328,7 @@ void WatchFrameStart(X86Context& ctx) {
 // after the pad update in a spectator's match: both ports get their player's input
 void WatchPads() {
     const Input p1 = WatchInput(0, g_frame), p2 = WatchInput(1, g_frame);
+    if (g_cfg.sparring && g_back_frame == kNoFrame && ((p1.buttons | p2.buttons) & kBackBit)) g_back_frame = g_frame;
     WritePort(0, p1, g_frame ? WatchInput(0, g_frame - 1).buttons : 0);
     WritePort(1, p2, g_frame ? WatchInput(1, g_frame - 1).buttons : 0);
     g_confirmed = g_frame;
@@ -2329,6 +2371,11 @@ void FrameStart(uint64_t) {
     if (g_phase == Phase::Lockstep && game::MatchOver()) {  // every frame's top is agreed in lockstep
         Settle();
         Leave("the match is over");
+        return;
+    }
+    if (g_phase == Phase::Lockstep && g_back_frame < g_frame) {
+        Settle();
+        Leave("a player went back to the select screen");
         return;
     }
     Receive();

@@ -58,7 +58,7 @@ FEED_MAGIC = b"MKDR"
 FEED_TYPES = (5, 6, 7, 8, 9)  # the spectator feed's packet types (recomp/common/src/mk3d/netplay.cpp)
 # a match without a result: the games parted (desync), lost each other (disconnected), the game failed (error), or
 # the reporting player's game closed while the match ran (left: they ended it)
-RESULT_OUTCOMES = ("desync", "disconnected", "error", "left")
+RESULT_OUTCOMES = ("desync", "disconnected", "error", "left", "sparring")  # sparring: an Online Practice match ended
 BROKEN_OUTCOMES = ("disconnected", "error", "left")  # the two games are no longer together: no next match
 
 
@@ -1041,7 +1041,8 @@ class Server:
         start = {"elo": elo.INITIAL, "title": elo.title(elo.INITIAL), "wins": 0, "losses": 0}
         for game, modes in P.GAMES.items():
             for mode in modes:
-                stats.setdefault(game, {}).setdefault(mode, {}).setdefault("ranked", dict(start))
+                if mode not in P.LOBBY_ONLY_MODES:  # Online Practice keeps no records
+                    stats.setdefault(game, {}).setdefault(mode, {}).setdefault("ranked", dict(start))
         return {"name": row["name"], "created": int(row["created"]), "stats": stats}
 
     def on_profile(self, s: Session, msg: dict[str, Any]) -> None:
@@ -1138,6 +1139,8 @@ class Server:
     def on_queue_join(self, s: Session, msg: dict[str, Any]) -> None:
         assert self.db is not None and s.account_id is not None and s.name is not None
         game, mode = P.get_game_mode(msg)
+        if mode in P.LOBBY_ONLY_MODES:
+            raise P.ProtocolError("bad_mode", "Online Practice is played in a lobby: share its code with a friend.")
         ranked = P.get_bool(msg, "ranked", default=False)
         region = P.get_region(msg)
         max_ping = P.get_int(msg, "max_ping", lo=0, hi=2000, default=0)
@@ -1628,7 +1631,7 @@ class Server:
         assert p is not None
         outcome = msg.get("outcome")
         if outcome is not None:
-            if outcome not in RESULT_OUTCOMES:
+            if outcome not in RESULT_OUTCOMES or (outcome == "sparring" and m.mode not in P.LOBBY_ONLY_MODES):
                 raise P.ProtocolError("bad_request", "outcome must be desync, disconnected, error or left.")
             frame = msg.get("frame")
             report: dict[str, Any] = {"outcome": outcome,
@@ -1702,6 +1705,8 @@ class Server:
         fault = None
         if r1 is None or r2 is None:
             status = "unconfirmed"
+        elif r1.get("outcome") == "sparring" and r2.get("outcome") == "sparring":
+            status = "practice"  # an Online Practice match a player ended by going back to the select screen
         elif "outcome" in r1 or "outcome" in r2:
             status = "no_contest"
         elif (r1["winner"], r1["p1_rounds"], r1["p2_rounds"]) == (r2["winner"], r2["p1_rounds"], r2["p2_rounds"]):
@@ -1727,6 +1732,8 @@ class Server:
         elif status == "disputed":
             log.warning("DISPUTE match=%s %s reported %s, %s reported %s; no rating change",
                         m.id, p1.name, r1, p2.name, r2)
+        elif status == "practice":
+            log.info("PRACTICE match=%s %s and %s", m.id, p1.name, p2.name)
         elif fault is not None:
             log.info("ABANDONED match=%s by %s (%s=%s %s=%s)", m.id, fault.name, p1.name, r1, p2.name, r2)
         else:
@@ -2078,8 +2085,12 @@ class Server:
         if lobby.match is not m:
             return
         lobby.match = None
+        # Online Practice goes on: back to the select screen, the next match counts down by itself (a player who wants
+        # out un-readies or leaves)
+        keep = lobby.mode in P.LOBBY_ONLY_MODES
         for member in lobby.members:
-            member.ready = False
+            if not keep or member.spectator:
+                member.ready = False
         if lobby.id in self.lobbies:
             self._broadcast_lobby(lobby)
 
@@ -2215,12 +2226,17 @@ class Server:
             raise P.ProtocolError("bad_request", "rounds must be 1, 3 or 5.")
         region = P.get_region(msg)
         character = P.get_character(msg)
-        death_traps = P.get_bool(msg, "death_traps", default=True)
+        death_traps = P.get_bool(msg, "death_traps", default=True) and mode not in P.LOBBY_ONLY_MODES
+        if mode in P.LOBBY_ONLY_MODES:
+            character = ""  # both players pick on the game's select screen, and go back to it whenever they like
+            rounds = 1      # nobody is knocked out: no rounds to count
         host = LobbyMember(s, character)
         self._member_connection(host, msg)
+        # Online Practice is for its two players alone: nobody watches it
+        spectators = 0 if mode in P.LOBBY_ONLY_MODES else self.cfg.max_spectators
         lobby = Lobby(id=self._new_lobby_code(), name=name, game=game, mode=mode, region=region, rounds=rounds,
                       password=password, host=s, members=[host], created=time.time(),
-                      death_traps=death_traps, max_spectators=self.cfg.max_spectators)
+                      death_traps=death_traps, max_spectators=spectators)
         self.lobbies[lobby.id] = lobby
         s.lobby = lobby
         log.info("lobby %s created by %s (%s/%s%s)", lobby.id, s.name, game, mode, ", locked" if password else "")
@@ -2230,8 +2246,9 @@ class Server:
         game = msg.get("game")
         if game is not None and game not in P.GAMES:
             raise P.ProtocolError("bad_game", f"Unknown game {game!r}.")
+        # an Online Practice lobby is found by its code only
         items = [lb.summary() for lb in sorted(self.lobbies.values(), key=lambda lb: lb.created)
-                 if game is None or lb.game == game]
+                 if (game is None or lb.game == game) and lb.mode not in P.LOBBY_ONLY_MODES]
         self._reply(s, msg, {"type": "lobbies", "lobbies": items})
 
     def on_lobby_join(self, s: Session, msg: dict[str, Any]) -> None:
@@ -2242,6 +2259,8 @@ class Server:
         if lobby is None:
             raise P.ProtocolError("no_such_lobby", "No lobby with that code.")
         spectate = P.get_bool(msg, "spectate", default=False)
+        if lobby.mode in P.LOBBY_ONLY_MODES and (spectate or len(lobby.players()) >= 2):
+            raise P.ProtocolError("lobby_full", "Online Practice is for two players, and this one has both.")
         if spectate and len(lobby.spectators()) >= lobby.max_spectators:
             raise P.ProtocolError("lobby_full", "That lobby has no room for more spectators.")
         if not spectate and (lobby.match is not None or len(lobby.players()) >= 2):
@@ -2250,7 +2269,8 @@ class Server:
         if lobby.password and not hmac.compare_digest(lobby.password.encode(), password.encode()):
             raise P.ProtocolError("bad_lobby_password", "Wrong lobby password.")
         self._quit_series(s)
-        member = LobbyMember(s, P.get_character(msg), spectator=spectate)
+        character = "" if lobby.mode in P.LOBBY_ONLY_MODES else P.get_character(msg)  # Online Practice: picked in game
+        member = LobbyMember(s, character, spectator=spectate)
         self._member_connection(member, msg)
         lobby.members.append(member)
         s.lobby = lobby
@@ -2429,6 +2449,9 @@ class Server:
             raise P.ProtocolError("busy", "A match is running.")
         member = lobby.member(s)
         assert member is not None
+        if lobby.mode in P.LOBBY_ONLY_MODES:  # Online Practice: both pick on the game's select screen
+            self._broadcast_lobby(lobby, reply_to=(s, msg))
+            return
         member.character = P.get_character(msg)
         member.ready = False
         self._broadcast_lobby(lobby, reply_to=(s, msg))
@@ -2460,6 +2483,8 @@ class Server:
         if (role == "spectator") == member.spectator:
             self._broadcast_lobby(lobby, reply_to=(s, msg))
             return
+        if role == "spectator" and lobby.mode in P.LOBBY_ONLY_MODES:
+            raise P.ProtocolError("bad_request", "Online Practice has no spectators.")
         if role == "player":
             if lobby.match is not None:
                 raise P.ProtocolError("busy", "A match is running: take a place once it is over.")

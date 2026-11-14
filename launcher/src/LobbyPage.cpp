@@ -235,6 +235,13 @@ void LobbyPage::focusReady() {
     if (inLobby() && ready_->isVisible() && ready_->isEnabled()) ready_->setFocus(Qt::OtherFocusReason);
 }
 
+bool LobbyPage::lobbyOnly() const {
+    if (!inLobby()) return false;
+    const Game* g = GameData::instance().game(s(lobby_, "game"));
+    const GameMode* m = g ? g->mode(s(lobby_, "mode")) : nullptr;
+    return m && m->lobbyOnly;
+}
+
 void LobbyPage::setGame(const QString& gameId) {
     Page::setGame(gameId);
     refresh();
@@ -433,9 +440,10 @@ void LobbyPage::showLobby(const QJsonObject& lobby) {
     if (g && (newLobby || character_->count() == 0)) {
         const QSignalBlocker block(character_);
         character_->clear();
-        // the game's own select screen, with the player's own controller (cfg::pickInGame)
+        // the game's own select screen, with the player's own controller (cfg::pickInGame); Online Practice always
         if (!(m && m->picksInGame())) character_->addItem(tr("Pick in the game"), QString());
-        for (const auto& c : g->roster(s(lobby, "mode"))) character_->addItem(c.name, c.id);
+        if (!(m && m->lobbyOnly))
+            for (const auto& c : g->roster(s(lobby, "mode"))) character_->addItem(c.name, c.id);
     }
     if (myChar == QLatin1String("-")) myChar.clear();
     const int ci = character_->findData(myChar);
@@ -448,13 +456,14 @@ void LobbyPage::showLobby(const QJsonObject& lobby) {
     ready_->setChecked(meReady);
     ready_->setEnabled(!inMatch);
     ready_->setVisible(!meWatching);
-    character_->setEnabled(!inMatch && !(m && m->picksInGame()));
+    character_->setEnabled(!inMatch && !(m && (m->picksInGame() || m->lobbyOnly)));
     character_->setVisible(!meWatching);
     // a spectator takes a free place to play between matches; a player steps aside to watch
     role_->setText(meWatching ? tr("Play") : tr("Watch"));
     role_->setToolTip(meWatching ? tr("Take a free place to play in this lobby's next match")
                                  : tr("Step aside and watch this lobby's matches in your game"));
     role_->setEnabled(meWatching ? playersIn < 2 && !inMatch : !inMatch);
+    role_->setVisible(!(m && m->lobbyOnly));  // Online Practice: its two players alone, nobody watches
     watchingHere_ = meWatching;
     if (!meWatching) controller_->stopWatching();  // a player now: nothing more to watch
     else rejoinGrace_->stop();                      // back in after a dropped connection
@@ -479,7 +488,12 @@ void LobbyPage::showLobby(const QJsonObject& lobby) {
         chat_->appendPlainText(meWatching
                                    ? tr("-- Watching lobby %1: each of its matches plays in your game.")
                                          .arg(s(lobby, "id"))
-                                   : tr("-- Joined lobby %1. Share the code with your opponent.").arg(s(lobby, "id")));
+                                   : m && m->lobbyOnly
+                                       ? tr("-- Online Practice, lobby %1: share the code with one friend (two players, "
+                                            "nobody watching). No timer, health refills, nobody is knocked out. Press "
+                                            "BACK in the game (Backspace on a keyboard) to go back to character "
+                                            "select.").arg(s(lobby, "id"))
+                                       : tr("-- Joined lobby %1. Share the code with your opponent.").arg(s(lobby, "id")));
     }
 }
 
@@ -501,8 +515,12 @@ void LobbyPage::updateStatus() {
     }
     tick_->stop();
     countdown_->hide();
-    nextInfo_->setText(spectating() ? tr("The next match plays in your game once both players are ready.")
-                                    : tr("The match starts by itself once both players are ready."));
+    const Game* g = GameData::instance().game(s(lobby_, "game"));
+    const GameMode* m = g ? g->mode(s(lobby_, "mode")) : nullptr;
+    nextInfo_->setText(spectating()          ? tr("The next match plays in your game once both players are ready.")
+                       : m && m->lobbyOnly ? tr("Practice starts by itself once both players are ready, and again each "
+                                                "time someone presses BACK in the game for character select.")
+                                           : tr("The match starts by itself once both players are ready."));
     nextInfo_->show();
 }
 

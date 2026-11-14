@@ -207,6 +207,8 @@ bool GameProcess::start(const QString& exe, QString* error, bool netMode) {
     env.insert(QStringLiteral("MK3D_STRETCH_4X3"), cfg::stretch4x3() ? QStringLiteral("1") : QStringLiteral("0"));
     env.insert(QStringLiteral("MK3D_BRIGHTNESS"), QString::number(cfg::brightness()));
     env.insert(QStringLiteral("MK3D_FRAMEDATA"), cfg::frameData() ? QStringLiteral("1") : QStringLiteral("0"));
+    for (const QString& level : cfg::volumeNames())  // the sound levels (Settings, SOUND)
+        env.insert(QStringLiteral("MK3D_VOLUME_") + level.toUpper(), QString::number(cfg::volume(level)));
     // the same settings again whenever the player changes them, for the game that runs on (it keeps watching the file)
     cfg::writeDisplayFile();
     env.insert(QStringLiteral("MK3D_DISPLAY_FILE"), QDir::toNativeSeparators(paths::displayFile()));

@@ -373,7 +373,7 @@ void QueuePage::refreshModes() {
     const QSignalBlocker block(mode_);
     mode_->clear();
     for (const auto& m : g->onlineModes())
-        if (!ranked_ || m.ranked) mode_->addItem(m.name, m.id);
+        if (!m.lobbyOnly && (!ranked_ || m.ranked)) mode_->addItem(m.name, m.id);  // Online Practice: a lobby's
     const int i = mode_->findData(cfg::get(key(QStringLiteral("mode"))).toString());
     mode_->setCurrentIndex(i >= 0 ? i : 0);
     refreshRoster();
@@ -890,7 +890,8 @@ void SinglePlayerPage::setGame(const QString& gameId) {
     {
         const QSignalBlocker block(testMode_);
         testMode_->clear();
-        for (const auto& m : g->onlineModes()) testMode_->addItem(m.name, m.id);
+        for (const auto& m : g->onlineModes())
+            if (!m.lobbyOnly) testMode_->addItem(m.name, m.id);
     }
     refreshTestRoster();
     const QString exe = cfg::gameExe(gameId);

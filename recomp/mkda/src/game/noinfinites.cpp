@@ -38,6 +38,7 @@
 #include "core/log.h"
 #include "cpu/x86_ops.h"
 #include "game/frame.h"
+#include "mk3d/framedata.h"
 #include "kernel/kernel.h"
 #include "kernel/memory.h"
 
@@ -390,6 +391,8 @@ X86_FUNC(sub_00051290) {
         kernel::W32(self + kNoBlockToo, 0);
         kernel::W32(self + kBlockFrom, 0);
     }
+    // the practice dummy's tech roll (F6, framedata.h): the dummy holds the roll's direction while the check reads it
+    mk3d::framedata::TechScope tech(side == 1);
     __imp__sub_00051290(ctx, base);
 }
 

@@ -22,12 +22,16 @@
 
 #include "core/log.h"
 #include "game/autopilot.h"
+#include "game/events.h"
 #include "game/frame.h"
 #include "game/launcher_link.h"
 #include "kernel/kernel.h"
 
 namespace mka {
 namespace {
+
+constexpr uint32_t kCharacterSelect = kSelectTask;  // the select task (arcade, versus, practice)
+std::atomic<bool> g_select_lt[4] = {};             // SelectLT
 
 struct Press {
     int port = 0;
@@ -231,6 +235,13 @@ void PadHook(int port, input::Pad& pad) {
         for (auto& a : pad.analog) a = 0;
         pad.lx = pad.ly = pad.rx = pad.ry = 0;  // a stick pushed (or drifting) would steer the autopilot's menus
     }
+    // the select screen: LT is kept from it, for the costumes' other colours as a fighter is picked (pads.h)
+    if (kernel::R32(kMainTask) == kCharacterSelect) {
+        g_select_lt[port & 3] = pad.analog[6] > 0x20;
+        pad.analog[6] = 0;
+    } else {
+        g_select_lt[port & 3] = false;
+    }
     autopilot::Apply(port, pad);
     {
         std::lock_guard<std::mutex> lock(g_inject_lock);
@@ -244,6 +255,8 @@ void PadHook(int port, input::Pad& pad) {
     }
     if (g_filter) g_filter(port, pad);
 }
+
+bool SelectLT(int port) { return port >= 0 && port < 4 && g_select_lt[port].load(); }
 
 }  // namespace mka
 

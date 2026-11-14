@@ -135,6 +135,11 @@ bool adaptiveSync() { return get(QStringLiteral("display/adaptive_sync"), false)
 bool stretch4x3() { return get(QStringLiteral("display/stretch_4x3"), true).toBool(); }
 int brightness() { return qBound(50, get(QStringLiteral("display/brightness"), 100).toInt(), 200); }
 bool frameData() { return get(QStringLiteral("display/frame_data"), true).toBool(); }
+QStringList volumeNames() {
+    return {QStringLiteral("master"),   QStringLiteral("music"),   QStringLiteral("environment"),
+            QStringLiteral("announcer"), QStringLiteral("effects"), QStringLiteral("voices")};
+}
+int volume(const QString& name) { return qBound(0, get(QStringLiteral("display/volume_") + name, 100).toInt(), 150); }
 
 // key=value lines, the keys as the games' MK3D_ variables name them (recomp/common link.cpp, docs/PROTOCOL.md 3.1)
 void writeDisplayFile() {
@@ -146,7 +151,9 @@ void writeDisplayFile() {
                              .arg(stretch4x3() ? 1 : 0)
                              .arg(brightness())
                              .arg(frameData() ? 1 : 0);
-    winutil::writeFileAtomic(paths::displayFile(), text.toLatin1());
+    QString volumes;
+    for (const QString& name : volumeNames()) volumes += QStringLiteral("volume_%1=%2\n").arg(name).arg(volume(name));
+    winutil::writeFileAtomic(paths::displayFile(), (text + volumes).toLatin1());
 }
 bool udpLoopback() { return get(QStringLiteral("dev/udp_loopback"), false).toBool(); }
 bool udpBlocked() { return get(QStringLiteral("dev/udp_blocked"), false).toBool(); }

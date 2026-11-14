@@ -108,7 +108,8 @@ async def test_a_new_player_starts_a_beginner_and_a_record_from_the_old_start_st
     assert elo.INITIAL == 475
     start = {"elo": 475, "title": "Beginner", "wins": 0, "losses": 0}
     prof = await c.request({"type": "profile"})
-    assert all(prof["stats"][game][mode]["ranked"] == start for game, modes in P.GAMES.items() for mode in modes)
+    assert all(prof["stats"][game][mode]["ranked"] == start for game, modes in P.GAMES.items() for mode in modes
+               if mode not in P.LOBBY_ONLY_MODES)  # Online Practice keeps no record
     set_rating(server, "Goro", 1516)  # played ranked while everyone started at 1500
     prof = await c.request({"type": "profile"})
     assert prof["stats"]["mkd"]["kombat"]["ranked"] == {"elo": 1516, "title": "Chosen One", "wins": 3, "losses": 2}

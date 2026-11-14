@@ -9,15 +9,22 @@
 #include "core/log.h"
 #include "cpu/x86_ops.h"
 #include "game/autopilot.h"
+#include "game/colours.h"
 #include "game/events.h"
 #include "game/frame.h"
 #include "game/netgame.h"
 #include "kernel/kernel.h"
 #include "mk3d/netgame.h"
 #include "mk3d/netplay.h"
+#include "mk3d/sparring.h"
+#include "mk3d/volume.h"
 
 namespace mkda {
 namespace {
+
+// The launcher's sound levels (mk3d/volume.h) over the game's own sound categories: music, environment, announcer,
+// effects, fighter voices, the options block's first five floats (SOUND OPTIONS sub_001250C0 edits them; 0.9 each by default, 0x274D1C)
+const bool g_volume_installed = (mk3d::volume::Install(0x31FD00, 0.9f), true);
 
 // The arena of a fight comes from sub_0006F570 while the fight task loads, before the meeting point: in a versus
 // fight the next arena of a list (0x24D800, -1 at the end) that is open (sub_00116400: a bit of 0x273584, or of the
@@ -122,11 +129,29 @@ void AgreeOnTheFight() {
 }
 
 // the match's options as the launcher sets them: the rounds a player must win (the round end sub_0006F9A0 ends the
-// match at 0x31FD18) and no bonus game (Test Your Might or Sight) in place of a fight
-void SetOptions(int wins_needed) {
+// match at 0x31FD18) and no bonus game (Test Your Might or Sight) in place of a fight. Online Practice has no time
+// limit: the options' round time below 20 (the menu's own 0), which the round's timer setup sub_0006F8C0 turns into
+// the no time limit flag 0x2CE628, as the practice mode's. Both players' games set it; the meeting point takes the
+// left player's options (netgame.cpp Agree).
+uint32_t g_round_time = 0;  // the round time the player's own options had before Online Practice took it (0: none taken)
+void SetOptions(int wins_needed, bool sparring) {
     if (wins_needed > 0) kernel::W32(kOptRounds, uint32_t(wins_needed));
     kernel::W32(kOptBonusGames, kBonusGamesNever);
+    if (sparring) {
+        if (!g_round_time) g_round_time = kernel::R32(kOptRoundTime) ? kernel::R32(kOptRoundTime) : 0xFFFFFFFFu;
+        kernel::W32(kOptRoundTime, 0);
+    } else if (g_round_time) {  // the player's own round time again for anything else
+        kernel::W32(kOptRoundTime, g_round_time == 0xFFFFFFFFu ? 0 : g_round_time);
+        g_round_time = 0;
+    }
 }
+
+// Online Practice's fight: the fighters' health kept up (sparring.h) while a round can be under way
+const bool g_sparring_hook = (OnFrameStart([](uint64_t) {
+                                  if (!mk3d::sparring::On()) return;
+                                  mk3d::sparring::KeepHealth(kHealth, GameMode() == kModeVersus && !InFrontEnd());
+                              }),
+                              true);
 
 }  // namespace
 }  // namespace mkda
@@ -149,14 +174,15 @@ bool Begin(const Start& start) {
     // game takes both players' picks from their games)
     req.local_side = start.online && !start.watch ? start.side : -1;
     req.watch = start.watch;
+    const bool fight = start.mode == "kombat" || start.mode == "sparring";  // Online Practice picks as Kombat does
     for (int i = 0; i < 2; i++) {
-        req.by_player[i] = start.online && start.mode == "kombat" && start.picks[i].empty();
-        req.costumes[i] = start.online && start.mode == "kombat" ? start.costumes[i] : -1;
+        req.by_player[i] = start.online && fight && start.picks[i].empty();
+        req.costumes[i] = start.online && fight ? start.costumes[i] : -1;
         g_fight_costumes[i] = -1;
     }
     g_seed = start.seed;
     PickArena(start.seed, start.stage);
-    SetOptions(start.wins_needed);
+    SetOptions(start.wins_needed, start.mode == "sparring");
     return autopilot::Begin(req);
 }
 
@@ -166,7 +192,7 @@ void Rematch(const Start& start) {
     g_seed = start.seed;
     g_fight_costumes[0] = g_fight_costumes[1] = -1;
     PickArena(start.seed, start.stage);
-    SetOptions(start.wins_needed);
+    SetOptions(start.wins_needed, start.mode == "sparring");
     autopilot::Rematch();
 }
 
@@ -223,5 +249,8 @@ X86_FUNC(sub_0010D2B0) {
     constexpr uint32_t kSelectSetup = 0x10CB00;  // follows the select task's code
     const uint32_t from = kernel::R32(ctx.esp);
     __imp__sub_0010D2B0(ctx, base);
-    if (from > mkda::kSelectTask && from < kSelectSetup) mkda::AgreeOnTheFight();
+    if (from > mkda::kSelectTask && from < kSelectSetup) {
+        mkda::colours::SelectEnds();  // both costumes' colours, offline too (colours.h)
+        mkda::AgreeOnTheFight();
+    }
 }

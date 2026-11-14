@@ -13,6 +13,7 @@
 //   sub_000E24E0()        the main menu's state task
 // Each is logged (MKDA_EVENT_LOG=1) and counted; the counters are what netplay and the autopilot wait on.
 #include "game/events.h"
+#include "game/colours.h"
 
 #include <atomic>
 #include <cctype>
@@ -122,7 +123,7 @@ int ModeByName(const char* name) {
     struct {
         const char* name;
         int mode;
-    } modes[] = {{"arcade", int(kModeArcade)},     {"versus", int(kModeVersus)},   {"kombat", int(kModeVersus)},
+    } modes[] = {{"arcade", int(kModeArcade)},     {"versus", int(kModeVersus)},   {"kombat", int(kModeVersus)}, {"sparring", int(kModeVersus)},
                  {"practice", int(kModePractice)}, {"konquest", int(kModeKonquest)}, {"krypt", int(kModeKrypt)},
                  {"options", int(kModeOptions)},   {"profile", int(kModeProfile)}, {"kontent", int(kModeKontent)}};
     for (auto& m : modes)
@@ -245,7 +246,10 @@ X86_FUNC(sub_0012FDF0) {
 // character select: a player's pick (sets the character from the cursor's slot, state 3)
 X86_FUNC(sub_001112A0) {
     uint32_t player = kernel::R32(ctx.esp + 4);
+    const uint32_t before = player < 2 ? kernel::R32(mkda::kPlayerState[player]) : 0;
     __imp__sub_001112A0(ctx, base);
+    // LT held as the pick is taken: the costume's other colours (colours.h)
+    if (player < 2 && before != 3 && kernel::R32(mkda::kPlayerState[player]) == 3) mkda::colours::Picked(ctx, player);
     if (mkda::Logging() && player < 2)
         LOGI("event: frame %llu player %u picks slot %u: character %u, state %u", mkda::F(), player,
              kernel::R32(mkda::kSelectCursor[player]), kernel::R32(mkda::kCharacter[player]),

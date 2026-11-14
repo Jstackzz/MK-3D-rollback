@@ -6,6 +6,7 @@
 #include <QButtonGroup>
 #include <QCloseEvent>
 #include <QDesktopServices>
+#include <QFile>
 #include <QHBoxLayout>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -236,7 +237,9 @@ MainWindow::MainWindow(const LaunchOptions& opts, QWidget* parent)
         // player on a controller readies up for the next one (A, or START anywhere on the page)
         if (p == MatchController::Phase::Idle && wasInMatch_) {
             auto* lobby = qobject_cast<LobbyPage*>(pages_[kLobby]);
-            if (lobby && lobby->inLobby()) {
+            // Online Practice: the players stay ready and the next match brings both to the select screen by
+            // itself, so the game stays in front
+            if (lobby && lobby->inLobby() && !lobby->lobbyOnly()) {
                 selectPage(kLobby);
                 popUp(this);
                 lobby->focusReady();
@@ -866,6 +869,22 @@ void MainWindow::cliLobby() {
     applog::write(QStringLiteral("cli: looking for lobby \"%1\"").arg(name));
     cliLobbyPoll_ = new QTimer(this);
     connect(cliLobbyPoll_, &QTimer::timeout, this, [this] {
+        // --lobby-code-file: the host's code, joined by the code (a lobby the list leaves out)
+        if (!opts_.lobbyCodeFile.isEmpty()) {
+            QFile f(opts_.lobbyCodeFile);
+            const QString code = f.open(QIODevice::ReadOnly) ? QString::fromLatin1(f.readAll()).trimmed() : QString();
+            if (code.isEmpty() || cliLobbyJoined_) return;
+            cliLobbyJoined_ = true;
+            cliLobbyPoll_->stop();
+            const bool watch = opts_.lobby == QLatin1String("watch");
+            applog::write(QStringLiteral("cli: %1 lobby %2 by its code").arg(watch ? QStringLiteral("watching") : QStringLiteral("joining"), code));
+            server_->send({{QStringLiteral("type"), QStringLiteral("lobby_join")},
+                           {QStringLiteral("lobby"), code},
+                           {QStringLiteral("password"), QString()},
+                           {QStringLiteral("character"), opts_.character},
+                           {QStringLiteral("spectate"), watch}});
+            return;
+        }
         server_->send({{QStringLiteral("type"), QStringLiteral("lobby_list")}, {QStringLiteral("game"), gameId_}});
     });
     cliLobbyPoll_->start(1000);
@@ -897,6 +916,12 @@ void MainWindow::cliLobbyMessage(const QJsonObject& msg) {
     if (type != QLatin1String("lobby") || watch) return;  // a spectator never readies
     cliLastLobby_ = msg;
     const QJsonObject lobby = msg.value(QStringLiteral("lobby")).toObject();
+    if (opts_.lobby == QLatin1String("host") && !opts_.lobbyCodeFile.isEmpty() && !cliLobbyCodeWritten_) {
+        cliLobbyCodeWritten_ = true;
+        QFile f(opts_.lobbyCodeFile);
+        if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) f.write(lobby.value(QStringLiteral("id")).toString().toLatin1());
+        applog::write(QStringLiteral("cli: lobby code %1 in %2").arg(lobby.value(QStringLiteral("id")).toString(), opts_.lobbyCodeFile));
+    }
     QJsonArray members;  // the players: spectators neither ready nor play
     for (const auto& v : lobby.value(QStringLiteral("members")).toArray())
         if (!v.toObject().value(QStringLiteral("spectator")).toBool()) members.append(v);

@@ -15,8 +15,8 @@
 // comes first, else how far behind its next block is, so that -N means an attack of startup N or less lands while
 // player 1 holds block. The other number stands beside it. Recovery and total end at whichever opens first.
 //
-// The practice dummy's block (F8) is the one thing that changes the game: each game's "is this action held" hook asks
-// DummyHolds, which answers only in a practice fight on this PC alone.
+// The practice dummy's block (F8) and tech roll (F6) are the only things that change the game: each game's "is this
+// action held" hook asks DummyHolds and TechHolds, which answer only in a practice fight on this PC alone.
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -27,9 +27,11 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <exception>
 #include <mutex>
 
 #include "core/log.h"
@@ -41,7 +43,9 @@
 namespace mk3d::framedata {
 namespace {
 
-constexpr UINT kToggleKey = VK_F7, kDummyKey = VK_F8;
+constexpr UINT kToggleKey = VK_F7, kDummyKey = VK_F8, kTechKey = VK_F6;
+constexpr int kUp = 0xC, kRight = 0xD, kDown = 0xE, kLeft = 0xF;  // the games' actions for the directions
+constexpr auto kNoticeFor = std::chrono::milliseconds(2500);  // a key's new setting on screen, panel or not
 constexpr float kFontPixels = 48.0f;
 constexpr uint32_t kGiveUp = 300;  // frames: a move not over by then (a throw, a scripted sequence) shows nothing
 constexpr uint32_t kBlockWait = 30;  // frames past its next attack that player 1's next block is waited for
@@ -54,6 +58,12 @@ std::atomic<bool> g_following{false};  // ... and the overlay follows it
 std::atomic<bool> g_fight{false};      // ... with both fighters readable at the top of this frame (g_top)
 Fighter g_top[2];                      // both fighters as read at the top of this frame (main thread)
 std::atomic<int> g_dummy{int(Dummy::Stands)};  // F8
+std::atomic<int> g_tech{int(Tech::Off)};       // F6
+int g_tech_now = -1;          // the tech roll being decided (main thread): a Tech, -1 none
+uint32_t g_tech_draw = 0x9E3779B9u;  // Tech::Random's draws (this PC alone: nothing online rests on them)
+uint32_t g_tech_logged = 0;
+std::chrono::steady_clock::time_point g_notice_until;  // under g_shown_lock
+char g_notice[64] = {};                                // under g_shown_lock
 ImFont* g_font = nullptr;              // a larger font than the runtime's 13 px default, when Windows has one
 
 // player 1's attack being followed (main thread)
@@ -112,6 +122,22 @@ const char* ContactText(int contact) { return contact == 1 ? "On hit" : contact 
 
 const char* DummyText(Dummy d) {
     return d == Dummy::Blocks ? "blocks" : d == Dummy::CrouchBlocks ? "crouch blocks" : "stands";
+}
+
+const char* TechText(Tech t) {
+    switch (t) {
+        case Tech::Up: return "tech rolls up";
+        case Tech::Down: return "tech rolls down";
+        case Tech::Back: return "tech rolls back";
+        case Tech::Random: return "tech rolls at random";
+        default: return "does not tech roll";
+    }
+}
+
+void Notice(const char* what, const char* text) {
+    std::lock_guard<std::mutex> lock(g_shown_lock);
+    std::snprintf(g_notice, sizeof g_notice, "%s: the dummy %s", what, text);
+    g_notice_until = std::chrono::steady_clock::now() + kNoticeFor;
 }
 
 bool Allowed() {
@@ -288,6 +314,7 @@ void Install(const Adapter& adapter) {
     g_installed = true;
     if (const char* v = std::getenv("MK3D_FRAMEDATA")) g_on = std::atoi(v) != 0;
     if (const char* v = Env("FRAMEDATA_DUMMY")) g_dummy = std::clamp(std::atoi(v), 0, 2);  // tests: F8 from the start
+    if (const char* v = Env("FRAMEDATA_TECH")) g_tech = std::clamp(std::atoi(v), 0, 4);    // tests: F6 from the start
     OnFrameStart(&OnFrame);
 }
 
@@ -324,6 +351,45 @@ bool DummyHolds(int action, int block_action, int down_action) {
     return (d != Dummy::Stands && action == block_action) || (d == Dummy::CrouchBlocks && action == down_action);
 }
 
+Tech DummyTech() {
+    if (!g_practice.load(std::memory_order_relaxed) || record::DrivesDummy()) return Tech::Off;
+    return Tech(g_tech.load(std::memory_order_relaxed));
+}
+
+TechScope::TechScope(bool dummy_lands) {
+    if (!dummy_lands || g_tech_now >= 0) return;
+    Tech t = DummyTech();
+    if (t == Tech::Off) return;
+    if (t == Tech::Random) {
+        g_tech_draw ^= g_tech_draw << 13;
+        g_tech_draw ^= g_tech_draw >> 17;
+        g_tech_draw ^= g_tech_draw << 5;
+        t = Tech(int(Tech::Up) + int(g_tech_draw % 3));
+    }
+    g_tech_now = int(t);
+    on_ = true;
+    unwinding_ = std::uncaught_exceptions();
+}
+
+TechScope::~TechScope() {
+    if (!on_) return;
+    // the game's task switch to the roll leaves the check as an exception: one more in flight than as it began
+    const bool rolled = std::uncaught_exceptions() > unwinding_;
+    if (g_tech_logged < 60 && ++g_tech_logged)
+        LOGR("framedata: the dummy lands from a knockdown it can roll out of, %s: %s", TechText(Tech(g_tech_now)),
+             rolled ? "it rolls" : "no roll");
+    g_tech_now = -1;
+}
+
+int TechHolds(int action) {
+    switch (g_tech_now) {
+        case int(Tech::Up): return action == kUp;
+        case int(Tech::Down): return action == kDown;
+        case int(Tech::Back): return action == kRight || action == kLeft;
+        default: return -1;
+    }
+}
+
 void ActiveCheck(int side) {
     if (!Following() || (side != 0 && side != 1)) return;
     g_tested[side] = g_game.time();
@@ -341,8 +407,38 @@ void Window(void*) {
     }
 }
 
+// a key's new setting for a moment, where the panel goes (the panel says it itself while it is shown)
+void DrawNotice() {
+    char text[64];
+    {
+        std::lock_guard<std::mutex> lock(g_shown_lock);
+        if (!g_notice[0] || std::chrono::steady_clock::now() > g_notice_until) return;
+        std::memcpy(text, g_notice, sizeof text);
+    }
+    const ImGuiIO& io = ImGui::GetIO();
+    const float px = std::max(14.0f, io.DisplaySize.y / 34.0f);
+    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.87f), ImGuiCond_Always,
+                            ImVec2(0.5f, 1.0f));
+    ImGui::SetNextWindowBgAlpha(0.55f);
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
+                                   ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoNav |
+                                   ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoBringToFrontOnFocus |
+                                   ImGuiWindowFlags_NoSavedSettings;
+    if (g_font) ImGui::PushFont(g_font);
+    if (ImGui::Begin("##mk3d_framedata_notice", nullptr, flags)) {
+        ImGui::SetWindowFontScale(px / (g_font ? kFontPixels : 13.0f));
+        ImGui::Text("%s", text);
+        ImGui::SetWindowFontScale(1.0f);
+    }
+    ImGui::End();
+    if (g_font) ImGui::PopFont();
+}
+
 void Ui(double) {
-    if (!g_on.load(std::memory_order_relaxed) || !g_following.load(std::memory_order_relaxed)) return;
+    if (!g_on.load(std::memory_order_relaxed) || !g_following.load(std::memory_order_relaxed)) {
+        if (g_practice.load(std::memory_order_relaxed)) DrawNotice();
+        return;
+    }
     Shown s;
     {
         std::lock_guard<std::mutex> lock(g_shown_lock);
@@ -365,10 +461,13 @@ void Ui(double) {
         const ImVec4 dim(0.75f, 0.75f, 0.75f, 1.0f);
         const float gap = px;  // between the parts of a line
         const Dummy dummy = Dummy(g_dummy.load(std::memory_order_relaxed));
+        const Tech tech = Tech(g_tech.load(std::memory_order_relaxed));
         if (!s.valid) {
             ImGui::TextColored(dim, "Frame data: attack with player 1");
             ImGui::SameLine(0.0f, gap);
             ImGui::TextColored(dim, "F8: the dummy %s", DummyText(dummy));
+            ImGui::SameLine(0.0f, gap);
+            ImGui::TextColored(dim, "F6: it %s", TechText(tech));
         } else {
             if (s.name[0]) {
                 ImGui::TextColored(dim, "%s", s.name);
@@ -412,6 +511,10 @@ void Ui(double) {
                 ImGui::SameLine(0.0f, gap);
                 ImGui::TextColored(dim, "The dummy %s (F8)", DummyText(dummy));
             }
+            if (tech != Tech::Off) {
+                ImGui::SameLine(0.0f, gap);
+                ImGui::TextColored(dim, "%s (F6)", TechText(tech));
+            }
         }
         ImGui::SetWindowFontScale(1.0f);
     }
@@ -429,6 +532,12 @@ bool Message(void*, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t*) {
         const int d = (g_dummy.load() + 1) % 3;
         g_dummy = d;
         LOGR("framedata: the practice dummy %s", DummyText(Dummy(d)));
+        Notice("F8", DummyText(Dummy(d)));
+    } else if (wp == kTechKey) {
+        const int t = (g_tech.load() + 1) % 5;
+        g_tech = t;
+        LOGR("framedata: the practice dummy %s", TechText(Tech(t)));
+        Notice("F6", TechText(Tech(t)));
     }
     return false;  // the game and the runtime see the key as before
 }

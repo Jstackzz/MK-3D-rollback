@@ -48,7 +48,8 @@ struct Slot {
     QString name;         // "Acid Bath", "Main menu"
     QString bank;         // the sound bank its music is in; empty: cannot be changed (the game's own stays)
     QList<int> streams;   // the bank's streams that are its music; empty: every stream of 12 s or more; {-1}: all;
-                          // {-2}: the round music's cues in the bank's descriptor (roundMusicStreams)
+                          // {-2}: the round music's cues in the bank's descriptor (roundMusicStreams); {-3}: the
+                          // Finish Him slot, whose song goes into every stage's bank (finishStreams), no bank of its own
     QStringList tags;     // keywords for the preset picks
     QString why;          // why it cannot be changed, when it cannot
     bool isStage() const { return stage >= 0; }
@@ -82,6 +83,9 @@ struct Pick {
     QString soundtrack;  // empty: the game's own
     QString file;        // the track (full path)
     QString title;
+    // a stage's "finish him" loop: the Finish Him slot's song (empty: the game's own), in the stage's bank
+    QString finishFile;
+    QString finishTitle;
 };
 struct Plan {
     QList<Pick> picks;  // one a slot, in the game's slot order
@@ -159,6 +163,11 @@ QByteArray setStreamed(const QByteArray& mbx, const QList<int>& ids);
 // not the "finish him" loop or the round-end sting). seconds: the bank's streams' lengths (bankStreams). Empty when
 // the descriptor has no cues this reads (Deadly Alliance's version 6 and Deception's and Armageddon's version 11 do).
 QList<int> roundMusicStreams(const QByteArray& mbx, const QMap<int, double>& seconds);
+// The streams of a stage's "finish him" music: every cue that loops a stream shorter than 20 s and plays none of the
+// round music's streams (the round-end sting loops nothing; Deadly Alliance's cue of every piece in a row plays the
+// round music; Moloch's Lair's other loop is 28.6 s; Armageddon's jukebox bank has one such cue for each of its stage
+// tunes). Empty when the descriptor has none.
+QList<int> finishStreams(const QByteArray& mbx, const QMap<int, double>& seconds);
 // the descriptor with its cues fitted to replaced streams: an element after a replaced stream starts once that stream's
 // new length has passed, and a cue that ends after one ends then, so a song never plays over itself
 QByteArray fitCueTimes(const QByteArray& mbx, const QMap<int, double>& newSeconds);

@@ -17,6 +17,11 @@ void SetPadFilter(PadFilter f);
 // analog buttons pressed fully (bits of Pad::analog); false on an unknown name
 bool ParseButtons(const std::string& names, uint16_t& buttons, uint8_t& analog);
 
+// On the character select screen LT is the costumes' other colours as a fighter is picked (colours.cpp), which the
+// screen itself would take (LT un-picks and opens its profile panel there): it is kept from the screen, and this says
+// whether the port held it at its last read there
+bool SelectLT(int port);
+
 // holds buttons on a port for a number of main loop frames from now (the debug monitor's "pad" command)
 void InjectPad(int port, uint16_t buttons, uint8_t analog, uint64_t frames);
 

@@ -1,0 +1,64 @@
+diff --git a/runtime/audio/audio.h b/runtime/audio/audio.h
+--- a/runtime/audio/audio.h
++++ b/runtime/audio/audio.h
+@@ -9,4 +9,7 @@
+ // the platform output pulls interleaved stereo float frames from render
+ void StartOutput(std::function<void(float* out, uint32_t frames)> render);
+ 
++// everything the speakers get, scaled (1 as rendered, 0 silent, above 1 louder); any thread, from the next buffer on
++void SetMasterVolume(float volume);
++
+ }  // namespace audio
+diff --git a/runtime/audio/xaudio2.cpp b/runtime/audio/xaudio2.cpp
+--- a/runtime/audio/xaudio2.cpp
++++ b/runtime/audio/xaudio2.cpp
+@@ -8,6 +8,7 @@
+ #include <windows.h>
+ #include <xaudio2.h>
+ 
++#include <atomic>
+ #include <cstdio>
+ #include <cstdlib>
+ #include <string>
+@@ -20,6 +21,8 @@
+ namespace audio {
+ 
+ namespace {
++
++std::atomic<float> g_master{1.0f};  // SetMasterVolume
+ 
+ // XBE_AUDIO_DUMP=<file.wav>: everything sent to the speakers (48 kHz float stereo), to find where the sound breaks
+ void DumpHeader(std::FILE* f, uint32_t frames) {
+@@ -43,6 +46,8 @@
+ }
+ 
+ }  // namespace
++
++void SetMasterVolume(float volume) { g_master = volume < 0.0f ? 0.0f : volume > 4.0f ? 4.0f : volume; }
+ 
+ void StartOutput(std::function<void(float*, uint32_t)> render) {
+     std::thread([render] {
+@@ -74,7 +79,10 @@
+             return;
+         }
+         // XBE_AUDIO_MUTE=1 (tests on a PC someone uses): nothing to the speakers, the game and a dump run as ever
+-        if (const char* mute = std::getenv("XBE_AUDIO_MUTE"); mute && *mute && *mute != '0') voice->SetVolume(0.0f);
++        const char* mute_env = std::getenv("XBE_AUDIO_MUTE");
++        const bool muted = mute_env && *mute_env && *mute_env != '0';
++        float applied = muted ? 0.0f : g_master.load();
++        voice->SetVolume(applied);
+         voice->Start();
+         constexpr uint32_t kFrames = kRate / 100;
+         constexpr uint32_t kMinQueued = 3;
+@@ -95,6 +103,11 @@
+                 Sleep(2);
+                 continue;
+             }
++            // the master volume as it is now (the voice scales what it plays; a dump keeps the game's own)
++            if (const float want = muted ? 0.0f : g_master.load(); want != applied) {
++                voice->SetVolume(want);
++                applied = want;
++            }
+             float* b = &bufs[(n % kSlots) * kFrames * 2];
+             render(b, kFrames);
+             if (dump) {

@@ -117,16 +117,45 @@ X86_FUNC(sub_00071730) {
 // (sub_00075610: its own block, the hit's victim's). No controller drives the practice dummy, so with F8 this answers
 // for it: block held (and down, crouching).
 X86_FUNC(sub_0008A210) {
-    if (mk3d::framedata::DummyBlock() != mk3d::framedata::Dummy::Stands) {
+    const int tech = mk3d::framedata::TechHolds(int(kernel::R32(ctx.esp + 8)));  // -1: no tech roll being decided
+    if (tech >= 0 || mk3d::framedata::DummyBlock() != mk3d::framedata::Dummy::Stands) {
         const uint32_t dummy = mkd::FighterObject(1), player = mkd::FighterObject(0);
         const uint32_t port = kernel::R32(ctx.esp + 4), action = kernel::R32(ctx.esp + 8);
         if (dummy && player && port == kernel::R32(dummy + mkd::kControls) &&
             port != kernel::R32(player + mkd::kControls) &&
-            mk3d::framedata::DummyHolds(int(action), mkd::kActionBlock, mkd::kActionDown)) {
-            ctx.eax = 1;
+            (tech >= 0 || mk3d::framedata::DummyHolds(int(action), mkd::kActionBlock, mkd::kActionDown))) {
+            ctx.eax = tech >= 0 ? uint32_t(tech) : 1;  // a tech roll: its direction alone (no block, no buttons)
             ctx.esp += 4;  // ret (the caller pops the arguments)
             return;
         }
     }
     __imp__sub_0008A210(ctx, base);
 }
+
+// The practice dummy's tech roll (F6, framedata.h): while the game decides whether a fighter landing from a knockdown
+// rolls, the dummy holds the roll's direction. A roll starts through the game's task switch, which leaves these checks
+// by unwinding them, the scope with them.
+// the tech roll check of twelve knockdown reactions and script command 0xD5
+X86_EXTERN_FUNC(__imp__sub_0006E920);
+X86_FUNC(sub_0006E920) {
+    const uint32_t self = kernel::R32(mkd::kSelf);
+    mk3d::framedata::TechScope tech(self && self == mkd::FighterObject(1));
+    __imp__sub_0006E920(ctx, base);
+}
+
+// script command 0xD6's (Deadly Alliance's order: away, up, down)
+X86_EXTERN_FUNC(__imp__sub_0006EB00);
+X86_FUNC(sub_0006EB00) {
+    const uint32_t self = kernel::R32(mkd::kSelf);
+    mk3d::framedata::TechScope tech(self && self == mkd::FighterObject(1));
+    __imp__sub_0006EB00(ctx, base);
+}
+
+// script command 0xDD's (rolls of their own)
+X86_EXTERN_FUNC(__imp__sub_0006ECA0);
+X86_FUNC(sub_0006ECA0) {
+    const uint32_t self = kernel::R32(mkd::kSelf);
+    mk3d::framedata::TechScope tech(self && self == mkd::FighterObject(1));
+    __imp__sub_0006ECA0(ctx, base);
+}
+

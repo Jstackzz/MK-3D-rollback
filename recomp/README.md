@@ -329,6 +329,8 @@ for p in recomp/patches/xboxxberecomp-*.patch; do git -C external/XboxXBERecomp 
 - `0048-audio-mute`: `XBE_AUDIO_MUTE=1` plays nothing through the speakers (the output voice at volume 0) while the
   game, its pacing and an `XBE_AUDIO_DUMP` run as ever: tests on a PC someone is using (the owner heard two test
   games' music, one with the jukebox's songs and one with the game's own, and took it for a fault of their game).
+- `0049-master-volume`: `audio::SetMasterVolume`: the output voice's volume, from the next buffer on (above 1 is
+  louder; `XBE_AUDIO_MUTE` still wins). The launcher's master sound level (`recomp/common/src/mk3d/volume.cpp`).
 
 `tools/py/lib_audit.py <game dir> <xbsdb symbols>` lists the XDK library
 functions the game calls that still run console code against host objects,

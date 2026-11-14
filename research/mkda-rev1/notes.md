@@ -666,3 +666,24 @@ No runtime code was changed for this game: everything is config (`recomp/mkda/co
   autopilot's) pass it and both movies, the main menu is up at about 11.6 s.
 - The runtime could set the device's multisample type itself (see "The invisible fighters"); then the game-local
   `KeepMultiSampleType` can go.
+
+## 1.0.7: Online Practice, tech rolls, the other colours, sound levels (2026-11-13)
+
+- Online Practice (`sparring`, `recomp/common/src/mk3d/sparring.cpp`, netplay.cpp `BackPressed`): a lobby-only versus
+  match whose players pick on the select screen. Each game sets its options' round time to the game's own "no time
+  limit" (0x31FD1C below 20, the options menu's 0: sub_0006F8C0 sets the no time limit flag 0x2CE628), and at the top of every frame in sync a fighter's health goes back to full after 90 frames without
+  a change, and at once below 0.3 (no hit takes more in one frame, so nobody is knocked out); what it remembers is
+  guest memory taken at the first frame after boot (the same moment on every game). A player's BACK (stripped from
+  the game's blocks like START) goes in their netplay input as bit 31; once it is in an input both games ran with,
+  each game leaves the match in sync at its next frame's top (neither waits for the other's inputs past it), the
+  link reports `sparring_over`, and the lobby's next match brings both to the select screen again.
+- Tech rolls in practice (F6, `framedata.cpp` TechScope / TechHolds): around the game's tech roll checks, for the dummy,
+  the "is this action held" hook answers the roll's direction alone (up 0xC, down 0xE, back 0xD and 0xF: the games
+  ask only the side away from the opponent), nothing else (no block, no buttons). A roll leaves the check through the
+  task switch's exception, which ends the scope as it unwinds. Checks: sub_00051290 (ten knockdown reactions; its hook in noinfinites.cpp) and sub_00051420 (script command 0x73).
+- The other colours (the costume word *(0x273DD4) P1, *(0x273E0C) P2 (0x3200F4 / 0x3200F0); the pick sub_001112A0, held LT through sub_00075B50(player, 2); the select end sub_0010D2B0. The texture table 0x243B40 + character * 0x110: +0x00 / +0x30 the costumes, +0x60 / +0x70 their other colours (ap_*.sec); Moloch and Blaze have none (the same file for all four)): LT held as a pick is taken sets the costume's bit 1; the select screen's end settles
+  both players' bits from what both games agreed (the pick words carry them), and P2 the other colours when both have
+  the same fighter, costume and colours.
+- Sound levels (`recomp/common/src/mk3d/volume.cpp`): the five category floats 0x31FD00..0x31FD10 (music, environment, announcer, effects, fighter voices) written at every frame's top
+  while they differ from the launcher's levels (percent of the game's own: 0.9 each, 0x274D1C), 0 % as 0.0005; the master is the
+  runtime's output voice (patch 0049).

@@ -159,7 +159,7 @@ int ActionFor(const std::string& mode) {
     struct {
         const char* name;
         int action;
-    } modes[] = {{"versus", kActionVersus},     {"kombat", kActionVersus}, {"arcade", kActionArcade},
+    } modes[] = {{"versus", kActionVersus},     {"kombat", kActionVersus}, {"sparring", kActionVersus}, {"arcade", kActionArcade},
                  {"practice", kActionPractice}, {"motor", kActionKart},    {"konquest", kActionKonquest},
                  {"kontent", 0x15},             {"kreate", 0x16}};
     for (auto& m : modes)
@@ -370,7 +370,7 @@ void ResetPlayerPicks() {
         // a side the launcher picked with its costume (the fighter a ranked set's winner keeps, as they won with it):
         // both games pick it and give it that costume, and fight with both (the select screen's end, linkgame.cpp)
         if (!g_req.by_player[i] && g_req.costumes[i] >= 0 && g_req.characters[i] >= 0) {
-            g_their_costume[i] = g_agreed_costume[i] = g_req.costumes[i] ? 1u : 0u;
+            g_their_costume[i] = g_agreed_costume[i] = uint32_t(g_req.costumes[i]) & 3u;  // costume and colours
             g_costume_due[i] = true;
             g_agreed[i] = g_req.characters[i];
             LOGR("autopilot: P%d keeps character %d, costume %u", i + 1, g_agreed[i], g_agreed_costume[i]);
@@ -403,8 +403,11 @@ void ExchangePicks() {
                      CharacterAt(at), under);
             const bool alternate = kernel::R32(block + kSelectAlternate[me]) ||
                                    (kernel::R32(kRecord[me] + kRecordCostume) & 1);
+            // the other colours (colours.h): picked holding LT, or the mirror rule's for the second picker here
+            const bool colours = kernel::R32(block + kSelectColours[me]) != 0;
             const uint32_t chosen = kernel::R32(kTrackChoice);
-            const uint32_t words[3] = {under, alternate ? 1u : 0u, chosen < kArenaChoices ? chosen : kNoArena};
+            const uint32_t words[3] = {under, (alternate ? 1u : 0u) | (colours ? 2u : 0u),
+                                       chosen < kArenaChoices ? chosen : kNoArena};
             mk3d::net::SetLocalPick(words, 3);
             g_local_pick_sent = true;
             g_agreed[me] = int(words[0]);
@@ -432,7 +435,7 @@ void ExchangePicks() {
                 g_their_cursor[other] = int(words[0] & uint32_t(kSlots - 1));
             } else if (in && n > 0 && SlotOf(int(words[0])) >= 0) {
                 g_req.characters[other] = int(words[0]);
-                g_their_costume[other] = n > 1 && words[1] ? 1 : 0;
+                g_their_costume[other] = n > 1 ? words[1] & 3u : 0u;  // bit 0 the second costume, bit 1 the colours
                 g_costume_due[other] = true;
                 g_agreed[other] = int(words[0]);
                 g_agreed_costume[other] = g_their_costume[other];
@@ -444,18 +447,17 @@ void ExchangePicks() {
     }
     for (int side = 0; side < 2; side++) {
         if (g_costume_due[side] && Picked(side)) {
-            kernel::W32(block + kSelectAlternate[side], g_their_costume[side]);
+            kernel::W32(block + kSelectAlternate[side], g_their_costume[side] & 1u);
             g_costume_due[side] = false;
         }
     }
-    if (Picked(0) && Picked(1) && !g_costume_due[0] && !g_costume_due[1]) {
-        const auto alternate = [&](int s) {
-            return kernel::R32(block + kSelectAlternate[s]) != 0 || (kernel::R32(kRecord[s] + kRecordCostume) & 1);
-        };
-        const bool mirror = kernel::R32(block + kSelectUnder[0]) == kernel::R32(block + kSelectUnder[1]) &&
-                            alternate(0) == alternate(1);
-        kernel::W32(block + kSelectColours[0], 0);
-        kernel::W32(block + kSelectColours[1], mirror ? 1 : 0);
+    // both picked: each side's colours as both games have them (the select screen's end settles them so too,
+    // linkgame.cpp), P2 the other ones in a mirror of costume and colours
+    if (Picked(0) && Picked(1) && !g_costume_due[0] && !g_costume_due[1] && g_agreed[0] >= 0 && g_agreed[1] >= 0) {
+        uint32_t c[2] = {g_agreed_costume[0] & 3u, g_agreed_costume[1] & 3u};
+        if (g_agreed[0] == g_agreed[1] && c[0] == c[1]) c[1] ^= 2u;
+        kernel::W32(block + kSelectColours[0], (c[0] >> 1) & 1u);
+        kernel::W32(block + kSelectColours[1], (c[1] >> 1) & 1u);
     }
 }
 

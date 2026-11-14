@@ -41,6 +41,7 @@ struct LaunchOptions {
     QString extractImage;    // open "Build game" and extract this disc image right away
     QString lobby;           // "host": create a lobby and start it once both are ready; "join": join it by name
     QString lobbyName;
+    QString lobbyCodeFile;   // the host writes its lobby's code here, a joiner reads it (lobbies the list leaves out)
     int lobbyMatches = 1;    // matches to play there, one after the other
     bool leaveLobby = false; // once they are played, leave the lobby (its game closes once idle)
     int rematches = 0;       // --queue casual: rematches to choose after the first match
@@ -144,6 +145,7 @@ private:
     bool cliQueued_ = false;
     int cliRematches_ = 0;  // rematches chosen
     bool cliLobbyBegun_ = false, cliLobbyJoined_ = false, cliLobbyInMatch_ = false, cliLobbyLeft_ = false;
+    bool cliLobbyCodeWritten_ = false;  // --lobby host --lobby-code-file: written
     int cliLobbyDone_ = 0, cliLobbyReadyFor_ = -1, cliLobbyStarts_ = 0;  // matches over, ready sent for, starts sent
     QTimer* cliLobbyPoll_ = nullptr;
     QJsonObject cliLastLobby_;  // the lobby's last state, looked at again once the controller is idle

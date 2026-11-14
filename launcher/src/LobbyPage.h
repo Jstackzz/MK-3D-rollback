@@ -29,6 +29,8 @@ public:
     // goes back to it, so A readies up for the next one
     void pressReady();
     void focusReady();
+    // the lobby's mode is lobby-only (Online Practice): its next match comes by itself, nothing to ready up for
+    bool lobbyOnly() const;
 
 protected:
     void showEvent(QShowEvent* event) override;

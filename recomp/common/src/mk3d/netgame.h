@@ -21,6 +21,9 @@ namespace game {
 uint32_t NeutralSticks();  // both sticks centred, packed as the blocks hold them
 // this PC's controller as the game read it this frame (the physical pad is port 0)
 void ReadLocal(uint32_t& buttons, uint32_t& sticks);
+// this PC's controller holds BACK this frame (ReadLocal leaves it out, as START): Online Practice's way back to the
+// select screen
+bool LocalBack();
 // what a port's block gets: these buttons and sticks, with prev_buttons as the last frame's
 void WritePort(int port, uint32_t buttons, uint32_t sticks, uint32_t prev_buttons);
 // before a pad update in a match: port 0's sticks as this PC's controller left them (ReadLocal's), not the input the

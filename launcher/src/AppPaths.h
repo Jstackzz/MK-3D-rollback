@@ -3,6 +3,7 @@
 
 #include <QSettings>
 #include <QString>
+#include <QStringList>
 #include <QVariant>
 
 namespace paths {
@@ -53,6 +54,10 @@ bool adaptiveSync();  // with vsync, a G-SYNC or FreeSync monitor: the games' fr
 bool stretch4x3();  // a 4:3 game (Deadly Alliance) fills a widescreen monitor (else 4:3 between bars)
 int brightness();   // percent, 100 as the games draw it
 bool frameData();   // practice shows player 1's frame data (MK3D_FRAMEDATA); F7 in the game shows or hides it
+// the games' sound levels, percent of the game's own (100), 0 to 150: "master", "music", "environment", "announcer",
+// "effects", "voices" (MK3D_VOLUME_<NAME>; the display file's volume_<name>)
+QStringList volumeNames();
+int volume(const QString& name);
 // paths::displayFile() written again from the display settings: a running game follows it (MK3D_DISPLAY_FILE). set()
 // does it for every display/ key.
 void writeDisplayFile();

@@ -16,9 +16,9 @@ async def test_welcome_and_version_check(server, connect):
     assert conn.welcome["type"] == "welcome"
     assert conn.welcome["proto"] == P.PROTO
     assert conn.welcome["udp_port"] == server.udp_port
-    assert conn.welcome["games"]["mkd"] == ["kombat", "chess", "puzzle"]
-    assert conn.welcome["games"]["mka"] == ["kombat", "motor"]
-    assert conn.welcome["games"]["mkda"] == ["kombat"]
+    assert conn.welcome["games"]["mkd"] == ["kombat", "chess", "puzzle", "sparring"]
+    assert conn.welcome["games"]["mka"] == ["kombat", "motor", "sparring"]
+    assert conn.welcome["games"]["mkda"] == ["kombat", "sparring"]
 
     bad_proto = Connection("127.0.0.1", server.tcp_port, fingerprint=server.fingerprint)
     await bad_proto.connect(hello=False)

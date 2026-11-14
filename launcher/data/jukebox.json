@@ -246,6 +246,18 @@
             26,
             27
           ]
+        },
+        {
+          "id": "finish",
+          "name": "Finish Him",
+          "bank": "stages",
+          "streams": "finish"
+        },
+        {
+          "id": "fatality",
+          "name": "Fatality",
+          "bank": "music_fatality",
+          "streams": "all"
         }
       ]
     },
@@ -541,6 +553,18 @@
             1,
             2
           ]
+        },
+        {
+          "id": "finish",
+          "name": "Finish Him",
+          "bank": "stages",
+          "streams": "finish"
+        },
+        {
+          "id": "fatality",
+          "name": "Fatality",
+          "bank": "music_fatality",
+          "streams": "all"
         }
       ]
     },
@@ -1007,6 +1031,12 @@
           "streams": [
             5
           ]
+        },
+        {
+          "id": "finish",
+          "name": "Finish Him",
+          "bank": "stages",
+          "streams": "finish"
         }
       ]
     }

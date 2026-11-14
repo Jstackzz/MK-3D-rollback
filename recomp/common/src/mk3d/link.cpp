@@ -44,6 +44,8 @@
 #include "mk3d/names.h"
 #include "mk3d/ranks.h"
 #include "mk3d/netplay.h"
+#include "mk3d/sparring.h"
+#include "mk3d/volume.h"
 
 namespace mk3d::link {
 namespace {
@@ -194,6 +196,7 @@ void Start(const Command& c) {
         st.side = side;
         st.delay = std::atoi(Key(c, "delay", "2").c_str());
         st.loopback_only = st.peer.rfind("127.", 0) == 0;
+        st.sparring = mode == "sparring";
         // tests: a simulated network on what this game sends, as for a game started by hand (netplay.cpp Load)
         if (const char* v = Env("NET_LAG")) st.lag_ms = std::atoi(v);
         if (const char* v = Env("NET_JITTER")) st.jitter_ms = std::atoi(v);
@@ -211,6 +214,7 @@ void Start(const Command& c) {
     }
     // the players' names over the fight and their rank badges behind the portraits, an online or a watched match's
     // only (names.h, ranks.h)
+    sparring::Set(g_online && mode == "sparring");
     names::SetPlayers(g_online ? Key(c, "p1_name") : std::string(), g_online ? Key(c, "p2_name") : std::string());
     ranks::SetPlayers(g_online ? Key(c, "p1_rank") : std::string(), g_online ? Key(c, "p2_rank") : std::string());
     game::Start start;
@@ -267,6 +271,7 @@ void Park() {
     g_park_after_end = false;
     g_in_match = false;
     g_fighting = false;
+    sparring::Set(false);
     net::Disable();
     names::SetPlayers(std::string(), std::string());
     ranks::SetPlayers(std::string(), std::string());
@@ -328,6 +333,15 @@ void Update() {
         if (started) {
             g_fighting = true;
             WriteStatus("in_match match=" + g_match);
+        }
+        return;
+    }
+    // Online Practice has no result: once the match in sync is over (a player pressed BACK, or the fight ended some
+    // other way), the launcher reports it and the lobby's next match brings both players to the select screen again
+    if (g_start.mode == "sparring") {
+        if (!g_reported && !InSync()) {
+            WriteStatus("sparring_over match=" + g_match);
+            g_reported = true;
         }
         return;
     }
@@ -455,6 +469,7 @@ struct Display {
     std::optional<std::pair<uint32_t, uint32_t>> size;  // 0x0: the monitor's own
     std::optional<bool> vsync, adaptive_sync, stretch_4x3, frame_data;
     std::optional<uint32_t> brightness;  // percent, 100 as the game draws it
+    std::optional<int> volume[volume::kLevels];  // the sound levels (volume.h), percent
     bool Any() const { return mode || size || vsync || adaptive_sync || stretch_4x3 || frame_data || brightness; }
 };
 
@@ -482,6 +497,9 @@ void Take(Display& d, const std::string& key, const std::string& v) {
         d.brightness = uint32_t(std::clamp(std::atoi(v.c_str()), 50, 200));
     } else if (key == "frame_data") {
         d.frame_data = std::atoi(v.c_str()) != 0;
+    } else if (key.rfind("volume_", 0) == 0) {
+        for (int i = 0; i < volume::kLevels; i++)
+            if (key.compare(7, std::string::npos, volume::Name(volume::Level(i))) == 0) d.volume[i] = std::atoi(v.c_str());
     }
 }
 
@@ -565,6 +583,8 @@ void WatchDisplayFile(std::wstring path, Display last) {
                 if (d.brightness && d.brightness != last.brightness) s.brightness = *d.brightness;
                 if (d.stretch_4x3 && d.stretch_4x3 != last.stretch_4x3) s.stretch_4x3 = *d.stretch_4x3;
                 if (d.frame_data && d.frame_data != last.frame_data) framedata::SetShown(*d.frame_data);
+                for (int i = 0; i < volume::kLevels; i++)
+                    if (d.volume[i] && d.volume[i] != last.volume[i]) volume::Set(volume::Level(i), *d.volume[i]);
                 if ((d.mode && d.mode != last.mode) || (d.size && d.size != last.size)) {
                     SetWindow(d.mode.value_or(last.mode.value_or(s.display_mode)),
                               d.size.value_or(last.size.value_or(std::pair(s.width, s.height))));
@@ -576,6 +596,8 @@ void WatchDisplayFile(std::wstring path, Display last) {
                 if (d.brightness) last.brightness = d.brightness;
                 if (d.stretch_4x3) last.stretch_4x3 = d.stretch_4x3;
                 if (d.frame_data) last.frame_data = d.frame_data;
+                for (int i = 0; i < volume::kLevels; i++)
+                    if (d.volume[i]) last.volume[i] = d.volume[i];
                 if (d.mode) last.mode = d.mode;
                 if (d.size) last.size = d.size;
             }
@@ -594,6 +616,15 @@ void ApplyLauncherDisplay() {
         logx::Init(p.parent_path().string(), p.stem().string(), std::wcsstr(GetCommandLineW(), L"--relaunched") != nullptr);
     }
     Display d;
+    // the sound levels (MK3D_VOLUME_MASTER, _MUSIC...), whether or not the launcher gave the display's
+    for (int i = 0; i < volume::kLevels; i++) {
+        std::string var = std::string("MK3D_VOLUME_") + volume::Name(volume::Level(i));
+        for (char& ch : var) ch = char(std::toupper(static_cast<unsigned char>(ch)));
+        if (const char* v = std::getenv(var.c_str())) {
+            d.volume[i] = std::atoi(v);
+            volume::Set(volume::Level(i), *d.volume[i]);
+        }
+    }
     for (const auto& [key, var] : {std::pair("mode", "MK3D_DISPLAY"), std::pair("resolution", "MK3D_RESOLUTION"),
                                    std::pair("vsync", "MK3D_VSYNC"), std::pair("adaptive_sync", "MK3D_ADAPTIVE_SYNC"),
                                    std::pair("stretch_4x3", "MK3D_STRETCH_4X3"), std::pair("brightness", "MK3D_BRIGHTNESS")})

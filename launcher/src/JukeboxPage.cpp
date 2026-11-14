@@ -739,16 +739,17 @@ void JukeboxPage::fillSlots() {
         item->setData(kChangeableRole, !s.bank.isEmpty());
         item->setToolTip(s.bank.isEmpty() ? QObject::tr("%1 keeps the game's own music: %2").arg(s.name, s.why) : s.name);
     };
-    // the editor: the stages, then the menus; the overview: the menus first
-    bool stages = false, screens = false;
+    // the editor: the stages, then the menus, then the fight's finish him and fatality music; the overview: the menus
+    // first
+    QString section;
     for (const jukebox::Slot& s : gm->places) {
-        if (s.isStage() && !stages) {
-            header(tr("STAGES"));
-            stages = true;
-        }
-        if (!s.isStage() && !screens) {
-            header(tr("MENUS"));
-            screens = true;
+        const QString want = s.isStage()                              ? tr("STAGES")
+                             : s.screen == QLatin1String("finish")   ? tr("FINISH HIM")
+                             : s.screen == QLatin1String("fatality") ? tr("FATALITY")
+                                                                     : tr("MENUS");
+        if (want != section) {
+            header(want);
+            section = want;
         }
         slotItem(slots_, s);
     }

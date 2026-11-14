@@ -438,13 +438,25 @@ CreateLobbyDialog::CreateLobbyDialog(const Game& game, const QString& defaultNam
     form->addRow(tr("Rounds"), rounds_);
     form->addRow(QString(), deathTraps_);
     v->addLayout(form);
+    // Online Practice: two players by the code, no rounds to count (rounds and death traps stay out of it)
+    auto* practiceNote = ui::label(tr("Online Practice: share the lobby's code with one friend. No timer, health "
+                                      "refills, nobody is knocked out; BACK in the game goes back to character "
+                                      "select."), "Muted");
+    practiceNote->setWordWrap(true);
+    v->addWidget(practiceNote);
     // only for a mode whose fights have them
-    const auto showTraps = [this, modes = game.modes] {
+    const auto showTraps = [this, practiceNote, form, modes = game.modes] {
         const QString id = mode_->currentData().toString();
-        bool traps = false;
+        bool traps = false, practice = false;
         for (const auto& m : modes)
-            if (m.id == id) traps = m.deathTraps;
-        deathTraps_->setVisible(traps);
+            if (m.id == id) {
+                traps = m.deathTraps;
+                practice = m.lobbyOnly;
+            }
+        deathTraps_->setVisible(traps && !practice);
+        rounds_->setVisible(!practice);
+        if (QWidget* label = form->labelForField(rounds_)) label->setVisible(!practice);
+        practiceNote->setVisible(practice);
     };
     showTraps();
     connect(mode_, &QComboBox::currentIndexChanged, this, showTraps);
@@ -464,5 +476,5 @@ CreateLobbyDialog::CreateLobbyDialog(const Game& game, const QString& defaultNam
 QString CreateLobbyDialog::name() const { return name_->text().trimmed(); }
 QString CreateLobbyDialog::mode() const { return mode_->currentData().toString(); }
 QString CreateLobbyDialog::password() const { return password_->text(); }
-int CreateLobbyDialog::rounds() const { return rounds_->currentData().toInt(); }
+int CreateLobbyDialog::rounds() const { return rounds_->isHidden() ? 1 : rounds_->currentData().toInt(); }
 bool CreateLobbyDialog::deathTraps() const { return deathTraps_->isHidden() || deathTraps_->isChecked(); }

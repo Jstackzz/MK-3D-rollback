@@ -78,6 +78,30 @@ Dummy DummyBlock();
 // for a game's "is this action held" hook: the dummy holds this action now (the game's numbers for block and down)
 bool DummyHolds(int action, int block_action, int down_action);
 
+// The practice dummy's tech roll, F6: on a knockdown it can roll out of, the dummy rolls up, down, back (away from
+// player 1) or one of those at random, as a player holding that direction as they land would; or it lies down and
+// gets up as before (off). Like F8, only in a practice fight on this PC alone.
+enum class Tech { Off, Up, Down, Back, Random };
+Tech DummyTech();  // Off outside a practice fight, and while a recording or the player's controller drives the dummy
+// Around a game's tech roll check, for the fighter landing now: when that is the dummy and a tech roll is set, the
+// dummy holds the roll's direction (and nothing else) until the check is done. A roll starts through the game's task
+// switch, which leaves the check by unwinding it: the guard ends then too.
+class TechScope {
+public:
+    explicit TechScope(bool dummy_lands);
+    ~TechScope();
+    TechScope(const TechScope&) = delete;
+    TechScope& operator=(const TechScope&) = delete;
+
+private:
+    bool on_ = false;
+    int unwinding_ = 0;  // exceptions in flight as it began: one more as it ends, the roll's task switch
+};
+// For a game's "is this action held" hook, asked about the dummy's controls: -1 while no tech roll is being decided
+// (the hook goes on as before), else whether the dummy holds the action (1) or not (0). The games' numbers: up 0xC,
+// right 0xD, down 0xE, left 0xF; back holds both sides, as the games ask only for the one away from the opponent.
+int TechHolds(int action);
+
 // the game tested this side's attack against the other fighter during this frame (its hit test, main thread)
 void ActiveCheck(int side);
 

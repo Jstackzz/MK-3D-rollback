@@ -398,6 +398,7 @@ C: {"type":"result","match":"5f2c9a01d4e3","winner":1,"p1_rounds":2,"p2_rounds":
 C: {"type":"result","match":"5f2c9a01d4e3","outcome":"desync","frame":1234}
 C: {"type":"result","match":"5f2c9a01d4e3","outcome":"disconnected"}
 C: {"type":"result","match":"5f2c9a01d4e3","outcome":"left","exit":"window closed","exit_code":0}
+C: {"type":"result","match":"5f2c9a01d4e3","outcome":"sparring"}
 S: {"type":"result_ack","match":"5f2c9a01d4e3"}
 S: {"type":"match_result","match":"5f2c9a01d4e3","status":"agreed","winner":1,
     "p1_rounds":2,"p2_rounds":1,"ranked":true,"left":null,"left_side":null}
@@ -418,6 +419,11 @@ S: {"type":"match_result","match":"5f2c9a01d4e3","status":"agreed","winner":1,
   database and the server logs a `DISPUTE` line.
 - **Desync or disconnect** reports: status `no_contest`; nothing changes;
   logged.
+- **Online Practice** (1.0.7, mode `sparring`): the game reports
+  `sparring_over` once a player went back to the select screen (BACK), the
+  launcher the outcome `sparring` (refused, `bad_request`, for any other
+  mode's match); both such reports give status `practice`, which counts
+  nothing anywhere.
 - **Only one report** within 120 s of the first (20 s when it says the games
   lost each other: `disconnected` or `error`): status `unconfirmed`; nothing
   changes; logged.
@@ -596,6 +602,15 @@ S: {"type":"lobby_left","lobby":"K7WQ2"}
   cancels a match that has not reached `playing`; a spectator does not).
 - States: `open`, `full` (both places to play taken), `in_match`. `locked` =
   has a password.
+- Lobby-only modes (1.0.7: Online Practice, `sparring`, every game): played in
+  a lobby a friend joins by its code alone. `queue_join` refuses them
+  (`bad_mode`), `lobby_list` leaves them out, and the lobby is for its two
+  players: no spectators (`max_spectators` 0; a third `lobby_join`, watching
+  or not, gets `lobby_full`, and `lobby_role` to `spectator` `bad_request`).
+  Both players pick on the game's own select screen (their `character` is
+  always empty), there are no death traps, and the players stay ready after
+  each match, so the next one counts down by itself: a player who presses
+  BACK in the game goes back to the select screen with the other.
 
 ### 1.10.1 Spectators
 
@@ -1084,6 +1099,7 @@ first line.
 | `starting match=<id>` | took a `start`: off the hold point, setting the match up (picks, loading), until `in_match` (0.1.11) |
 | `in_match match=<id>` | a match (or practice: `match=practice`) is running |
 | `result winner=1 p1_rounds=2 p2_rounds=1 p1_char=12.1 p2_char=7.0 match=<id>` | the match ended normally (`winner` is 1 or 2; `p1_char`/`p2_char`, the fighters as the game's character ids with the costume each fought in after a dot (0.1.21: Deception's costume flags, Armageddon's alternate 0 or 1, Deadly Alliance's costume word; none when the game did not see the fight set up online), which `start` takes as `p1`/`p2`, only in modes with fighters); the game stays on its result screen until `park`, `rematch` or `quit` |
+| `sparring_over match=<id>` | Online Practice (1.0.7): the match in sync is over, a player pressed BACK (the launcher reports the outcome `sparring`) |
 | `desync frame=N match=<id>` | the two simulations diverged at frame N; the match is aborted |
 | `disconnected match=<id>` | the peer stopped answering |
 | `error <text>` | something failed (`error no connection`, `error bad command`); free text to the end of the line |

@@ -226,6 +226,7 @@ namespace {
 QList<int> streamsOf(const QJsonValue& v) {
     if (v.isString() && v.toString() == QLatin1String("all")) return {-1};
     if (v.isString() && v.toString() == QLatin1String("cue")) return {-2};  // the round music's cues (roundMusicStreams)
+    if (v.isString() && v.toString() == QLatin1String("finish")) return {-3};  // every stage's finish him loop
     QList<int> out;
     for (const QJsonValue& s : v.toArray()) out << s.toInt();
     return out;
@@ -310,6 +311,13 @@ const Track* menuTrack(const Soundtrack& s) {
     return nullptr;
 }
 
+// a soundtrack's fatality music: its track named or tagged Fatality (MK1's, MK2's and MKX's stingers)
+const Track* fatalityTrack(const Soundtrack& s) {
+    for (const Track& t : s.tracks)
+        if (lower(t.title).contains(QLatin1String("fatality")) || t.tags.contains(QStringLiteral("fatality"))) return &t;
+    return nullptr;
+}
+
 int score(const Slot& stage, const Track& track) {
     int n = 0;
     const QString title = lower(track.title);
@@ -377,7 +385,7 @@ using Entry = QPair<const Soundtrack*, const Track*>;
 QMap<QString, QString> shuffleChoices(const GameMusic& gm, const QList<Soundtrack>& library, const QString& sid,
                                       quint32 draw) {
     QRandomGenerator rng(draw ^ quint32(qHash(gm.game)));
-    QList<Entry> stage, menu, select;
+    QList<Entry> stage, menu, select, fatality;
     for (const Soundtrack& s : library) {
         if (sid != QLatin1String("*") && s.id.compare(sid, Qt::CaseInsensitive) != 0) continue;
         for (const Track& t : s.tracks) {
@@ -385,6 +393,7 @@ QMap<QString, QString> shuffleChoices(const GameMusic& gm, const QList<Soundtrac
             if (menuMaterial(t)) menu << Entry(&s, &t);
         }
         if (s.select >= 0) select << Entry(&s, &s.tracks[s.select]);
+        if (const Track* t = fatalityTrack(s)) fatality << Entry(&s, t);
     }
     auto shuffled = [&rng](QList<Entry> v) {
         for (qsizetype i = v.size() - 1; i > 0; --i) v.swapItemsAt(i, qsizetype(rng.bounded(quint32(i + 1))));
@@ -403,6 +412,9 @@ QMap<QString, QString> shuffleChoices(const GameMusic& gm, const QList<Soundtrac
             out.insert(s.key, choiceOf(*e.first, *e.second));
         } else if (s.screen == QLatin1String("menu") && !menu.isEmpty()) {
             const Entry e = menu[int(rng.bounded(quint32(menu.size())))];
+            out.insert(s.key, choiceOf(*e.first, *e.second));
+        } else if (s.screen == QLatin1String("fatality") && !fatality.isEmpty()) {
+            const Entry e = fatality[int(rng.bounded(quint32(fatality.size())))];
             out.insert(s.key, choiceOf(*e.first, *e.second));
         }
     }
@@ -433,6 +445,7 @@ QMap<QString, QString> presetChoices(const QString& gameId, const Soundtrack& s)
         if (slot.isStage()) t = stages.value(slot.key, nullptr);
         else if (slot.screen == QLatin1String("select") && s.select >= 0) t = &s.tracks[s.select];
         else if (slot.screen == QLatin1String("menu")) t = menuTrack(s);
+        else if (slot.screen == QLatin1String("fatality")) t = fatalityTrack(s);  // none: the game's own
         if (t) out.insert(slot.key, choiceOf(s, *t));
     }
     return out;
@@ -522,13 +535,27 @@ Plan resolve(const QString& gameId, const Config& config, const QList<Soundtrack
     } else if (list >= 0) {
         choices = config.playlists[list];
     }
+    // the Finish Him slot: no bank of its own, its song goes into every stage's (finishStreams)
+    QString finishFile, finishTitle;
+    for (const Slot& s : gm->places) {
+        const QString c = choices.value(s.key);
+        if (s.streams != QList<int>{-3} || c.isEmpty() || c == QLatin1String("own")) continue;
+        if (const Track* t = trackByChoice(c, library)) {
+            finishFile = t->file;
+            finishTitle = t->title;
+        }
+    }
     for (const Slot& s : gm->places) {
         Pick p;
         p.slot = s.key;
         p.stage = s.stage;
         p.screen = s.screen;
-        p.bank = s.bank;
+        p.bank = s.streams == QList<int>{-3} ? QString() : s.bank;  // Finish Him: shown, made with the stages
         p.streams = s.streams;
+        if (s.isStage() && !s.bank.isEmpty()) {
+            p.finishFile = finishFile;
+            p.finishTitle = finishTitle;
+        }
         const QString c = choices.value(s.key);
         if (!c.isEmpty() && c != QLatin1String("own")) {
             QString tsid;
@@ -1468,6 +1495,7 @@ bool replaceStreamsMany(const QByteArray& bank, const QList<StreamSong>& songs, 
     Bank b;
     if (!parseBank(bank, b, error)) return false;
     QMap<int, int> songOf;  // entry index -> the song it gets
+    QSet<int> everyStream;  // entries a song on every stream ({-1}) has, which a song on named streams takes over
     for (int si = 0; si < songs.size(); si++) {
         for (int id : songs[si].streams) {
             bool found = false;
@@ -1478,11 +1506,17 @@ bool replaceStreamsMany(const QByteArray& bank, const QList<StreamSong>& songs, 
                     break;
                 }
                 found = true;
-                if (songOf.contains(e.index) && songOf.value(e.index) != si) {
+                // a song on named streams has them over a song on every stream (Armageddon: a stage's song on all of
+                // its jukebox bank but the finish him loops, the Finish Him slot's)
+                const bool takenByAll = everyStream.contains(e.index);
+                if (id == -1 && songOf.contains(e.index) && !takenByAll) continue;
+                if (songOf.contains(e.index) && songOf.value(e.index) != si && !takenByAll) {
                     if (error) *error = QStringLiteral("stream %1 is given two songs").arg(e.id);
                     return false;
                 }
                 songOf.insert(e.index, si);
+                if (id == -1) everyStream.insert(e.index);
+                else everyStream.remove(e.index);
             }
             if (!found) {
                 if (error) *error = QStringLiteral("stream %1 is not a music stream of the bank").arg(id);
@@ -1720,6 +1754,28 @@ QList<int> roundMusicStreams(const QByteArray& mbx, const QMap<int, double>& sec
     return out;
 }
 
+QList<int> finishStreams(const QByteArray& mbx, const QMap<int, double>& seconds) {
+    constexpr double kLongest = 20.0;  // a finish him loop is shorter (7 to 16 s); the round music's loops are longer
+    const QList<int> round = roundMusicStreams(mbx, seconds);
+    QList<QList<CueElement>> cues(1);
+    for (const CueElement& e : cueElements(mbx)) {
+        if (e.kind == CueElement::Stream) cues.last() << e;
+        if (e.kind == CueElement::End && !cues.last().isEmpty()) cues << QList<CueElement>();
+    }
+    QList<int> out;
+    for (const auto& cue : cues) {
+        bool loops = false, roundToo = false;
+        for (const CueElement& e : cue) {
+            roundToo = roundToo || round.contains(e.id);
+            loops = loops || (e.loop && seconds.contains(e.id) && seconds[e.id] < kLongest);
+        }
+        if (!loops || roundToo) continue;
+        for (const CueElement& e : cue)
+            if (!out.contains(e.id)) out << e.id;
+    }
+    return out;
+}
+
 QMap<int, SongPart> streamParts(const QByteArray& mbx) {
     // A looped piece plays the loop. The pieces a cue plays once before its looped one (a chain) must hold the song's
     // intro once between them: a chain of one is that piece; in a longer chain the piece that is already some cue's
@@ -1884,6 +1940,8 @@ bool Applier::apply(const QString& gameId, const Plan& plan) {
         // a bank is made once with every song that goes into it: stages and screens that share one bank each get
         // their own streams of the one copy; picks that would give a stream two songs (stages whose music is the
         // same bank: Deadly Alliance's shared tunes, Armageddon's jukebox bank, all of its streams) get a copy each
+        // A stage's copy is the whole bank its arena loads: a stage shares one only with stages that want the very same
+        // songs on the same streams (its own song, the Finish Him slot's in the bank's finish him loop)
         struct Job {
             QString bank;
             QList<StreamSong> songs;
@@ -1891,57 +1949,94 @@ bool Applier::apply(const QString& gameId, const Plan& plan) {
             QList<const Pick*> picks;
             QSet<int> streams;
             bool all = false;
+            bool stage = false;
         };
         QList<Job> jobs;
         int total = 0;
         for (const Pick& p : plan.picks) {
-            if (p.file.isEmpty() || p.bank.isEmpty()) continue;
-            QList<int> streams = p.streams;
-            if (streams.isEmpty() || streams == QList<int>{-2}) {
-                // the round music's streams from the descriptor's cues ({-2}), else (or when it has none this reads)
-                // every stream of 12 s or more
-                QMap<int, double> lengths;
+            if ((p.file.isEmpty() && p.finishFile.isEmpty()) || p.bank.isEmpty()) continue;
+            QMap<int, double> lengths;
+            {
                 QFile in(QDir(banksDir).filePath(p.bank + QStringLiteral(".msx")));
                 if (in.open(QIODevice::ReadOnly))
                     for (const auto& [id, seconds] : bankStreams(in.readAll())) lengths.insert(id, seconds);
-                streams.clear();
-                if (p.streams == QList<int>{-2}) {
-                    QFile mbx(QDir(banksDir).filePath(p.bank + QStringLiteral(".mbx")));
-                    if (mbx.open(QIODevice::ReadOnly)) streams = roundMusicStreams(mbx.readAll(), lengths);
+            }
+            QByteArray mbxData;
+            {
+                QFile mbx(QDir(banksDir).filePath(p.bank + QStringLiteral(".mbx")));
+                if (mbx.open(QIODevice::ReadOnly)) mbxData = mbx.readAll();
+            }
+            QList<StreamSong> songs;  // this pick's: its own song, then the finish him loop's
+            QStringList titles;
+            if (!p.file.isEmpty()) {
+                QList<int> streams = p.streams;
+                if (streams.isEmpty() || streams == QList<int>{-2}) {
+                    // the round music's streams from the descriptor's cues ({-2}), else (or when it has none this
+                    // reads) every stream of 12 s or more
+                    streams.clear();
+                    if (p.streams == QList<int>{-2}) streams = roundMusicStreams(mbxData, lengths);
+                    if (streams.isEmpty())
+                        for (auto it = lengths.cbegin(); it != lengths.cend(); ++it)
+                            if (it.value() >= 12) streams << it.key();
                 }
-                if (streams.isEmpty())
-                    for (auto it = lengths.cbegin(); it != lengths.cend(); ++it)
-                        if (it.value() >= 12) streams << it.key();
+                if (streams.isEmpty()) {
+                    failure = QStringLiteral("%1 has no music stream to replace (is the game built?).").arg(p.bank);
+                    break;
+                }
+                songs << StreamSong{streams, p.file};
+                titles << p.title;
             }
-            if (streams.isEmpty()) {
-                failure = QStringLiteral("%1 has no music stream to replace (is the game built?).").arg(p.bank);
-                break;
+            if (!p.finishFile.isEmpty()) {
+                const QList<int> finish = finishStreams(mbxData, lengths);
+                if (!finish.isEmpty()) {  // a bank with no finish him loop keeps the game's own
+                    songs << StreamSong{finish, p.finishFile};
+                    titles << p.finishTitle;
+                }
             }
-            const bool all = streams.contains(-1);
+            if (songs.isEmpty()) continue;
+            const bool all = songs.first().streams.contains(-1);
+            const bool stage = p.stage >= 0;
+            const auto same = [](const QList<StreamSong>& a, const QList<StreamSong>& b) {
+                if (a.size() != b.size()) return false;
+                for (int i = 0; i < a.size(); i++)
+                    if (a[i].file != b[i].file || a[i].streams != b[i].streams) return false;
+                return true;
+            };
             Job* job = nullptr;
             bool present = false;
             for (Job& j : jobs) {
-                if (j.bank != p.bank) continue;
+                if (j.bank != p.bank || j.stage != stage) continue;
+                if (stage) {  // the very same songs, or a copy of its own
+                    if (same(j.songs, songs)) {
+                        job = &j;
+                        present = true;
+                        break;
+                    }
+                    continue;
+                }
+                // screens sharing a bank: each its own streams of one copy
                 bool overlap = all || j.all;
-                for (int s : streams)
+                for (int s : songs.first().streams)
                     if (j.streams.contains(s)) overlap = true;
                 for (const StreamSong& s : j.songs)  // the same song on the same streams: that copy serves
-                    if (s.file == p.file && s.streams == streams) present = true;
+                    if (s.file == songs.first().file && s.streams == songs.first().streams) present = true;
                 if (present || !overlap) {
                     job = &j;
                     break;
                 }
             }
             if (!job) {
-                jobs << Job{p.bank, {}, {}, {}, {}, false};
+                jobs << Job{p.bank, {}, {}, {}, {}, false, stage};
                 job = &jobs.last();
             }
             if (!present) {
-                job->songs << StreamSong{streams, p.file};
-                job->titles << p.title;
-                for (int s : streams) job->streams.insert(s);
+                for (int i = 0; i < songs.size(); i++) {
+                    job->songs << songs[i];
+                    job->titles << titles[i];
+                    for (int s : songs[i].streams) job->streams.insert(s);
+                    total++;
+                }
                 job->all = job->all || all;
-                total++;
             }
             job->picks << &p;
         }

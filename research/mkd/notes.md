@@ -730,3 +730,51 @@ Players who pick on the select screen (the launcher's `p1=- p2=-`), brought in l
   for differs. 0x3EBB28.. are the positions of an input event ring (0x6200A0, 30 entries). Writing fresh values over the
   words that differ did not find it, and most such writes hang the game.
 - CheckBlocks now includes a side mode's board, so a desync's dump shows it.
+
+### Chess, Puzzle and Motor Kombat on 1.0.6 (2026-11-13)
+
+From the server's log since 0.1.37: 12 lobby Chess starts, 3 played; all 7 on 1.0.6 ended before the match. Each game
+reached `start chess (Ashrah vs Ashrah)` (Chess is "in_game" in mkd.json, but the launcher sends the roster's first
+fighter for both sides, so the autopilot builds both teams in both games); one game then stood at `autopilot: select`,
+the other said `done` and waited at the meeting point (its main loop held there, the window still), and both players
+closed their games 15 to 45 s later. Puzzle (11) and Motor Kombat (9) matches since 0.1.37 all had results, none on 1.0.6.
+
+- Chess's team select was driven by the clock (a 0.25 s cycle, 0.08 s presses). A game drawing the select at 8 frames a
+  second (its monitor stepping it) missed presses: it took 15 s, built other teams, and the match parted at frame 0 even
+  after the meeting point set the teams (`P1's chess piece 2 is 12 (ours was 0)`). The select now runs by game frames
+  (autopilot.cpp kChessStart 30, kChessCycle 6, kChessPress 2): at 8 frames a second it takes 22 s and both games build
+  the same teams (match in sync), at full speed 4.3 s (was 6.4). A select still going after 12 s logs a line every 4 s,
+  and the meeting point now logs its wait (LOGR, every 10 s), so a report of a match that never started says where.
+  Not reproduced here: the select standing still on a player's PC (fresh or warm game, a saved profile, 4:3, wide and
+  mixed screens, four controllers, death traps on, a fight before); a PC that slow is the explanation that fits.
+- Puzzle and Motor Kombat part as they load when one game has played before and the other has not: Puzzle after a
+  Puzzle match or a fight (frame 8, block 0: the warm game's loaded objects), Motor Kombat after a fight (frame 17), and
+  after another race the computer's karts differ (`player 3's kart differs`, no desync caught). The launcher now starts
+  a fresh game for a Puzzle, Chess or Motor Kombat match when the open one has played or watched another match, unless
+  its last match was the same mode against the same opponent (MatchController needsFreshGame / matchGame). Two fresh
+  games: a whole Puzzle match to the same result, a Motor Kombat race 5,687 frames in sync.
+- In a test with minimized games, both games stop at the end of a Puzzle match (1.0.5 and 1.0.6 alike): the music's
+  fade-out (sub_0021B260) waits on D3DDevice_BlockUntilVerticalBlank (0x2E85E0, through 0x45DF7C), which a minimized
+  window never gets. Real lobbies played Puzzle matches back to back, so it is a test setup's; tests that end Puzzle
+  matches need visible windows.
+
+## 1.0.7: Online Practice, tech rolls, the other colours, sound levels (2026-11-13)
+
+- Online Practice (`sparring`, `recomp/common/src/mk3d/sparring.cpp`, netplay.cpp `BackPressed`): a lobby-only versus
+  match whose players pick on the select screen. Each game sets its options' round time to the game's own "no time
+  limit" (0x5FC9AC = 95: the round's timer setup sub_00083860 sets the no time limit flag 0x3EB144), and at the top of every frame in sync a fighter's health goes back to full after 90 frames without
+  a change, and at once below 0.3 (no hit takes more in one frame, so nobody is knocked out); what it remembers is
+  guest memory taken at the first frame after boot (the same moment on every game). A player's BACK (stripped from
+  the game's blocks like START) goes in their netplay input as bit 31; once it is in an input both games ran with,
+  each game leaves the match in sync at its next frame's top (neither waits for the other's inputs past it), the
+  link reports `sparring_over`, and the lobby's next match brings both to the select screen again.
+- Tech rolls in practice (F6, `framedata.cpp` TechScope / TechHolds): around the game's tech roll checks, for the dummy,
+  the "is this action held" hook answers the roll's direction alone (up 0xC, down 0xE, back 0xD and 0xF: the games
+  ask only the side away from the opponent), nothing else (no block, no buttons). A roll leaves the check through the
+  task switch's exception, which ends the scope as it unwinds. Checks: sub_0006E920 (twelve knockdown reactions and script command 0xD5), sub_0006EB00 (0xD6), sub_0006ECA0 (0xDD); DOWN with a side is a quick get-up, so a down roll holds DOWN alone.
+- The other colours (the player record's costume flags +0x14; the pick sub_0017AFA0(record), held LT through sub_0008A210(port, 2) (practice: the picking player's port, [0x46CDB4] * 0x6C + 0x620FC4); the versus fight's first step sub_000834C0 settles them (online after the agreed picks)): LT held as a pick is taken sets the costume's bit 1; the select screen's end settles
+  both players' bits from what both games agreed (the pick words carry them), and P2 the other colours when both have
+  the same fighter, costume and colours.
+- Sound levels (`recomp/common/src/mk3d/volume.cpp`): the five category floats 0x5FC980..0x5FC990 (index 5, 0x5FC994, 1.0, is not one of them) written at every frame's top
+  while they differ from the launcher's levels (percent of the game's own: 0.75 each, 0x3FBE38 through sub_001B3EA0), 0 % as 0.0005; the master is the
+  runtime's output voice (patch 0049).

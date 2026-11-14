@@ -129,6 +129,11 @@ int main(int argc, char* argv[]) {
                                       QStringLiteral("host|join|watch"));
     const QCommandLineOption lobbyNameOpt(QStringLiteral("lobby-name"), QStringLiteral("Development: the lobby's name for --lobby."),
                                           QStringLiteral("name"));
+    const QCommandLineOption lobbyCodeFileOpt(
+        QStringLiteral("lobby-code-file"),
+        QStringLiteral("Development: --lobby host writes its lobby's code to this file, join reads it from there and "
+                       "joins by the code (Online Practice lobbies are never listed)."),
+        QStringLiteral("path"));
     const QCommandLineOption upnpProbeOpt(QStringLiteral("upnp-probe"),
                                           QStringLiteral("Find the router (UPnP) and its public address; open no port."));
     const QCommandLineOption lobbyMatchesOpt(QStringLiteral("lobby-matches"),
@@ -184,7 +189,7 @@ int main(int argc, char* argv[]) {
     const QCommandLineOption autoUpdateOpt(QStringLiteral("auto-update"),
                                            QStringLiteral("Development: install an update offered at once, without asking."));
     for (const auto* o : {&configOpt, &serverOpt, &fpOpt, &userOpt, &pwEnvOpt, &regOpt, &queueOpt, &gameOpt, &modeOpt,
-                          &charOpt, &pageOpt, &acceptOpt, &cancelOpt, &localTestOpt, &extractOpt, &lobbyOpt, &lobbyNameOpt,
+                          &charOpt, &pageOpt, &acceptOpt, &cancelOpt, &localTestOpt, &extractOpt, &lobbyOpt, &lobbyNameOpt, &lobbyCodeFileOpt,
                           &lobbyMatchesOpt, &leaveLobbyOpt, &upnpProbeOpt, &rematchesOpt, &rematchChoiceOpt,
                           &leaveSeriesOpt, &soloOpt,
                           &practiceOpt, &searchAgainOpt, &deathTrapsOpt, &updatedOpt, &autoUpdateOpt, &jukeboxOpt,
@@ -241,6 +246,7 @@ int main(int argc, char* argv[]) {
     opts.extractImage = cli.value(extractOpt);
     opts.lobby = cli.value(lobbyOpt);
     opts.lobbyName = cli.value(lobbyNameOpt);
+    opts.lobbyCodeFile = cli.value(lobbyCodeFileOpt);
     opts.lobbyMatches = cli.isSet(lobbyMatchesOpt) ? std::max(1, cli.value(lobbyMatchesOpt).toInt()) : 1;
     opts.leaveLobby = cli.isSet(leaveLobbyOpt);
     opts.rematches = cli.isSet(rematchesOpt) ? std::max(0, cli.value(rematchesOpt).toInt()) : 0;

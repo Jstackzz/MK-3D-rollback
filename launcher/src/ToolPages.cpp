@@ -16,6 +16,7 @@
 #include <QProgressBar>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QSlider>
 #include <QSpinBox>
 #include <QStorageInfo>
 #include <QThread>
@@ -506,7 +507,8 @@ SettingsPage::SettingsPage(ServerClient* server, QWidget* parent) : Page(parent)
     frameData->setChecked(cfg::frameData());
     frameData->setToolTip(tr("In practice, shows how many frames player 1's last attack takes to hit, and how far ahead "
                              "or behind player 1 is after it hits or is blocked. F7 in the game shows or hides it; F8 "
-                             "makes the dummy block or crouch-block. Practice also records the dummy, whatever this "
+                             "makes the dummy block or crouch-block, F6 makes it tech roll up, down, back or at random "
+                             "when it is knocked down. Practice also records the dummy, whatever this "
                              "says: F9 records what your controller does as the dummy, F10 plays it back, F11 picks "
                              "one of 8 slots, F12 sets once, repeat or random."));
     df->addRow(QString(), stretch);
@@ -517,6 +519,51 @@ SettingsPage::SettingsPage(ServerClient* server, QWidget* parent) : Page(parent)
     displayNote->setWordWrap(true);
     df->addRow(QString(), displayNote);
     grid->addWidget(displayBox, 1, 1);
+
+    // sound: each level a percent of the games' own, as the games play them at 100 %
+    auto* soundBox = new QGroupBox(tr("SOUND"));
+    auto* soundForm = new QFormLayout(soundBox);
+    const struct {
+        const char* key;
+        const char* label;
+        const char* tip;
+    } levels[] = {
+        {"master", QT_TR_NOOP("Master"), QT_TR_NOOP("Everything the games play, movies too. Above 100 % is louder "
+                                                    "than the games themselves.")},
+        {"music", QT_TR_NOOP("Music"), QT_TR_NOOP("The menus' and the arenas' music, the jukebox's songs too.")},
+        {"effects", QT_TR_NOOP("Sound effects"), QT_TR_NOOP("Hits, blocks, specials, the menus' sounds.")},
+        {"voices", QT_TR_NOOP("Fighter voices"), QT_TR_NOOP("The fighters' shouts and lines.")},
+        {"announcer", QT_TR_NOOP("Announcer"), QT_TR_NOOP("\"Round one, fight!\", the fighters' names, the "
+                                                          "finishes.")},
+        {"environment", QT_TR_NOOP("Environment"), QT_TR_NOOP("The arenas' own sounds: wind, crowds, machines.")},
+    };
+    for (const auto& lv : levels) {
+        const QString key = QString::fromLatin1(lv.key);
+        auto* slider = new QSlider(Qt::Horizontal);
+        slider->setRange(0, 150);
+        slider->setSingleStep(5);
+        slider->setPageStep(10);
+        slider->setValue(cfg::volume(key));
+        slider->setToolTip(tr(lv.tip));
+        auto* value = ui::label(QStringLiteral("%1 %").arg(slider->value()), "Muted");
+        value->setMinimumWidth(48);
+        auto* row = new QHBoxLayout;
+        row->addWidget(slider, 1);
+        row->addWidget(value);
+        soundForm->addRow(tr(lv.label), row);
+        connect(slider, &QSlider::valueChanged, this, [key, value](int v) {
+            value->setText(QStringLiteral("%1 %").arg(v));
+            cfg::set(QStringLiteral("display/volume_") + key, v);  // a running game follows it (the display file)
+        });
+    }
+    auto* soundNote = ui::label(tr("100 % is each game as it sounds on its own. Music, effects, voices, announcer and "
+                                   "environment go up to the games' own loudest (above 100 % for Deception and "
+                                   "Armageddon, a little above for Deadly Alliance); the master makes everything "
+                                   "louder still. A running game follows at once; a sound already playing keeps its "
+                                   "level until it starts again."), "Muted");
+    soundNote->setWordWrap(true);
+    soundForm->addRow(QString(), soundNote);
+    grid->addWidget(soundBox, 2, 0, 1, 2);
 
     // games
     auto* gamesBox = new QGroupBox(tr("GAME FOLDERS"));
@@ -550,7 +597,7 @@ SettingsPage::SettingsPage(ServerClient* server, QWidget* parent) : Page(parent)
             cfg::set(QStringLiteral("games/%1/exe").arg(id), f);
         });
     }
-    grid->addWidget(gamesBox, 2, 0, 1, 2);
+    grid->addWidget(gamesBox, 3, 0, 1, 2);
 
     // tools and development
     auto* toolsBox = new QGroupBox(tr("TOOLS AND DEVELOPMENT"));
@@ -574,7 +621,7 @@ SettingsPage::SettingsPage(ServerClient* server, QWidget* parent) : Page(parent)
         h->addStretch();
         return w;
     }());
-    grid->addWidget(toolsBox, 3, 0, 1, 2);
+    grid->addWidget(toolsBox, 4, 0, 1, 2);
     toolsBox->setVisible(!paths::isPackage());  // a player package has no repository or Python to point at
     root->addStretch();
 

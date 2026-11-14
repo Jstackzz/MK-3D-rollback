@@ -111,16 +111,61 @@ X86_FUNC(sub_000843D0) {
 // (sub_00089B50: its own block, the hit's victim's). No controller drives the practice dummy, so with F8 this answers
 // for it: block held (and down, crouching).
 X86_FUNC(sub_000A0FD0) {
-    if (mk3d::framedata::DummyBlock() != mk3d::framedata::Dummy::Stands) {
+    const int tech = mk3d::framedata::TechHolds(int(kernel::R32(ctx.esp + 8)));  // -1: no tech roll being decided
+    if (tech >= 0 || mk3d::framedata::DummyBlock() != mk3d::framedata::Dummy::Stands) {
         const uint32_t dummy = mka::FighterObject(1), player = mka::FighterObject(0);
         const uint32_t port = kernel::R32(ctx.esp + 4), action = kernel::R32(ctx.esp + 8);
         if (dummy && player && port == kernel::R32(dummy + mka::kControls) &&
             port != kernel::R32(player + mka::kControls) &&
-            mk3d::framedata::DummyHolds(int(action), mka::kActionBlock, mka::kActionDown)) {
-            ctx.eax = 1;
+            (tech >= 0 || mk3d::framedata::DummyHolds(int(action), mka::kActionBlock, mka::kActionDown))) {
+            ctx.eax = tech >= 0 ? uint32_t(tech) : 1;  // a tech roll: its direction alone (no block, no buttons)
             ctx.esp += 4;  // ret (the caller pops the arguments)
             return;
         }
     }
     __imp__sub_000A0FD0(ctx, base);
 }
+
+// The practice dummy's tech roll (F6, framedata.h): while the game decides whether a fighter landing from a knockdown
+// rolls, the dummy holds the roll's direction. A roll starts through the game's task switch, which leaves these checks
+// by unwinding them, the scope with them.
+// the tech roll check of sixteen knockdown reactions and the script wrapper sub_00225180
+X86_EXTERN_FUNC(__imp__sub_00080560);
+X86_FUNC(sub_00080560) {
+    const uint32_t self = kernel::R32(mka::kSelf);
+    mk3d::framedata::TechScope tech(self && self == mka::FighterObject(1));
+    __imp__sub_00080560(ctx, base);
+}
+
+// the check of the reaction sub_0020FD50
+X86_EXTERN_FUNC(__imp__sub_00080D30);
+X86_FUNC(sub_00080D30) {
+    const uint32_t self = kernel::R32(mka::kSelf);
+    mk3d::framedata::TechScope tech(self && self == mka::FighterObject(1));
+    __imp__sub_00080D30(ctx, base);
+}
+
+// a script wrapper's check
+X86_EXTERN_FUNC(__imp__sub_00080B00);
+X86_FUNC(sub_00080B00) {
+    const uint32_t self = kernel::R32(mka::kSelf);
+    mk3d::framedata::TechScope tech(self && self == mka::FighterObject(1));
+    __imp__sub_00080B00(ctx, base);
+}
+
+// a script wrapper's check
+X86_EXTERN_FUNC(__imp__sub_000807A0);
+X86_FUNC(sub_000807A0) {
+    const uint32_t self = kernel::R32(mka::kSelf);
+    mk3d::framedata::TechScope tech(self && self == mka::FighterObject(1));
+    __imp__sub_000807A0(ctx, base);
+}
+
+// a script wrapper's check (up first)
+X86_EXTERN_FUNC(__imp__sub_00080950);
+X86_FUNC(sub_00080950) {
+    const uint32_t self = kernel::R32(mka::kSelf);
+    mk3d::framedata::TechScope tech(self && self == mka::FighterObject(1));
+    __imp__sub_00080950(ctx, base);
+}
+

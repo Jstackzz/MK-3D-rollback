@@ -8,14 +8,22 @@
 #include "core/log.h"
 #include "cpu/x86_ops.h"
 #include "game/autopilot.h"
+#include "game/colours.h"
 #include "game/events.h"
 #include "game/netgame.h"
 #include "kernel/kernel.h"
+#include "mk3d/game.h"
 #include "mk3d/netgame.h"
 #include "mk3d/netplay.h"
+#include "mk3d/sparring.h"
+#include "mk3d/volume.h"
 
 namespace mka {
 namespace {
+
+// The launcher's sound levels (mk3d/volume.h) over the game's own sound categories: music, environment, announcer,
+// effects, fighter voices, the options block's first five floats (0.75 each by default, 0x5684B0; sub_00235BD0 puts them back after a profile's)
+const bool g_volume_installed = (mk3d::volume::Install(0x723BA0, 0.75f), true);
 
 constexpr uint32_t kStateSwitch = 0x19CA30;  // sub_0019CA30(priority, task)
 
@@ -47,6 +55,8 @@ struct MatchOptions {
     bool set = false;  // a launcher fight was started: these hold from then on
     int wins_needed = 2;
     bool death_traps = true;
+    bool sparring = false;  // Online Practice: no time limit (the round time 95, which the round's timer setup
+                            // sub_00098A40 turns into the no time limit flag 0x54DFBC, as the practice mode's)
 };
 MatchOptions g_options;
 
@@ -102,8 +112,8 @@ const bool g_fighters_hooked = [] {
     BeforeFightSetup([](X86Context&) {
         g_fighters[0] = int(kernel::R32(kP1Character));
         g_fighters[1] = int(kernel::R32(kP2Character));
-        g_fight_costumes[0] = kernel::R32(kP1Record + kRecordCostume) & 1;
-        g_fight_costumes[1] = kernel::R32(kP2Record + kRecordCostume) & 1;
+        g_fight_costumes[0] = kernel::R32(kP1Record + kRecordCostume) & 3;  // the costume and its colours
+        g_fight_costumes[1] = kernel::R32(kP2Record + kRecordCostume) & 3;
     });
     return true;
 }();
@@ -111,10 +121,18 @@ const bool g_fighters_hooked = [] {
 void ApplyOptions() {
     if (!g_options.set) return;
     if (g_options.wins_needed > 0) kernel::W32(kRoundsToWin, uint32_t(g_options.wins_needed));
-    kernel::W32(kRoundTime, 90);
+    kernel::W32(kRoundTime, g_options.sparring ? 95 : 90);
     kernel::W32(kBloodLevel, 3);
     kernel::W32(kDeathTraps, g_options.death_traps ? 1 : 0);
 }
+
+// Online Practice's fight: the fighters' health kept up (sparring.h) while a round can be under way
+const bool g_sparring_hook = (mk3d::OnFrameStart([](uint64_t) {
+                                  if (!mk3d::sparring::On()) return;
+                                  const uint32_t health[2] = {kP1Health, kP2Health};
+                                  mk3d::sparring::KeepHealth(health, !InFrontEnd());
+                              }),
+                              true);
 
 void PickArena(uint32_t seed, const std::string& stage) {
     uint32_t n = 0;
@@ -142,8 +160,10 @@ void Prepare(const mk3d::link::game::Start& start) {
         g_options.set = true;
         g_options.wins_needed = start.wins_needed;
         g_options.death_traps = start.death_traps;
+        g_options.sparring = start.mode == "sparring";
         ApplyOptions();
-        LOGR("link: round time 90 s, blood 3, death traps %s", start.death_traps ? "on" : "off");
+        LOGR("link: round time %s, blood 3, death traps %s", g_options.sparring ? "none" : "90 s",
+             start.death_traps ? "on" : "off");
     }
 }
 
@@ -168,9 +188,10 @@ bool Begin(const Start& start) {
     // game takes both players' picks from their games)
     req.local_side = start.online && !start.watch ? start.side : -1;
     req.watch = start.watch;
+    const bool fight = start.mode == "kombat" || start.mode == "sparring";  // Online Practice picks as Kombat does
     for (int i = 0; i < 2; i++) {
-        req.by_player[i] = start.online && start.mode == "kombat" && start.picks[i].empty();
-        req.costumes[i] = start.online && start.mode == "kombat" ? start.costumes[i] : -1;
+        req.by_player[i] = start.online && fight && start.picks[i].empty();
+        req.costumes[i] = start.online && fight ? start.costumes[i] : -1;
     }
     g_request = req;
     Prepare(start);
@@ -283,7 +304,10 @@ X86_FUNC(sub_000982D0) {
 // and P2 the other colours when both picked the same character in the same costume.
 X86_FUNC(sub_002056E0) {
     __imp__sub_002056E0(ctx, base);
-    if (!mka::g_online_fight) return;
+    if (!mka::g_online_fight) {
+        mka::colours::SelectEnds();  // offline: P2 the other colours in a mirror of costume and colours
+        return;
+    }
     using namespace mka;
     constexpr uint32_t kRecords[2] = {kP1Record, kP2Record};
     constexpr uint32_t kAlternate[2] = {0x24, 0x58}, kColours[2] = {0x28, 0x5C};  // select block flags (autopilot.cpp)
@@ -297,11 +321,16 @@ X86_FUNC(sub_002056E0) {
             LOGR("link: P%d ends the select screen on character %u, the match's pick is %d: that one", s + 1, was,
                  character[s]);
         kernel::W32(kRecords[s] + kRecordCharacter, uint32_t(character[s]));
-        kernel::W32(kRecords[s] + kRecordCostume, (kernel::R32(kRecords[s] + kRecordCostume) & ~3u) | costume[s]);
-        if (block) kernel::W32(block + kAlternate[s], costume[s]);
+        costume[s] &= 3u;  // bit 0 the second costume, bit 1 its other colours (colours.h)
     }
-    if (block && character[0] >= 0 && character[1] >= 0) {
-        kernel::W32(block + kColours[0], 0);
-        kernel::W32(block + kColours[1], character[0] == character[1] && costume[0] == costume[1] ? 1 : 0);
+    // P2 the other colours when both have the same fighter in the same costume and colours
+    if (character[0] >= 0 && character[0] == character[1] && costume[0] == costume[1]) costume[1] ^= 2u;
+    for (int s = 0; s < 2; s++) {
+        if (character[s] < 0) continue;
+        kernel::W32(kRecords[s] + kRecordCostume, (kernel::R32(kRecords[s] + kRecordCostume) & ~3u) | costume[s]);
+        if (block) {
+            kernel::W32(block + kAlternate[s], costume[s] & 1u);
+            kernel::W32(block + kColours[s], (costume[s] >> 1) & 1u);
+        }
     }
 }

@@ -45,6 +45,18 @@
       "default_rounds": 3
     },
     {
+      "id": "sparring",
+      "name": "Online Practice",
+      "description": "Practice with a friend through a lobby's code: no timer, health refills, nobody is knocked out, and BACK in the game goes back to character select. Nothing is recorded.",
+      "online": true,
+      "ranked": false,
+      "lobby_only": true,
+      "roster": "fighters",
+      "character_select": "launcher",
+      "rounds": [1],
+      "default_rounds": 1
+    },
+    {
       "id": "practice",
       "name": "Practice",
       "description": "Offline training on this PC.",
