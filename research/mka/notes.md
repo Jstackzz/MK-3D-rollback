@@ -656,3 +656,16 @@ No runtime patch was needed: everything above is config (`recomp/mka/config/game
 - Sound levels (`recomp/common/src/mk3d/volume.cpp`): the five category floats 0x723BA0..0x723BB0 (index 5 unused) written at every frame's top
   while they differ from the launcher's levels (percent of the game's own: 0.75 each, 0x5684B0; sub_00235BD0 puts the defaults back after a profile's), 0 % as 0.0005; the master is the
   runtime's output voice (patch 0049).
+
+## Spectators and the frame counters (2026-11-14)
+
+Deadly Alliance's King of the Hill spectators went out of step at frame 30 when their own frame counters were one
+ahead of both players' (research/mkda-rev1/notes.md, "Spectators and the frame counters"): a spectator's game agrees
+from the two players' words (netplay.cpp WatchMeet) and so its counters could go back, while a player's game takes
+the larger of the two and never does. This engine marks work done in a frame with the frame counter 0x709E6C the same
+way: sub_00081070 waits a frame while [0x5BD928] +0x2C is the counter, sub_001A51F0 counts its calls in a frame by
++0x2C; 24 places compare with it. `Agree` starts a match's counters (fights and races) at the larger plus kCounterLead
+(4096) here too, a spectator computing the same, so no game's counters go back.
+Tested with tools/koth-e2e.ps1's rotation (-Passive a,c, 7 matches, every game's net log compared frame by frame):
+main's 1.0.8 game never parted (14 matches, 14 watches, 12 by the last loser); with the margin, 14 matches and 14
+watches alike (the spectators' own counters were -74 to +4 from the players' larger, none +1 in that run).

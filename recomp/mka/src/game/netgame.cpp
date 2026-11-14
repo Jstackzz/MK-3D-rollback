@@ -233,8 +233,20 @@ std::string Describe() {
     return buf;
 }
 
+// A match's frame counters start kCounterLead past the larger of the two players' own, so that no game's counters go
+// back at the meeting point, a spectator's included (its game agrees from the two players' words alone, netplay.cpp
+// WatchMeet). The engine marks work done in a frame with the frame counter: sub_00081070 waits a frame while
+// [0x5BD928] +0x2C is the counter, sub_001A51F0 counts its calls in a frame by +0x2C, and 24 places compare with it. A
+// game whose counters went back meets this frame's marks again a frame or more later and does that frame's work wrong.
+// In Deadly Alliance a King of the Hill spectator one frame ahead of both players went out of step at frame 30 (the
+// last match's loser, whose game left that match together with the king's); this game agrees the same way. 4096 keeps
+// the counters' phase in any power of two up to 4096 as it was. Games before this one start from the larger counters
+// alone: a match's two games and its spectators must agree in the same way.
+constexpr uint32_t kCounterLead = 4096;
+
 // Both games reach the meeting point after their own time in the menus: the main loop's frame counters differ (the
-// engine's timers count on them: the round timer starts from 0x709E6C), so both take the larger values. A fight's
+// engine's timers count on them: the round timer starts from 0x709E6C), so both take the larger values and
+// kCounterLead more. A fight's
 // arena and picks loaded already, a race's track and karts are chosen (it loads after this point): they must have
 // been the same (the launcher's seed picks the arena or the track, linkgame.cpp).
 // Every port's button table is the default one from here on (sub_0007B650 below), so a logical bit means the same
@@ -245,10 +257,16 @@ void Agree(X86Context&, int, const std::vector<uint32_t>& mine, const std::vecto
     if (theirs[kWordMode] != mine[kWordMode] || theirs[kWordP1] != mine[kWordP1] || theirs[kWordP2] != mine[kWordP2])
         LOGE("netplay: match setups differ: theirs mode %u %u vs %u, ours mode %u %u vs %u", theirs[kWordMode],
              theirs[kWordP1], theirs[kWordP2], mine[kWordMode], mine[kWordP1], mine[kWordP2]);
-    uint32_t frames = std::max(mine[kWordFrames], theirs[kWordFrames]);
-    uint32_t game_frames = std::max(mine[kWordGameFrames], theirs[kWordGameFrames]);
+    const uint32_t frames = std::max(mine[kWordFrames], theirs[kWordFrames]) + kCounterLead;
+    const uint32_t game_frames = std::max(mine[kWordGameFrames], theirs[kWordGameFrames]) + kCounterLead;
     LOGI("netplay: frame counters %u and %u (ours were %u and %u)", frames, game_frames, mine[kWordFrames],
          mine[kWordGameFrames]);
+    // only a spectator's game more than kCounterLead ahead of both players' still goes back: said, as a desync it brings
+    // shows later, at the frame its marks come round again
+    const uint32_t now = kernel::R32(kFrameCounter), now_game = kernel::R32(kGameCounter);
+    if (now > frames || now_game > game_frames)
+        LOGR("netplay: this game's frame counters go back from %u and %u to the match's %u and %u", now, now_game,
+             frames, game_frames);
     kernel::W32(kFrameCounter, frames);
     kernel::W32(kGameCounter, game_frames);
     if (mine[kWordMode] != kModeKart) {

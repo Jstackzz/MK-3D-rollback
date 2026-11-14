@@ -724,3 +724,6 @@ log, each watch compared frame by frame with both players' logs): before the fix
 desynced in five such runs (each at frame 30, each the same one-frame lag from frame 5); with it, two runs of 7
 matches: 14 matches and 14 watches (12 by the last loser), every frame of every match alike in the spectator and both
 players, every result agreed, no counters going back. Each game's frame 0 had the same counters (the larger plus 4097).
+Then tools/online-e2e.ps1 on the fix: a lobby with a spectator, 2 matches, the spectator's frames as A's (4537 and
+2944, 0 differ); a queue match at 60 ms of simulated lag on one side, 2 matches, hundreds of rollbacks, both players'
+frames alike (4034 and 3495). Deception and Armageddon got the same margin (their notes).

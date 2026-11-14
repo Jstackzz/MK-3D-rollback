@@ -778,3 +778,17 @@ closed their games 15 to 45 s later. Puzzle (11) and Motor Kombat (9) matches si
 - Sound levels (`recomp/common/src/mk3d/volume.cpp`): the five category floats 0x5FC980..0x5FC990 (index 5, 0x5FC994, 1.0, is not one of them) written at every frame's top
   while they differ from the launcher's levels (percent of the game's own: 0.75 each, 0x3FBE38 through sub_001B3EA0), 0 % as 0.0005; the master is the
   runtime's output voice (patch 0049).
+
+## Spectators and the frame counters (2026-11-14)
+
+Deadly Alliance's King of the Hill spectators went out of step at frame 30 when their own frame counters were one
+ahead of both players' (research/mkda-rev1/notes.md, "Spectators and the frame counters"): a spectator's game agrees
+from the two players' words (netplay.cpp WatchMeet) and so its counters could go back, while a player's game takes
+the larger of the two and never does. This engine marks work done in a frame with the frame counter 0x61C3F8 the same
+way: sub_0006EF40 waits a frame while [0x5FE9C4] +0x24 is the counter, sub_000FB310 counts its calls in a frame by
++0x24 and clears its sums when +0x68 is not the counter; 26 places compare with it. `Agree` starts a match's counters
+at the larger plus kCounterLead (4096) here too, a spectator computing the same, so no game's counters go back.
+Tested with tools/koth-e2e.ps1's rotation (-Passive a,c, 7 matches, every game's net log compared frame by frame):
+main's 1.0.8 game never parted (14 matches, 14 watches, 12 by the last loser), so the one-frame-ahead case did not
+show here as it did in Deadly Alliance; with the margin, 14 matches and 14 watches alike, and a temporary line in
+Agree showed three of the six last-loser watches one frame ahead of both players (gone forward with the margin).
