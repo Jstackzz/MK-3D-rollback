@@ -190,8 +190,8 @@ QueuePage::QueuePage(bool ranked, ServerClient* server, MatchController* control
     deathTraps_->setEnabled(!ranked);
     deathTraps_->setToolTip(ranked ? tr("Ranked matches never have the arenas' death traps.")
                                    : tr("Arenas whose death traps kill on the spot (the Dead Pool's acid, the Lower "
-                                        "Mines' spikes...). You only meet players who chose the same: with this off, "
-                                        "only players who turned death traps off too."));
+                                        "Mines' spikes...). Your match has them only when both of you turned them on; "
+                                        "either way you meet everyone searching."));
     mm->addWidget(deathTraps_);
     delayInfo_ = ui::label(QString(), "Muted");
     mm->addWidget(delayInfo_);
@@ -475,8 +475,9 @@ void QueuePage::onPhase(MatchController::Phase, const QString& text) {
 }
 
 // How many play this game right now (the server's online counts, docs/PROTOCOL.md 1.6): any of searching, in a match
-// or a series, in a lobby; and how many of those searching wait in this page's queue (the mode, Kasual or Ranked, the
-// death traps), the ones a search here can meet, this player's own search left out.
+// or a series, in a lobby; and how many of those searching wait in this page's queue (the mode, Kasual or Ranked; the
+// death traps keep no one apart, so both choices' searches), the ones a search here can meet, this player's own search
+// left out.
 void QueuePage::updatePlayers() {
     const Game* g = gameOf(gameId_);
     const QJsonObject game = online_.value(QStringLiteral("games")).toObject().value(gameId_).toObject();
@@ -486,24 +487,21 @@ void QueuePage::updatePlayers() {
     searchers_->setVisible(false);
     if (!show) return;
     const QString modeId = mode_->currentData().toString();
-    const GameMode* m = g->mode(modeId);
-    const bool traps = !ranked_ && (!(m && m->deathTraps) || deathTraps_->isChecked());  // as startSearch sends it
-    const auto queueName = [](const QString& game, const QString& mode, bool ranked, bool withTraps) {
-        return QStringLiteral("%1/%2/%3%4").arg(game, mode, ranked ? QStringLiteral("ranked") : QStringLiteral("casual"),
-                                               !ranked && !withTraps ? QStringLiteral("/no-traps") : QString());
+    const auto queueName = [](const QString& game, const QString& mode, bool ranked) {
+        return QStringLiteral("%1/%2/%3").arg(game, mode, ranked ? QStringLiteral("ranked") : QStringLiteral("casual"));
     };
-    const QString queue = queueName(gameId_, modeId, ranked_, traps);
+    const QString queue = queueName(gameId_, modeId, ranked_);
     const QueueRequest r = controller_->lastRequest();
     const bool mine = controller_->phase() == MatchController::Phase::Searching &&
-                      queueName(r.game, r.mode, r.ranked, r.deathTraps) == queue;
+                      queueName(r.game, r.mode, r.ranked) == queue;
     int searching = game.value(QStringLiteral("searching")).toInt();
-    int here = online_.value(QStringLiteral("queues")).toObject().value(queue).toInt();
+    const QJsonObject queues = online_.value(QStringLiteral("queues")).toObject();
+    int here = queues.value(queue).toInt() + (ranked_ ? 0 : queues.value(queue + QStringLiteral("/no-traps")).toInt());
     if (mine) {
         searching = qMax(0, searching - 1);
         here = qMax(0, here - 1);
     }
-    const QString queueText = QStringLiteral("%1 %2%3").arg(ranked_ ? tr("Ranked") : tr("Kasual"), mode_->currentText(),
-                                                           !ranked_ && !traps ? tr(" without death traps") : QString());
+    const QString queueText = QStringLiteral("%1 %2").arg(ranked_ ? tr("Ranked") : tr("Kasual"), mode_->currentText());
     QString search;
     if (searching == 0) search = mine ? tr("only you searching") : tr("nobody searching");
     else if (here == searching) search = (mine ? tr("you and %1 more searching for %2") : tr("%1 searching for %2")).arg(searching).arg(queueText);

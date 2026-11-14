@@ -36,12 +36,13 @@ def test_queues_do_not_mix():
     assert find_pairs(entries, 100, CFG, PingCache()) == []
 
 
-def test_casual_death_traps_choices_do_not_mix():
+def test_casual_death_traps_choices_meet_at_once():
+    # first come, first served whatever the death traps (2026-11-14; the match has them only when both asked)
     entries = [entry(1, since=0, death_traps=False), entry(2, since=1), entry(3, since=2, death_traps=False),
                entry(4, since=3)]
-    assert ids(find_pairs(entries, 5, CFG, PingCache())) == [(1, 3), (2, 4)]
-    assert find_pairs(entries[:2], 1000, CFG, PingCache()) == []  # waiting longer changes nothing
+    assert ids(find_pairs(entries, 1, CFG, PingCache())) == [(1, 2), (3, 4)]
     assert [e.queue_name for e in entries[:2]] == ["mkd/kombat/casual/no-traps", "mkd/kombat/casual"]
+    assert entries[0].key == entries[1].key
     # ranked never has them, whatever the search asked for
     ranked = [entry(5, ranked=True), entry(6, ranked=True, death_traps=False)]
     assert ids(find_pairs(ranked, 1, CFG, PingCache())) == [(5, 6)]
@@ -65,6 +66,24 @@ def test_ranked_elo_window_widens_over_time():
     assert ids(find_pairs([a, b], 20, CFG, PingCache())) == [(1, 2)]
     b.strict = True  # strict keeps the base window for that player
     assert find_pairs([a, b], 1000, CFG, PingCache()) == []
+
+
+def test_side_modes_ranked_meet_whatever_the_elo():
+    # Chess, Puzzle and Motor Kombat: few search them, so the Elo window keeps no one apart (2026-11-14)
+    for game, mode in (("mkd", "chess"), ("mkd", "puzzle"), ("mka", "motor")):
+        a = entry(1, since=0, game=game, mode=mode, ranked=True, elo=1500)
+        b = entry(2, since=0, game=game, mode=mode, ranked=True, elo=475)
+        assert ids(find_pairs([a, b], 0, CFG, PingCache())) == [(1, 2)], mode
+        b.strict = True  # strict is about the ping and the region there
+        assert ids(find_pairs([a, b], 0, CFG, PingCache())) == [(1, 2)], mode
+    # Kombat keeps the window
+    a, b = entry(1, since=0, ranked=True, elo=1500), entry(2, since=0, ranked=True, elo=475)
+    assert find_pairs([a, b], 0, CFG, PingCache()) == []
+    # several waiting: still the closest rated
+    a = entry(1, since=0, mode="chess", ranked=True, elo=1500)
+    far, near = (entry(2, since=1, mode="chess", ranked=True, elo=475),
+                 entry(3, since=2, mode="chess", ranked=True, elo=1400))
+    assert ids(find_pairs([a, far, near], 5, CFG, PingCache())) == [(1, 3)]
 
 
 def test_ranked_prefers_closest_rating():
@@ -141,6 +160,16 @@ async def test_casual_queue_pairs_two_players(server, connect):
     assert fa["opponent"]["name"] == "Kung" and fa["opponent"]["character"] == "KungLao"
     assert fb["opponent"]["name"] == "Liu"
     assert server.queue == {}
+
+
+async def test_casual_death_traps_meet_without_them(server, connect):
+    a = await connect("Tanya")
+    b = await connect("Kenshi")
+    await a.request({**queue_msg(mode="chess"), "death_traps": False})
+    queued = await b.request({**queue_msg(mode="chess"), "death_traps": True})
+    assert queued["in_queue"] == 2  # the other choice's search counts: they meet
+    fa, fb = await a.expect("match_found"), await b.expect("match_found")
+    assert fa["match"] == fb["match"] and fa["death_traps"] is False and fb["death_traps"] is False
 
 
 async def test_ranked_hides_opponent_and_keeps_queues_apart(server, connect):

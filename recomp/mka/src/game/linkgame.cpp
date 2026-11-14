@@ -189,8 +189,10 @@ bool Begin(const Start& start) {
     req.local_side = start.online && !start.watch ? start.side : -1;
     req.watch = start.watch;
     const bool fight = start.mode == "kombat" || start.mode == "sparring";  // Online Practice picks as Kombat does
+    // Motor Kombat: a player's own kart, on the kart select (autopilot ExchangeKarts)
+    const bool picks = fight || start.mode == "motor";
     for (int i = 0; i < 2; i++) {
-        req.by_player[i] = start.online && fight && start.picks[i].empty();
+        req.by_player[i] = start.online && picks && start.picks[i].empty();
         req.costumes[i] = start.online && fight ? start.costumes[i] : -1;
     }
     g_request = req;

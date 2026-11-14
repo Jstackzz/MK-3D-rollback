@@ -197,6 +197,7 @@ private:
     QList<quintptr> soloHidden_, gameHidden_;  // the windows freezing hid, shown again by thawing
     bool showWhenReady_ = false;  // standby: the match's game started on accepting; to the front once it is up
     bool closeWhenIdle_ = false;  // a lobby was left: game_ goes once idle (closeGameWhenIdle)
+    bool leaveQuit_ = false;  // game_ quit as its player left the lobby during its match (reported as such)
     QPointer<GameProcess> lobbyGame_;  // the game a lobby's Ready wants (prepareGame): a cancelled search leaves it be
     bool practiceForSearch_ = false;   // practice the search opened (maybeStartPractice): a cancelled search closes it
     QString practiceAfterSeries_;      // the game of a series just over, to practise in once idle (empty: none)

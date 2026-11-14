@@ -135,6 +135,17 @@ struct KartPort {
     uint8_t a = 0;
 };
 KartPort g_kart[2];
+// Motor Kombat online, a side whose player picks on the kart select (the launcher's "-"): this PC's player chooses
+// their own kart with their own controller (LocalPickPort), and once they ready it, it goes to the other game
+// (SetLocalPick: kKartWord | kart), where the autopilot drives that quadrant to it and readies it. P1 chooses first and
+// P2 once P1 is ready, in both games: a readied kart is taken, so P2 can take the same karts in both, and the two never
+// want one kart. P1 readies only once P2 has joined (the race starts once nobody is still choosing). Nobody's time
+// runs out (HoldIdle: the kart select's 2700 frames without a press read the same 0x5B7E64).
+constexpr uint32_t kKartWord = 0xCA000000u, kKartTagMask = 0xFF000000u;
+constexpr int kKartWait = -2;  // g_kart_target: the other player's kart has not come yet
+constexpr int kKarts = 10;
+bool g_kart_sent = false;      // this PC's player's kart went to the other game
+int g_kart_presses[2] = {};    // RIGHT presses toward a target: one that cannot be reached is given up on
 
 void EnterKart();
 
@@ -496,11 +507,40 @@ void EnterKart() {
                                            : uint32_t(std::strtoul(g_track_stage.c_str(), nullptr, 10));
     for (int i = 0; i < 2; i++) {
         g_kart[i] = KartPort{};
+        g_kart_presses[i] = 0;
         g_kart_target[i] = KartId(g_req.names[i]);
-        if (g_kart_target[i] < 0) g_kart_target[i] = i;  // the quadrants' own: Baraka, Bo' Rai Cho
+        if (g_req.by_player[i]) g_kart_target[i] = i == g_req.local_side ? -1 : kKartWait;  // a player's own choice
+        else if (g_kart_target[i] < 0) g_kart_target[i] = i;  // the quadrants' own: Baraka, Bo' Rai Cho
     }
-    if (g_kart_target[1] == g_kart_target[0]) g_kart_target[1] = (g_kart_target[0] + 1) % 10;  // one kart each
-    LOGI("autopilot: Motor Kombat on track %u, karts %d and %d", g_track_target, g_kart_target[0], g_kart_target[1]);
+    g_kart_sent = false;
+    if (g_kart_target[1] >= 0 && g_kart_target[1] == g_kart_target[0])
+        g_kart_target[1] = (g_kart_target[0] + 1) % kKarts;  // one kart each
+    LOGR("autopilot: Motor Kombat on track %u, karts %d and %d%s", g_track_target, g_kart_target[0], g_kart_target[1],
+         PlayersPick() ? " (-1 this player's choice, -2 the other player's)" : "");
+}
+
+// this PC's player's kart, once they readied it, to the other game; the other player's (a spectator's game: both
+// players'), as it comes, to the autopilot
+void ExchangeKarts() {
+    const int me = g_req.local_side;
+    if (me >= 0 && g_req.by_player[me] && !g_kart_sent && kernel::R32(kRecord[me] + kRecordState) == 2) {
+        const uint32_t kart = kernel::R32(kKartChoice + uint32_t(me) * 0xC);
+        const uint32_t word = kKartWord | (kart & 0xFFu);
+        mk3d::net::SetLocalPick(&word, 1);
+        g_kart_sent = true;
+        g_kart_target[me] = int(kart);
+        LOGR("autopilot: this player readied kart %u", kart);
+    }
+    for (int other = 0; other < 2; other++) {
+        if (other == me || !g_req.by_player[other] || g_kart_target[other] != kKartWait) continue;
+        uint32_t words[2] = {};
+        int n = 2;
+        const bool in = g_req.watch ? mk3d::net::WatchPick(other, words, n) : mk3d::net::PeerPick(words, n);
+        if (in && n > 0 && (words[0] & kKartTagMask) == kKartWord && (words[0] & 0xFFu) < uint32_t(kKarts)) {
+            g_kart_target[other] = int(words[0] & 0xFFu);
+            LOGR("autopilot: P%d readied kart %d", other + 1, g_kart_target[other]);
+        }
+    }
 }
 
 // the press a port needs now on Motor Kombat's select
@@ -530,13 +570,29 @@ void KartDecide(int port, KartPort& k) {
     uint32_t state = kernel::R32(kRecord[port] + kRecordState);
     if (state == 2) return;  // ready
     if (port == 1 && state == 0) {
-        k.buttons = kStart;  // P2 joins
+        k.buttons = kStart;  // P2 joins (this PC's player's side too: before they choose)
         return;
     }
+    if (port == g_req.local_side && g_req.by_player[port]) return;  // this PC's player chooses
+    if (PlayersPick() && port == 1) {
+        if (kernel::R32(kRecord[0] + kRecordState) != 2) return;  // P2 after P1
+        // a launcher's P2 kart that P1 chose: the next one, the same in both games (P1's readied kart is)
+        const int taken = int(kernel::R32(kKartChoice));
+        if (g_kart_target[1] >= 0 && g_kart_target[1] == taken) {
+            g_kart_target[1] = (taken + 1) % kKarts;
+            LOGR("autopilot: P1 took kart %d: P2 takes %d", taken, g_kart_target[1]);
+        }
+    }
+    if (g_kart_target[port] < 0) return;  // the other player's kart has not come yet
     int kart = int(kernel::R32(kKartChoice + uint32_t(port) * 0xC));
     if (kart != g_kart_target[port]) {
-        k.buttons = kMoveButton[1];  // RIGHT: the next kart
-        return;
+        if (++g_kart_presses[port] <= 4 * kKarts) {
+            k.buttons = kMoveButton[1];  // RIGHT: the next kart
+            return;
+        }
+        if (g_kart_presses[port] == 4 * kKarts + 1)
+            LOGE("autopilot: P%d's kart %d never came up (on %d): readied as it is", port + 1, g_kart_target[port],
+                 kart);
     }
     if (port == 0 && kernel::R32(kRecord[1] + kRecordState) == 0) return;  // not before P2 has joined
     k.a = 0xFF;
@@ -631,7 +687,18 @@ bool ArenaPanelOpen() {
 int LocalPickPort() {
     std::lock_guard<std::mutex> lock(g_lock);
     const int me = g_req.local_side;
-    if (g_phase != Phase::Select || me < 0 || !g_req.by_player[me] || Since() < 1.5) return -1;
+    if (me < 0 || !g_req.by_player[me]) return -1;
+    if (g_phase == Phase::Kart) {
+        // Motor Kombat: once the track is chosen and the quadrants are open; P1 once P2 has joined, P2 once P1 is
+        // ready (ExchangeKarts); until their own kart is ready
+        if (g_kart_step != KartStep::Karts || kernel::R32(kMainTask) != kKartSelectTask ||
+            std::chrono::duration<double>(Clock::now() - g_kart_since).count() < 1.0)
+            return -1;
+        const uint32_t p1 = kernel::R32(kRecord[0] + kRecordState), p2 = kernel::R32(kRecord[1] + kRecordState);
+        if (p2 == 0 || (me == 1 && p1 != 2) || kernel::R32(kRecord[me] + kRecordState) == 2) return -1;
+        return me;
+    }
+    if (g_phase != Phase::Select || Since() < 1.5) return -1;
     if (!SelectUp() || Picked(me)) return -1;  // not up, or picked
     return me;
 }
@@ -768,13 +835,19 @@ void Apply(int port, input::Pad& pad) {
             return;
         }
         case Phase::Kart: {
-            if (MatchStarts() > g_base_matches || t > 120) {
+            // the launcher's karts take seconds; players take as long as they like (the launcher ends a match that
+            // does not start)
+            if (MatchStarts() > g_base_matches || (!PlayersPick() && t > 120)) {
                 Enter(Phase::Done);
                 return;
             }
             if (port > 1) return;
             pad.connected = true;
             if (kernel::R32(kMainTask) != kKartSelectTask || t < 1.5) return;  // the screen fades in
+            if (port == 0) {
+                ExchangeKarts();
+                if (Online()) HoldIdle();
+            }
             KartPort& k = g_kart[port];
             long cycle = long(t / 0.25);
             if (cycle != k.cycle) {

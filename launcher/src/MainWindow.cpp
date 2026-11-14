@@ -926,6 +926,17 @@ void MainWindow::cliLobbyMessage(const QJsonObject& msg) {
     for (const auto& v : lobby.value(QStringLiteral("members")).toArray())
         if (!v.toObject().value(QStringLiteral("spectator")).toBool()) members.append(v);
     if (lobby.value(QStringLiteral("state")).toString() == QLatin1String("in_match")) {
+        // --leave-lobby-in-match: out that many seconds into the first match, which is still under way
+        if (opts_.leaveLobbyInMatch > 0 && !cliLobbyInMatch_ && !cliLobbyLeft_ && cliLobbyDone_ == 0) {
+            const QString id = lobby.value(QStringLiteral("id")).toString();
+            QTimer::singleShot(opts_.leaveLobbyInMatch * 1000, this, [this, id] {
+                if (cliLobbyLeft_ || !cliLobbyInMatch_) return;
+                cliLobbyLeft_ = true;
+                applog::write(QStringLiteral("cli: leaving lobby %1 in its match").arg(id));
+                controller_->stopWatching();
+                server_->send({{QStringLiteral("type"), QStringLiteral("lobby_leave")}});
+            });
+        }
         cliLobbyInMatch_ = true;
         return;
     }

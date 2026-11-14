@@ -51,6 +51,9 @@ struct Settings {
 enum class Status { Off, Local, Barrier, Lockstep, Desynced, Disconnected, Rollback };
 
 bool Enabled();
+// this PC's player's side in the match netplay is set up for (0 left, 1 right), -1 when none or in a spectator's game;
+// the main thread's view (it applies a new configuration at the top of a frame)
+int LocalSide();
 // start or stop netplay; applied by the main thread at the top of the next frame (any thread may call these)
 void Configure(const Settings& st);
 void Disable();

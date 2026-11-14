@@ -78,9 +78,11 @@ whether to trust it: compare it with your host's.
   the game's own select screen" ticked (the default) you choose your fighter in
   the game when the match starts, with your own controller, while your opponent
   does the same on their PC; the game shows their pick once they made it. Untick
-  it to choose your fighter in the launcher instead. Puzzle Kombat's fighter is
-  picked the same way, and Chess Kombat's team (leader, champion, sorcerer,
-  shifter, grunt) always on the game's own select screen. Your record (wins, losses,
+  it to choose your fighter in the launcher instead. Puzzle Kombat's fighter and
+  Motor Kombat's kart are picked the same way (in Motor Kombat player 1 chooses
+  first, then player 2 from the karts still free), and Chess Kombat's team
+  (leader, champion, sorcerer, shifter, grunt) always on the game's own select
+  screen, in lobbies too. Your record (wins, losses,
   and Elo and rank in Ranked) is on the right of the page: in Ranked it counts the
   sets you won and lost (a set won 3-2 is one win), in Kasual each match. Above it how many play the
   game right now: searching (and how many of them in the mode you picked, the
@@ -158,8 +160,9 @@ whether to trust it: compare it with your host's.
   page) to ready up for the next one.
   If your connection drops, sign back in within a minute (the launcher does it
   by itself) and you are put back in your lobby. Leave closes the game the
-  lobby started (once a match it is playing is over), so there is nothing left
-  to close by hand; a dropped connection keeps it.
+  lobby started at once, even in the middle of a match (which then counts as
+  left; a lobby match keeps no record of it), so there is nothing left to close
+  by hand; a dropped connection keeps it.
 - Online Practice, to train with a friend (all three games): create a lobby
   with the mode Online Practice and give your friend its code (it is never
   in the list, and nobody else can join or watch it: two players only). Both
@@ -167,7 +170,8 @@ whether to trust it: compare it with your host's.
   up again a moment after a combo (and before anyone could be knocked out),
   and nothing is recorded. Press **BACK** (Backspace on a keyboard) in the game
   to go back to character select: both games go there and the next fight
-  starts once you have both picked again.
+  starts once you have both picked again. The frame data panel (below) follows
+  your own fighter on either side there; **F7** shows or hides it.
 - Watching a lobby: select it in the list and press Watch selected (or join it,
   then press Watch). Each of its matches plays in your own game, a moment
   behind the players, select screen and ending included; a match already under
@@ -179,8 +183,8 @@ whether to trust it: compare it with your host's.
 - Death traps: the arenas' death traps (Deception and Armageddon: the Dead
   Pool's acid, the Lower Mines' spikes and the others) kill on the spot. The
   Death traps box under Matchmaking on the Kasual page says whether you want
-  them, and you only meet players who chose the same: untick it and every
-  Kasual opponent has death traps off too. Ranked matches never have them. A
+  them. It never keeps you from meeting anyone: a Kasual match has death traps
+  only when both of you ticked the box. Ranked matches never have them. A
   lobby's host chooses for its matches when creating it, and can switch it in
   the lobby (the Death traps box under its name) between matches; both players
   then press Ready again. Online matches also play with the game's default
@@ -280,7 +284,8 @@ whether to trust it: compare it with your host's.
   the three at random, then not at all again (the game's own rolls, as a
   player holding that direction as they land). **F7** shows or hides the
   panel; **Settings → Frame data in practice** sets whether it is shown when
-  practice starts. None of it is ever in an online match.
+  practice starts. Online it is only in Online Practice, for your own fighter
+  (the other player has their own), without F8 and F6: there is no dummy.
 - The other colours of a costume (all three games): every fighter's costume
   has a second set of colours, which the games themselves only give the
   second player of a mirror match. Hold **LT** (L1) while you pick: LT and A

@@ -197,7 +197,7 @@ C: {"type":"admin_notice","text":"...","level":"info"}      (admins only, server
 `count` = logged-in accounts, `connected` = open connections, `playing` =
 players in matches past the accept step. `queues` counts the searches in each
 queue (`<game>/<mode>/<casual|ranked>`, `/no-traps` after a Kasual search
-without death traps). `games` (0.1.13) counts each game's players: `searching`,
+without death traps, which meets the searches with them all the same). `games` (0.1.13) counts each game's players: `searching`,
 in its `matches` (from `match_found` on, and between two matches of a series),
 in its `lobbies` (spectators too), and `playing`, any of those, each player
 once; the matchmaking pages show them. `searchers` (0.1.14) names who searches,
@@ -231,12 +231,11 @@ S: {"type":"queue_left","reason":"left"}
   opponent with `match_found.connection`.
 - `delay` is the player's preferred input delay in frames (0-4).
 - `death_traps` (optional, default `true`) is whether the player wants the
-  arenas' death traps (Deception, Armageddon). A casual search meets only the
-  searches that chose the same, so its match has death traps exactly when the
-  player asked for them (`in_queue` and the `online` counts, where such a
-  queue is `<game>/<mode>/casual/no-traps`, count that choice's searches
-  only). A ranked match never has them, and in ranked the choice keeps no one
-  apart.
+  arenas' death traps (Deception, Armageddon). It keeps no one apart (1.0.8;
+  before, a casual search met only the searches that chose the same): a
+  casual match has death traps only when both searches asked for them.
+  `in_queue` counts both choices' searches; the `online` counts name a search
+  without them `<game>/<mode>/casual/no-traps`. A ranked match never has them.
 - `server_rtt` (optional) is the client's last measured UDP round trip to the
   server in ms (section 2.2); the UDP hellos sent while queued update it. It
   orders otherwise equal ranked candidates, and for a match that would go
@@ -270,7 +269,9 @@ S: {"type":"queue_left","reason":"left"}
 - **Ranked pairing (Elo window).** The same rules plus an Elo window: a pair
   is allowed when `|elo_a - elo_b| <= min(window_a, window_b)`, with
   `window = 100 + 50 * floor(waited / 10 s)`, capped at 1100. `strict` pins the
-  window at 100 and the region to the player's own. Among the allowed
+  window at 100 and the region to the player's own. In the side modes
+  (`chess`, `puzzle`, `motor`, which few search) there is no window (1.0.8):
+  any two ranked searches meet at once. Among the allowed
   partners of the longest-waiting player the server takes the smallest Elo
   difference, then the lowest estimated ping (sum of both players' UDP round
   trips to the server, a rough proxy), then the earliest join time. Ranked

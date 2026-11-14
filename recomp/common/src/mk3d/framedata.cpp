@@ -17,6 +17,12 @@
 //
 // The practice dummy's block (F8) and tech roll (F6) are the only things that change the game: each game's "is this
 // action held" hook asks DummyHolds and TechHolds, which answer only in a practice fight on this PC alone.
+//
+// Online Practice (1.0.8): OnlineFrame follows this PC's player instead, from the pad update of every frame run (the
+// netplay's frame top, a rollback's restore with it, came first): the tracker's player 1 is this PC's player, player 2
+// the other one. A frame a rollback runs again starts from the tracker's and the adapter's state as that frame's
+// earlier run had it at that point (g_saved), so the frames that count decide what is shown; a move published again in
+// a run again is not logged again.
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -39,6 +45,7 @@
 #include "mk3d/link.h"
 #include "mk3d/netplay.h"
 #include "mk3d/record.h"
+#include "mk3d/sparring.h"
 
 namespace mk3d::framedata {
 namespace {
@@ -118,6 +125,31 @@ uint32_t g_tested[2] = {~0u, ~0u};  // the frame each side's attack was last tes
 std::mutex g_shown_lock;
 Shown g_shown;  // under g_shown_lock
 
+// Online Practice (OnlineFrame, main thread)
+std::atomic<bool> g_online{false};  // the tracker follows Online Practice now: OnFrame leaves it alone
+int g_me = 0;                       // the game's side of this PC's player, the tracker's player 1 (0 offline)
+bool g_after_top = false;           // the adapter reads at the pad update (AfterTop)
+bool g_quiet = false;               // a frame run again: what it publishes is shown, not logged again
+uint32_t g_newest = 0;              // the newest frame the online tracker ran (0 none yet)
+// tests: <prefix>_FRAMEDATA_FOLLOW=0|1, the side followed online instead of this PC's player's;
+// <prefix>_FRAMEDATA_TRACE=1, every move published logged with the frame it began, a frame run again's too ("again"):
+// the last line for a move is what was shown in the end. Two games of a match following one side end alike.
+int g_follow = -1;
+bool g_trace = false;
+constexpr int kSaved = 128;         // frames of state kept for runs again (a rollback goes back far less)
+constexpr size_t kLocalMax = 64;    // bytes of an adapter's own state kept
+struct Saved {
+    bool valid = false;
+    uint32_t t = 0;
+    Move move;
+    Fighter prev[2];
+    bool prev_valid = false;
+    uint32_t prev_time = 0;
+    uint32_t tested[2] = {};
+    unsigned char local[kLocalMax] = {};
+};
+Saved g_saved[kSaved];
+
 const char* ContactText(int contact) { return contact == 1 ? "On hit" : contact == 2 ? "On block" : "Whiff"; }
 
 const char* DummyText(Dummy d) {
@@ -143,6 +175,13 @@ void Notice(const char* what, const char* text) {
 bool Allowed() {
     // never in a game the launcher drives or with netplay configured: only a practice fight on this PC alone
     return g_installed && !link::Active() && !net::Enabled() && g_game.practice && g_game.practice();
+}
+
+// Online Practice in sync, this PC a player in it
+bool OnlineAllowed() {
+    if (!g_installed || !sparring::On() || !net::Enabled() || net::LocalSide() < 0) return false;
+    const net::Status st = net::GetStatus();
+    return st == net::Status::Rollback || st == net::Status::Lockstep;
 }
 
 void Publish(const Move& m, bool interrupted, uint32_t now) {
@@ -191,8 +230,14 @@ void Publish(const Move& m, bool interrupted, uint32_t now) {
         s.other = std::abs(int(m.p1_free) - int(m.p1_block));
     }
     if (g_game.name)
-        if (const char* n = g_game.name(0)) std::snprintf(s.name, sizeof s.name, "%s", n);
-    if (s.advantage_known && s.other_known)
+        if (const char* n = g_game.name(g_me)) std::snprintf(s.name, sizeof s.name, "%s", n);
+    if (g_trace)
+        LOGR("framedata: trace%s move from %u: startup %d active %s recovery %d total %d, %s %s%d, other %s %d, "
+             "%d hits, last in frame %d", g_quiet ? " again" : "", m.start, s.startup, s.active, s.recovery, s.total,
+             ContactText(s.contact), s.advantage_known ? (s.advantage_at_least ? ">=" : "") : "?", s.advantage,
+             s.other_known ? s.other_is : "-", s.other, s.hits, s.contact_frame);
+    if (g_quiet) {  // a frame run again after a rollback: shown, logged the first time
+    } else if (s.advantage_known && s.other_known)
         LOGR("framedata: %s startup %d active %s recovery %d total %d, %s %+d, %+d to %s "
              "(%d hits, the last in frame %d)",
              s.name, s.startup, s.active, s.recovery, s.total, ContactText(s.contact), s.advantage, s.other, s.other_is,
@@ -216,7 +261,14 @@ void Reset() {
     g_prev_valid = false;
 }
 
+void Track(const Fighter p[2], uint32_t t);
+
 void OnFrame(uint64_t) {
+    if (g_online.load(std::memory_order_relaxed) || OnlineAllowed()) {  // OnlineFrame follows it
+        g_practice = false;
+        g_fight = false;
+        return;
+    }
     const bool practice = Allowed();
     g_practice = practice;
     // both fighters, read once at the top of the frame for the panel and the practice record alike
@@ -240,6 +292,12 @@ void OnFrame(uint64_t) {
         return;
     }
     g_following = true;
+    Track(p, t);
+}
+
+// one frame's top as the tracker sees it: p[0] its player 1 (offline the game's; online this PC's player), p[1] the
+// other fighter, t the game's frame
+void Track(const Fighter p[2], uint32_t t) {
     if (!g_prev_valid || t != g_prev_time + 1) {  // the first frame of a fight, or time jumped
         g_move = {};
         g_prev[0] = p[0];
@@ -282,8 +340,9 @@ void OnFrame(uint64_t) {
             if (g_tested[0] == ran || p[0].striking) {
                 m.p1_block = 0;  // its attack still goes on: blocking comes after it
             } else if (!m.p1_block && t > m.start && p[0].can_block) {
-                // its own task cleared the flags in the frame that ran, before player 2's strike tested
-                const bool sooner = g_game.block_flags_early && t - 1 > m.start && !g_prev[0].can_block &&
+                // its own task cleared the flags in the frame that ran, before player 2's strike tested (the game's
+                // player 1's task runs first: not so when the tracker follows player 2 online)
+                const bool sooner = g_game.block_flags_early && g_me == 0 && t - 1 > m.start && !g_prev[0].can_block &&
                                     g_prev[0].block_waits_over && !g_prev[0].striking;
                 m.p1_block = sooner ? t - 1 : t;
             }
@@ -307,6 +366,68 @@ void OnFrame(uint64_t) {
     g_prev_time = t;
 }
 
+// Online Practice: this PC's player's frame data, from the pad update of every frame run (see the top)
+void OnlineFrame(uint64_t) {
+    if (!OnlineAllowed() || !g_on.load(std::memory_order_relaxed)) {
+        if (g_online.exchange(false)) {
+            g_following = false;
+            g_me = 0;
+            g_after_top = false;
+            g_quiet = false;
+            g_newest = 0;
+            for (Saved& s : g_saved) s.valid = false;
+            Reset();
+        }
+        return;
+    }
+    g_online = true;
+    const int me = g_follow >= 0 ? g_follow : net::LocalSide();
+    g_me = me;
+    g_after_top = true;
+    const uint32_t t = g_game.time();
+    const size_t local = g_game.local ? std::min(g_game.local_size, kLocalMax) : 0;
+    // a frame run again after a rollback (and the ones after it): shown, not logged again. Where the rollback went
+    // back, the tracker and the adapter as that frame's last run had them before its reads (the adapter's reads carry
+    // what it saw in the frames before, so they come after); the frames after it go on from there as they run again,
+    // as the first run did
+    g_quiet = g_newest && t <= g_newest;
+    if (g_quiet && (!g_prev_valid || t <= g_prev_time)) {
+        const Saved& s = g_saved[t % kSaved];
+        if (s.valid && s.t == t) {
+            g_move = s.move;
+            g_prev[0] = s.prev[0];
+            g_prev[1] = s.prev[1];
+            g_prev_valid = s.prev_valid;
+            g_prev_time = s.prev_time;
+            g_tested[0] = s.tested[0];
+            g_tested[1] = s.tested[1];
+            if (local) std::memcpy(g_game.local, s.local, local);
+        } else {
+            Reset();  // further back than kept: as a new fight from here
+        }
+    }
+    if (!g_quiet) g_newest = t;
+    Saved& s = g_saved[t % kSaved];
+    s.valid = true;
+    s.t = t;
+    s.move = g_move;
+    s.prev[0] = g_prev[0];
+    s.prev[1] = g_prev[1];
+    s.prev_valid = g_prev_valid;
+    s.prev_time = g_prev_time;
+    s.tested[0] = g_tested[0];
+    s.tested[1] = g_tested[1];
+    if (local) std::memcpy(s.local, g_game.local, local);
+    Fighter p[2];
+    if (!g_game.read(me, p[0]) || !g_game.read(1 - me, p[1])) {  // no fight on screen (character select, a load)
+        g_following = false;
+        Reset();
+        return;
+    }
+    g_following = true;
+    Track(p, t);
+}
+
 }  // namespace
 
 void Install(const Adapter& adapter) {
@@ -315,8 +436,13 @@ void Install(const Adapter& adapter) {
     if (const char* v = std::getenv("MK3D_FRAMEDATA")) g_on = std::atoi(v) != 0;
     if (const char* v = Env("FRAMEDATA_DUMMY")) g_dummy = std::clamp(std::atoi(v), 0, 2);  // tests: F8 from the start
     if (const char* v = Env("FRAMEDATA_TECH")) g_tech = std::clamp(std::atoi(v), 0, 4);    // tests: F6 from the start
+    if (const char* v = Env("FRAMEDATA_FOLLOW")) g_follow = std::clamp(std::atoi(v), 0, 1);  // tests: online side
+    g_trace = Env("FRAMEDATA_TRACE") != nullptr;                                             // tests: every publish
     OnFrameStart(&OnFrame);
+    OnBeforePads(&OnlineFrame);
 }
+
+bool AfterTop() { return g_after_top; }
 
 void SetShown(bool on) { g_on = on; }
 
@@ -392,7 +518,7 @@ int TechHolds(int action) {
 
 void ActiveCheck(int side) {
     if (!Following() || (side != 0 && side != 1)) return;
-    g_tested[side] = g_game.time();
+    g_tested[g_online.load(std::memory_order_relaxed) ? side ^ g_me : side] = g_game.time();  // the tracker's sides
 }
 
 void Window(void*) {
@@ -460,9 +586,13 @@ void Ui(double) {
         ImGui::SetWindowFontScale(px / (g_font ? kFontPixels : 13.0f));
         const ImVec4 dim(0.75f, 0.75f, 0.75f, 1.0f);
         const float gap = px;  // between the parts of a line
-        const Dummy dummy = Dummy(g_dummy.load(std::memory_order_relaxed));
-        const Tech tech = Tech(g_tech.load(std::memory_order_relaxed));
-        if (!s.valid) {
+        // Online Practice has no dummy: its keys do nothing there
+        const bool online = g_online.load(std::memory_order_relaxed);
+        const Dummy dummy = online ? Dummy::Stands : Dummy(g_dummy.load(std::memory_order_relaxed));
+        const Tech tech = online ? Tech::Off : Tech(g_tech.load(std::memory_order_relaxed));
+        if (!s.valid && online) {
+            ImGui::TextColored(dim, "Frame data: attack (F7 hides it)");
+        } else if (!s.valid) {
             ImGui::TextColored(dim, "Frame data: attack with player 1");
             ImGui::SameLine(0.0f, gap);
             ImGui::TextColored(dim, "F8: the dummy %s", DummyText(dummy));
@@ -528,6 +658,8 @@ bool Message(void*, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t*) {
         const bool on = !g_on.load();
         g_on = on;
         LOGR("framedata: %s", on ? "shown" : "hidden");
+    } else if (g_online.load()) {
+        return false;  // Online Practice: no dummy for F8 and F6
     } else if (wp == kDummyKey) {
         const int d = (g_dummy.load() + 1) % 3;
         g_dummy = d;

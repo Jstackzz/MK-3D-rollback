@@ -263,10 +263,13 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    60 s and sends the feed again (the page waits 70 s before it stops the
    watching). *Play* takes a free place again. *Leave* (the server's
    `lobby_left`, which only a player's own leave gets) closes the game the lobby
-   started once nothing needs it, a lobby match it plays or watches having ended
-   first (`MatchController::closeGameWhenIdle`); a search, a lobby's *Ready* or a
-   match to watch wanting the game before then keeps it, and a dropped connection
-   never closes it.
+   started (`MatchController::closeGameWhenIdle`): at once in the middle of its
+   match too, or of the last match's ending (1.0.8: the game quits, the match is
+   reported as left, which a lobby match keeps no record of; before, the game
+   waited for the match to end, which Online Practice never does by itself and a
+   side mode only after minutes); a watched match ends first; a search, a
+   lobby's *Ready* or a match to watch wanting the game before then keeps it, and
+   a dropped connection never closes it.
 6. **Single player**: *PLAY* starts the game plainly (no `MK3D_NET`), so it
    runs its own menus as on the console, its practice mode included;
    *PRACTICE* starts it with `MK3D_TRAINING=1` (below), straight to practice's
@@ -534,6 +537,7 @@ Command-line options for development and automation:
 | `--rematch-choice rematch,select` | what each of those choices is: `rematch` (the same fighters) or `select` (both pick again); the last one repeats (default `rematch`; `tools/online-e2e.ps1 -RematchChoice`) |
 | `--leave-series` | once those are chosen, leave the series at once instead of letting its time run out |
 | `--leave-lobby` | with `--lobby host\|join`: once the `--lobby-matches` are played, leave the lobby, which closes its game (`tools/online-e2e.ps1 -LeaveLobbyA`) |
+| `--leave-lobby-in-match <s>` | with `--lobby host\|join`: leave the lobby that many seconds into its first match, which ends it (reported as left) and closes its game at once (1.0.8; `tools/online-e2e.ps1 -LeaveLobbyAInMatch <s>`) |
 | `--solo` | with `--queue`: start single player first and search alongside it, standby (`tools/online-e2e.ps1 -StandbyA`) |
 | `--practice on\|off` | practice while a search waits, saved like the queue pages' box (`tools/online-e2e.ps1 -PracticeA` writes it into launcher A's ini) |
 | `--lobby host\|join\|watch --lobby-name NAME --game mkd --mode kombat --character Scorpion` | host a lobby of that name and mark ready (its match starts by itself once both are), join it by name and mark ready, or watch it as a spectator (`tools/online-e2e.ps1 -Watch`) |

@@ -5,13 +5,21 @@
 // it comes first, else its next block, the other shown beside it where the two differ). Drawn with the runtime's ImGui
 // (app::GameInfo::ui), shown or hidden with F7 and the launcher's setting (MK3D_FRAMEDATA=0|1).
 //
-// It works only in a practice fight on this PC alone, never in a game the launcher drives (MK3D_NET) or with netplay
-// configured, so both games of an online match run exactly as they would without it. There it only reads game memory,
-// but for one thing the player asks for: F8 makes the dummy (player 2) hold block, so blocked attacks can be measured.
+// It works in a practice fight on this PC alone, and in Online Practice (sparring.h, MK3D Online 1.0.8), where it
+// follows this PC's player on either side; never in another game the launcher drives (MK3D_NET) or with netplay
+// configured, so both games of an online match run exactly as they would without it. It only reads game memory, but
+// for what the player asks for offline: F8 makes the dummy (player 2) hold block, so blocked attacks can be measured,
+// and F6 makes it tech roll. Online Practice has no dummy: the two keys do nothing there.
+//
+// Online, it reads both fighters at the pad update of every frame run (a rollback has put the frame's top back by then,
+// whichever order the frame-top hooks run in) and keeps its own state, and the adapter's (Adapter::local), as each
+// frame found them: a frame run again after a rollback starts from those, so what it shows is what the frames that
+// count did.
 //
 // A game provides an Adapter (where its fighters are, the game's own rule for when a fighter may start a move), calls
 // ActiveCheck from its hit test, the one place that knows an attack is live in a frame, and asks DummyHolds from its
 // "is this action held" function.
+#include <cstddef>
 #include <cstdint>
 
 struct ImFont;
@@ -46,7 +54,16 @@ struct Adapter {
     // Armageddon): flags first seen clear at the top of a frame were clear for a hit in the frame before, if its waits
     // were over then
     bool block_flags_early = false;
+    // what the adapter keeps between frames (its reads and hit test hook), saved with each online frame's tracker state
+    // and put back with it when a rollback runs that frame again; null for none
+    void* local = nullptr;
+    size_t local_size = 0;
 };
+
+// the tracker reads later in the frame than its top (Online Practice: at the pad update), after every frame-top hook
+// ran: an adapter that applies a game rule before it reads, in case the rule's own frame-top hook has not run yet,
+// leaves it then (it ran, and the game must not see it twice)
+bool AfterTop();
 
 // the game's adapter, once at start (before the first frame)
 void Install(const Adapter& adapter);

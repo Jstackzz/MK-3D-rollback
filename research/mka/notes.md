@@ -354,6 +354,16 @@ reference):
   (0x82ECA0 + player * 0xC: 0 Baraka ... 9 Sub-Zero, by the "motload_<name>.sec" names) is the one asked and A
   (state 2); P1 readies only after P2 has joined (the race starts once nobody is still choosing). The track's number
   becomes the race's arena + 5 (43 -> 48 Lin Kuei Raceway, 45 -> 50).
+- Players' own karts (1.0.8, the launcher's "-" for a side, as Kombat's picks): linkgame sets `by_player` for motor;
+  the autopilot still chooses the track and joins P2, then this PC's player chooses their quadrant's kart with their
+  own controller (LocalPickPort: once the quadrants are open, P1 once P2 has joined, P2 once P1 is ready, until their
+  own kart is ready; B and BACK kept from the screen). A readied kart goes to the other game as one pick word
+  (0xCA000000 | kart), where the autopilot drives that quadrant to it (RIGHT, 40 presses at most) and readies it. P1
+  first and P2 after P1 is ready in both games: a readied kart is taken, so P2 can reach the same karts in both and the
+  two never want one kart (a launcher's P2 kart that P1 took moves on to the next one, the same in both). The kart
+  select's 2700 idle frames read the select screen's last-input frame 0x5B7E64 (sub_00105590 at 0x105612), held
+  online (HoldIdle); no 120 s limit while players pick. Tested through a 40 ms relay: P1 kart 2, P2 kart 4 in both
+  games, the race in sync.
 
 What made runs differ, in the order found:
 1. The sync test never started: the loader never looked idle, a scheduler of a kind not handled yet (the request

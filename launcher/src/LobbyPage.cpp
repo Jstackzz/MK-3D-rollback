@@ -264,7 +264,9 @@ void LobbyPage::refresh() {
 QString LobbyPage::savedCharacter(const QString& game, const QString& mode) const {
     const Game* g = GameData::instance().game(game);
     const GameMode* m = g ? g->mode(mode) : nullptr;
-    if (cfg::pickInGame() && !(m && m->picksInGame())) return QString();  // the game's own select screen
+    // the game's own select screen; Chess Kombat always: each player builds their own team there (the game built both
+    // teams around the leader the lobby sent until 1.0.8, the queue's players their own)
+    if ((m && m->picksInGame()) || cfg::pickInGame()) return QString();
     QString id = cfg::get(QStringLiteral("ui/%1/%2/character").arg(game, mode)).toString();
     if (id.isEmpty() && g) {
         const auto roster = g->roster(mode);
@@ -440,10 +442,15 @@ void LobbyPage::showLobby(const QJsonObject& lobby) {
     if (g && (newLobby || character_->count() == 0)) {
         const QSignalBlocker block(character_);
         character_->clear();
-        // the game's own select screen, with the player's own controller (cfg::pickInGame); Online Practice always
-        if (!(m && m->picksInGame())) character_->addItem(tr("Pick in the game"), QString());
-        if (!(m && m->lobbyOnly))
-            for (const auto& c : g->roster(s(lobby, "mode"))) character_->addItem(c.name, c.id);
+        // the game's own select screen, with the player's own controller (cfg::pickInGame); Online Practice and Chess
+        // Kombat's teams always
+        if (m && m->picksInGame()) {
+            character_->addItem(tr("Your team: built in the game"), QString());
+        } else {
+            character_->addItem(tr("Pick in the game"), QString());
+            if (!(m && m->lobbyOnly))
+                for (const auto& c : g->roster(s(lobby, "mode"))) character_->addItem(c.name, c.id);
+        }
     }
     if (myChar == QLatin1String("-")) myChar.clear();
     const int ci = character_->findData(myChar);

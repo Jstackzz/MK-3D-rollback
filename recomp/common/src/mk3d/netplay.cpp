@@ -2468,6 +2468,8 @@ uint32_t DesyncFrame() { return g_desync_frame.load(); }
 uint32_t LockstepFrame() { return g_lockstep_frame.load(); }
 bool Waiting() { return g_waiting.load(); }
 
+int LocalSide() { return g_cfg.on && !g_cfg.watch ? g_cfg.side : -1; }
+
 bool GetSettled(Settled& out) {
     std::lock_guard<std::mutex> lock(g_settled_lock);
     if (!g_settled) return false;

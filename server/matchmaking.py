@@ -1,9 +1,9 @@
 """Queue pairing rules (pure functions, unit-tested without sockets).
 
-Casual: first come, first served within region and ping limits, among the searches that chose
-the same death traps.
-Ranked: additionally an Elo window that widens with waiting time; the longest-waiting player
-gets the closest-rated compatible partner.
+Casual: first come, first served within region and ping limits; the death traps keep no one
+apart (a match has them when both searches asked for them).
+Ranked: additionally an Elo window that widens with waiting time (not in the side modes, which few
+search: any two meet); the longest-waiting player gets the closest-rated compatible partner.
 """
 
 from __future__ import annotations
@@ -40,12 +40,14 @@ class QueueEntry:
         return self.death_traps and not self.ranked
 
     @property
-    def key(self) -> tuple[str, str, bool, bool]:
-        # a casual search meets only the searches that chose the same death traps
-        return (self.game, self.mode, self.ranked, self.traps)
+    def key(self) -> tuple[str, str, bool]:
+        # the searches that can meet. The death traps are not in it (2026-11-14): a casual search without them meets
+        # one with them at once, and their match has none (they kept the two apart for good before)
+        return (self.game, self.mode, self.ranked)
 
     @property
     def queue_name(self) -> str:
+        # for the log and the online counts: the death traps choice shows, though it keeps no one apart
         name = f"{self.game}/{self.mode}/{'ranked' if self.ranked else 'casual'}"
         return name if self.ranked or self.death_traps else name + "/no-traps"
 
@@ -56,6 +58,9 @@ class MatchmakingConfig:
     elo_step: int = 50
     elo_step_seconds: float = 10.0
     elo_max: int = 1100  # a new player (475) and a record from the old start (1500) can meet, after about 3 minutes
+    # the side modes, which few search: there any two ranked searches meet at once, whatever their Elo (2026-11-14);
+    # the closest rated is still taken when several wait
+    any_elo_modes: tuple[str, ...] = ("chess", "puzzle", "motor")
     region_widen_after: float = 20.0
     allow_same_ip: bool = False
     # a search that finds nobody raises its max ping (unless strict): after ping_widen_after seconds by
@@ -154,7 +159,8 @@ def compatible(a: QueueEntry, b: QueueEntry, now: float, cfg: MatchmakingConfig,
         limit = ping_limit(a, b, now, cfg)
         if limit and measured > limit:
             return False
-    if a.ranked and abs(a.elo - b.elo) > min(elo_window(a, now, cfg), elo_window(b, now, cfg)):
+    if (a.ranked and a.mode not in cfg.any_elo_modes and
+            abs(a.elo - b.elo) > min(elo_window(a, now, cfg), elo_window(b, now, cfg))):
         return False
     return True
 

@@ -44,6 +44,7 @@ struct LaunchOptions {
     QString lobbyCodeFile;   // the host writes its lobby's code here, a joiner reads it (lobbies the list leaves out)
     int lobbyMatches = 1;    // matches to play there, one after the other
     bool leaveLobby = false; // once they are played, leave the lobby (its game closes once idle)
+    int leaveLobbyInMatch = 0;  // seconds into its first match: leave the lobby then (its game closes at once)
     int rematches = 0;       // --queue casual: rematches to choose after the first match
     QStringList rematchChoices;  // what each of them chooses, "rematch" or "select" (the last one repeats)
     bool leaveSeries = false;    // once those are chosen, leave the series at once instead of letting it run out

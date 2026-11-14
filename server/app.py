@@ -1218,8 +1218,8 @@ class Server:
                         server_rtt=e.server_rtt)
             for i, (e, sess) in enumerate(pair)
         ]
-        # the arenas' death traps: never in ranked; in casual the choice both searches made (they meet only when it
-        # is the same, QueueEntry.key)
+        # the arenas' death traps: never in ranked; in casual only when both searches asked for them (a search without
+        # them meets one with them, QueueEntry.key: their match has none)
         traps = a.traps and b.traps
         m = Match(id=secrets.token_hex(6), game=a.game, mode=a.mode, ranked=a.ranked, players=players, created=now,
                   from_queue=True, rounds=self.cfg.default_rounds, state="found",

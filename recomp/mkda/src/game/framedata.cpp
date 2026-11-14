@@ -47,9 +47,16 @@ constexpr uint32_t kCommand = 0x9F8;    // its move script's current command: a 
 constexpr uint32_t kControls = 0x19C;   // the player number its actions are read for (sub_00075B50)
 constexpr int kActionBlock = 1, kActionDown = 0xE;  // sub_00075B50's actions: block, crouch
 
-uint32_t g_strike_command[2] = {};  // the command each side's attack was last tested from
-uint32_t g_raw_contact[2] = {};     // each side's contact field when last read
-int g_contact[2] = {};              // what that contact was taken for when it came
+// what this adapter keeps between frames, in one block for the tracker's online saves (Adapter::local)
+struct Local {
+    uint32_t strike_command[2] = {};  // the command each side's attack was last tested from
+    uint32_t raw_contact[2] = {};     // each side's contact field when last read
+    int contact[2] = {};              // what that contact was taken for when it came
+};
+Local g_local;
+uint32_t (&g_strike_command)[2] = g_local.strike_command;
+uint32_t (&g_raw_contact)[2] = g_local.raw_contact;
+int (&g_contact)[2] = g_local.contact;
 
 uint32_t FighterObject(int side) { return kernel::R32(kFighter[side]); }
 
@@ -62,7 +69,7 @@ bool Practice() {
 uint32_t Time() { return kernel::R32(kGameFrames); }
 
 bool Read(int side, mk3d::framedata::Fighter& f) {
-    mkda::rules::BlockRulesAtTop(side);
+    if (!mk3d::framedata::AfterTop()) mkda::rules::BlockRulesAtTop(side);  // online it ran at the frame's top
     const uint32_t obj = FighterObject(side);
     if (!obj || !mem::IsCommitted(obj)) return false;
     const uint32_t state = kernel::R32(obj + kState), now = Time(), busy = kernel::R32(obj + kBusyUntil);
@@ -101,7 +108,7 @@ const char* Name(int side) {
 }
 
 const bool g_installed = [] {
-    mk3d::framedata::Install({Practice, Time, Read, Name, true});
+    mk3d::framedata::Install({Practice, Time, Read, Name, true, false, &g_local, sizeof g_local});
     return true;
 }();
 

@@ -50,6 +50,8 @@ param(
     [string]$PickButtonA = 'A',  # with -PickInGame: the button A's player confirms the pick with (another one can
                                  # pick an alternate costume)
     [switch]$LeaveLobbyA,        # lobby: A leaves it once its matches are played (--leave-lobby); its game should close
+    [int]$LeaveLobbyAInMatch = 0,  # lobby: A leaves it this many seconds into its first match
+                                   # (--leave-lobby-in-match); its game should close at once
     [switch]$Watch,              # lobby: C watches it (a spectator)
     [int]$WatchDelay = 0,        # seconds after B before C starts (a spectator who comes in late)
     [string]$DeathTraps = '',    # on / off: the death traps the host's lobby (or both searches: a casual search
@@ -155,11 +157,13 @@ if ($RematchChoice) { $queueArgs += @('--rematch-choice', ($RematchChoice -join 
 $how = if ($Queue -eq 'lobby') { @('--lobby', 'host', '--lobby-name', "e2e$stamp", '--lobby-matches', "$Matches", '--lobby-code-file', "`"$work\lobby-code.txt`"") } else { $queueArgs }
 if ($StandbyA) { $how += @('--solo', '--leave-series') }
 if ($LeaveLobbyA -and $Queue -eq 'lobby') { $how += @('--leave-lobby') }
+$howA = @()
+if ($LeaveLobbyAInMatch -gt 0 -and $Queue -eq 'lobby') { $howA += @('--leave-lobby-in-match', "$LeaveLobbyAInMatch") }
 if ($DeathTraps) { $how += @('--death-traps', $DeathTraps) }
 if ($PracticeA) { $how += @('--leave-series') }
 $onlyA = @($EnvA -split ';' | Where-Object { $_ -like '*=*' })  # not -match: it would set $Matches, a parameter here
 foreach ($pair in $onlyA) { $k, $v = $pair -split '=', 2; Set-Item "env:$k" $v }
-$la = Start-Process -FilePath $launcher -ArgumentList (@('--config', "`"$work\a\mk3d-launcher.ini`"", '--user', $userA, '--register') + $how + @('--game', $Game, '--mode', $Mode, '--character', $CharA, '--auto-accept', '3')) -PassThru
+$la = Start-Process -FilePath $launcher -ArgumentList (@('--config', "`"$work\a\mk3d-launcher.ini`"", '--user', $userA, '--register') + $how + $howA + @('--game', $Game, '--mode', $Mode, '--character', $CharA, '--auto-accept', '3')) -PassThru
 foreach ($pair in $onlyA) { Remove-Item "env:$(($pair -split '=', 2)[0])" -ErrorAction SilentlyContinue }
 Start-Sleep -Seconds ([Math]::Max(1, $DelayB))
 Set-Item "env:${x}_INPUT" $InputB
@@ -261,7 +265,7 @@ Get-Content "$work\server\err.txt", "$work\server\out.txt" -ErrorAction Silently
 # only what this run started: the two launchers and the games they started
 $ls = @($la, $lb) + @($lc | Where-Object { $_ })
 $games = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.ParentProcessId -in @($ls | ForEach-Object { $_.Id }) } | ForEach-Object { $_.ProcessId })
-if ($LeaveLobbyA) {
+if ($LeaveLobbyA -or $LeaveLobbyAInMatch -gt 0) {
     "--- A left the lobby"
     Get-Content "$work\a\mk3d-launcher.log" -ErrorAction SilentlyContinue | Select-String -Pattern 'leaving lobby|Left the lobby' | ForEach-Object { "[a] $($_.Line)" }
     $gamesA = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.ParentProcessId -eq $la.Id })

@@ -684,6 +684,7 @@ QString MatchController::opponentName() const {
 
 GameProcess* MatchController::ensureGame(const QString& gameId, QString* error) {
     closeWhenIdle_ = false;  // wanted again before a lobby left could close it
+    leaveQuit_ = false;
     // one game runs at a time: while single player runs, only an accepted match (which freezes it) brings this one
     if (solo_ && !soloFrozen_) {
         if (error) *error = tr("Close your single-player game first.");
@@ -882,6 +883,7 @@ void MatchController::onServerMessage(const QJsonObject& msg) {
         closeTunnel();
         if (msg.contains(QStringLiteral("connection"))) log(tr("Opponent's connection: %1").arg(connectionText(msg)));
         resultSent_ = false;
+        leaveQuit_ = false;
         closeFeed();
         QString err;
         // standby: the match's game waits for the accept, which sets single player aside
@@ -1391,6 +1393,7 @@ void MatchController::onGameExited() {
         break;
     case Phase::Finishing:
         finishTimeout_.stop();
+        closeFeed();
         setPhase(Phase::Idle, tr("Match over"));
         break;
     case Phase::Watching:
@@ -1426,7 +1429,7 @@ void MatchController::reportLeft() {
     if (resultSent_ || go_.isEmpty()) return;
     QJsonObject fields{{QStringLiteral("outcome"), QStringLiteral("left")}};
     if (game_ && !game_->isRunning()) {
-        const QString why = exitReason(game_->sessionDir());
+        const QString why = leaveQuit_ ? QStringLiteral("left the lobby") : exitReason(game_->sessionDir());
         fields.insert(QStringLiteral("exit"), why);
         fields.insert(QStringLiteral("exit_code"), game_->exitCode());
         log(tr("Your game ended during the match (%1, exit code %2)").arg(why).arg(game_->exitCode()));
@@ -1724,7 +1727,19 @@ void MatchController::closeGameWhenIdle() {
 }
 
 void MatchController::maybeCloseIdleGame() {
-    if (!closeWhenIdle_ || phase_ != Phase::Idle || !series_.isEmpty() || !watchQueue_.isEmpty()) return;
+    if (!closeWhenIdle_) return;
+    // the lobby's match under way, or the last one's ending playing: leaving the lobby leaves it now, as closing the
+    // game would (reported as left, which a lobby match keeps no record of), not once that match is over: Online
+    // Practice never is by itself, and a Chess, Puzzle or Motor Kombat match only after minutes
+    const bool lobbyMatch = (phase_ == Phase::Starting || phase_ == Phase::Playing) && !str(found_, "lobby").isEmpty();
+    if ((lobbyMatch || phase_ == Phase::Finishing) && game_ && game_->isRunning()) {
+        if (!leaveQuit_) log(tr("Left the lobby: its match ends and its game closes"));
+        leaveQuit_ = true;
+        thawGame();  // a frozen game would not see its quit
+        game_->quit();
+        return;  // its exit moves the match on (onGameExited), then idle: nothing left to close
+    }
+    if (phase_ != Phase::Idle || !series_.isEmpty() || !watchQueue_.isEmpty()) return;
     closeWhenIdle_ = false;
     if (game_ && game_->isRunning()) closeGame(tr("Left the lobby: its game closes"));
 }
