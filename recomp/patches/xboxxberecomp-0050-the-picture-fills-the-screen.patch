@@ -1,0 +1,228 @@
+diff --git a/runtime/app/app.h b/runtime/app/app.h
+index 1a0b642..1cfc72c 100644
+--- a/runtime/app/app.h
++++ b/runtime/app/app.h
+@@ -26,8 +26,10 @@ struct Settings {
+     // the game (and which a driver set to force vsync off uses too); false, nothing makes a frame tear while vsync is on
+     bool adaptive_sync = false;
+     uint32_t aniso = 0;              // 0 as the game asks
+-    // a title without a 16:9 layout (GameInfo::widescreen false) fills a widescreen output, stretched as it always
+-    // was; false: shown 4:3 between bars
++    // the picture is stretched over the whole window, whatever its shape (a 16:10 or ultrawide monitor, a 4:3 size
++    // asked for on a widescreen one); false: shown at its own shape between bars (FrameRect). Its name is from when it
++    // was the stretch of a title without a 16:9 layout alone (GameInfo::widescreen false), which it still also decides:
++    // such a title is told 4:3 when false
+     bool stretch_4x3 = true;
+     uint32_t brightness = 100;  // percent: a gamma curve over the title's own ramp lifts (or lowers) the mid-tones
+     std::string join_ip;                   // co-op: a host past the LAN the system link search also asks
+@@ -48,8 +50,18 @@ struct Mode {
+ Mode Desktop();
+ Mode Output();
+ float RenderScale(uint32_t guest_height);
+-// the output is 3:2 or wider: the console reports a widescreen TV and the frame is shown 16:9, else 4:3 as on a 4:3 TV
++// the output is 3:2 or wider: the console reports a widescreen TV and the frame's own shape is 16:9, else 4:3 as on a
++// 4:3 TV
+ bool Widescreen();
++// The frame's place in a window w x h, as the renderer shows it and overlays over it find it: the whole window when
++// Settings stretch it (stretch_4x3), else as large as fits at its own shape (Widescreen's), centred between bars
++struct Rect {
++    float x, y, w, h;
++};
++Rect FrameRect(float w, float h);
++// any thread: the frame's width over its height on screen (FrameRect in the game window; a minimized one keeps the
++// shape it had, or will have once shown)
++float FrameAspect();
+ 
+ std::filesystem::path ExeDir();
+ // the game in assets (game_files.cpp): its folder and this executable's xbe, from the extracted files or a disc
+@@ -109,8 +121,8 @@ struct GameInfo {
+     void (*ui)(double fps);        // each frame inside the ImGui frame, UiLock held
+     void (*pad)(int port, input::Pad& pad);  // a polled pad before the game gets it
+     void (*rumble)(int port, uint16_t& left, uint16_t& right);
+-    // the title lays out a 16:9 frame when told the TV is widescreen; false: it never does, so it is told 4:3 and
+-    // shown 4:3 between bars instead of stretched
++    // the title lays out a 16:9 frame when told the TV is widescreen; false: it never does, so unless Settings stretch
++    // the picture it is told 4:3 and shown 4:3 between bars
+     bool widescreen = true;
+ };
+ extern const GameInfo kGame;
+diff --git a/runtime/app/main.cpp b/runtime/app/main.cpp
+index fd8d6ef..eede69a 100644
+--- a/runtime/app/main.cpp
++++ b/runtime/app/main.cpp
+@@ -12,6 +12,7 @@
+ 
+ #include <algorithm>
+ #include <chrono>
++#include <cmath>
+ #include <csignal>
+ #include <cstdio>
+ #include <cwchar>
+@@ -186,6 +187,29 @@ void WatchWindow() {
+     }).detach();
+ }
+ 
++// Fullscreen switches the monitor to the size Settings ask for, but not to the desktop's own size (switching to it
++// anyway blanks the screen for nothing), nor to a size of another shape than the desktop's: the monitor or its
++// graphics driver would fit such a mode to the screen as each happens to be set, stretched on one PC and between bars
++// or small in the middle on the next. The window covers the monitor at its own mode then, the game draws at the size
++// asked for (Output) and its picture is stretched or kept to its shape as Settings say (FrameRect), the same on every PC
++bool ModeChange(const Settings& s, const DEVMODEW& desktop) {
++    if (s.display_mode != DisplayMode::Fullscreen || !s.width || !s.height) return false;
++    if (s.width == desktop.dmPelsWidth && s.height == desktop.dmPelsHeight) return false;
++    if (!desktop.dmPelsWidth || !desktop.dmPelsHeight) return true;  // the desktop's size unknown: as asked
++    const double asked = double(s.width) / s.height, own = double(desktop.dmPelsWidth) / desktop.dmPelsHeight;
++    return std::abs(asked / own - 1) < 0.02;  // the same shape: 1366x768 or 1280x720 on a 1920x1080 desktop
++}
++
++// the desktop's mode on the game window's monitor, as the registry keeps it
++DEVMODEW DesktopMode(MONITORINFOEXW& mi) {
++    mi.cbSize = sizeof(mi);
++    GetMonitorInfoW(MonitorFromWindow(g_hwnd, MONITOR_DEFAULTTOPRIMARY), &mi);
++    DEVMODEW desktop{};
++    desktop.dmSize = sizeof(desktop);
++    if (!EnumDisplaySettingsW(mi.szDevice, ENUM_REGISTRY_SETTINGS, &desktop)) desktop.dmPelsWidth = desktop.dmPelsHeight = 0;
++    return desktop;
++}
++
+ // window thread only
+ void ApplyNow() {
+     const Settings& s = Get();
+@@ -202,9 +226,19 @@ void ApplyNow() {
+     DEVMODEW desktop{};
+     desktop.dmSize = sizeof(desktop);
+     EnumDisplaySettingsW(mi.szDevice, ENUM_REGISTRY_SETTINGS, &desktop);
+-    // the desktop's own size is no mode change: switching to it anyway blanks the screen for nothing
+-    if (s.display_mode == DisplayMode::Fullscreen && s.width && s.height &&
++    const bool change = ModeChange(s, desktop);
++    if (s.display_mode == DisplayMode::Fullscreen && s.width && s.height && !change &&
+         (s.width != desktop.dmPelsWidth || s.height != desktop.dmPelsHeight)) {
++        static uint64_t logged = 0;  // once a size
++        if (const uint64_t key = uint64_t(s.width) << 32 | s.height; key != logged) {
++            logged = key;
++            LOGR("display: fullscreen at %ux%u, another shape than the monitor's %lux%lu: the monitor keeps its mode, "
++                 "the game draws at %ux%u and its picture %s", s.width, s.height, desktop.dmPelsWidth,
++                 desktop.dmPelsHeight, s.width, s.height,
++                 s.stretch_4x3 ? "is stretched over the whole screen" : "keeps its shape between bars");
++        }
++    }
++    if (change) {
+         DEVMODEW dm{};
+         dm.dmSize = sizeof(dm);
+         dm.dmPelsWidth = s.width;
+@@ -272,8 +306,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+                     g_mode_changed = false;
+                     ShowWindow(hwnd, SW_MINIMIZE);
+                 }
+-            } else if (Get().display_mode == DisplayMode::Fullscreen && Get().width && Get().height && !g_mode_changed &&
+-                       IsWindowVisible(hwnd) && !g_apply_posted) {
++            } else if (MONITORINFOEXW mi{}; ModeChange(Get(), DesktopMode(mi)) && !g_mode_changed &&
++                                             IsWindowVisible(hwnd) && !g_apply_posted) {
+                 // once: restoring the window activates it again from inside the apply, and a second apply switched
+                 // the mode back and forth, after which presents were not taken for a while (the game stood still
+                 // until the next alt-tab); a display changed meanwhile comes with the same one
+diff --git a/runtime/app/settings.cpp b/runtime/app/settings.cpp
+index d4f085b..0196112 100644
+--- a/runtime/app/settings.cpp
++++ b/runtime/app/settings.cpp
+@@ -130,6 +130,33 @@ bool Widescreen() {
+     return wide;
+ }
+ 
++Rect FrameRect(float w, float h) {
++    if (Get().stretch_4x3 || w <= 0 || h <= 0) return {0, 0, std::max(w, 0.0f), std::max(h, 0.0f)};
++    const float aspect = Widescreen() ? 16.0f / 9.0f : 4.0f / 3.0f;
++    const float fw = std::min(w, h * aspect), fh = fw / aspect;
++    return {(w - fw) / 2, (h - fh) / 2, fw, fh};
++}
++
++float FrameAspect() {
++    // the window's client area the last time it showed, w << 32 | h (a minimized one has none to speak of)
++    static std::atomic<uint64_t> shown{0};
++    const HWND hwnd = static_cast<HWND>(Window());
++    if (RECT rc{}; hwnd && !IsIconic(hwnd) && GetClientRect(hwnd, &rc) && rc.right >= 64 && rc.bottom >= 64)
++        shown = uint64_t(rc.right) << 32 | uint32_t(rc.bottom);
++    float w, h;
++    if (const uint64_t last = shown) {
++        w = float(last >> 32);
++        h = float(uint32_t(last));
++    } else {
++        // not shown yet: a window as large as asked for, else one over its monitor (the other modes)
++        const Mode m = Get().display_mode == DisplayMode::Windowed ? Output() : Desktop();
++        w = float(m.width);
++        h = float(m.height);
++    }
++    const Rect r = FrameRect(w, h);
++    return r.w > 0 && r.h > 0 ? r.w / r.h : 16.0f / 9.0f;
++}
++
+ float RenderScale(uint32_t guest_height) {
+     float h = Output().height * (Get().render_percent / 100.0f);
+     return guest_height ? std::max(h / guest_height, 0.1f) : 1.0f;
+diff --git a/runtime/gpu/d3d12.cpp b/runtime/gpu/d3d12.cpp
+index be3de38..2cc2ef5 100644
+--- a/runtime/gpu/d3d12.cpp
++++ b/runtime/gpu/d3d12.cpp
+@@ -736,6 +736,7 @@ private:
+     uint32_t guest_h_ = 480;
+     uint32_t bb_w_ = 0;
+     uint32_t bb_h_ = 0;
++    uint64_t frame_place_ = 0;  // the window's size and the frame's in it as last logged (BlitFrame)
+     float scale_ = 1.0f;
+     // surfaces locked without a wait: copies in flight, the newest finished one goes to guest memory
+     struct Late {
+@@ -1436,9 +1437,9 @@ std::mutex g_picture_lock;
+ std::unordered_map<uint32_t, std::filesystem::path> g_picture_files;
+ 
+ // a picture into the bound target (kUserImagePrim). Picture 0, select_background.png beside the exe, goes over the
+-// whole target: the 4:3 picture is stretched to 16:9 when Settings say so, so the image goes in whole then, else its
+-// middle 4:3. Any other is a file the game named (gpu::SetPicture), drawn over the rect (x0 y0 x1 y1 in the target's
+-// guest pixels) by its alpha, the target's own alpha kept.
++// whole target: as much of it as the frame's shape on screen holds (app::FrameAspect: the window's own when Settings
++// stretch the picture), its middle when it is wider. Any other is a file the game named (gpu::SetPicture), drawn
++// over the rect (x0 y0 x1 y1 in the target's guest pixels) by its alpha, the target's own alpha kept.
+ void D3D12Backend::DrawUserImage(const State& s, uint32_t id, const uint8_t* where) {
+     Picture& pic = pictures_[id];
+     if (!pic.tried) {
+@@ -1480,7 +1481,7 @@ void D3D12Backend::DrawUserImage(const State& s, uint32_t id, const uint8_t* whe
+     SetBlitTarget(Cpu(rtv_heap_.Get(), rt->view, rtv_inc_), rt->w, rt->h);
+     float uv[4] = {0, 0, 1, 1};
+     if (id == 0) {
+-        const float aspect = float(pic.w) / float(pic.h), shown = app::Get().stretch_4x3 ? 16.0f / 9 : 4.0f / 3;
++        const float aspect = float(pic.w) / float(pic.h), shown = app::FrameAspect();
+         if (aspect > shown) {
+             uv[2] = shown / aspect;
+             uv[0] = (1 - uv[2]) / 2;
+@@ -3234,15 +3235,24 @@ void D3D12Backend::UploadGammaRamp() {
+ }
+ 
+ void D3D12Backend::BlitFrame(Target& t) {
+-    // 16:9 when the console reports a widescreen display, else 4:3
+-    bool wide = app::Widescreen();
+-    float aspect = wide ? 16.0f / 9.0f : 4.0f / 3.0f;
+-    float w = float(bb_w_);
+-    float h = float(bb_h_);
+-    float vw = std::min(w, h * aspect);
+-    float vh = vw / aspect;
++    // over the whole window when Settings stretch the picture, else at its own shape (16:9 when the console reports a
++    // widescreen display, else 4:3) between bars: app::FrameRect, where overlays find the frame too
++    const app::Rect r = app::FrameRect(float(bb_w_), float(bb_h_));
++    // in the log each time that changes (not for a minimized window's 1x1 buffers)
++    const uint32_t fw = uint32_t(std::lround(r.w)), fh = uint32_t(std::lround(r.h));
++    const uint64_t place = uint64_t(bb_w_ & 0xFFFF) << 48 | uint64_t(bb_h_ & 0xFFFF) << 32 | (fw & 0xFFFF) << 16 | (fh & 0xFFFF);
++    if (place != frame_place_ && bb_w_ >= 64 && bb_h_ >= 64) {
++        frame_place_ = place;
++        if (fw >= bb_w_ && fh >= bb_h_)
++            LOGR_FIRST(32, "d3d12: the picture fills the %ux%u window%s", bb_w_, bb_h_,
++                       app::Get().stretch_4x3 ? " (stretched to fill the screen)" : "");
++        else
++            LOGR_FIRST(32, "d3d12: the picture at %s, %ux%u in the %ux%u window, black bars %s",
++                       app::Widescreen() ? "16:9" : "4:3", fw, fh, bb_w_, bb_h_,
++                       fw < bb_w_ ? "at the sides" : "above and below");
++    }
+     float uv[4] = {0, 0, 1, 1};
+-    D3D12_VIEWPORT vp{(w - vw) / 2, (h - vh) / 2, vw, vh, 0, 1};
++    D3D12_VIEWPORT vp{r.x, r.y, r.w, r.h, 0, 1};
+     D3D12_RECT scissor{0, 0, LONG(bb_w_), LONG(bb_h_)};
+     cl_->RSSetViewports(1, &vp);
+     cl_->RSSetScissorRects(1, &scissor);

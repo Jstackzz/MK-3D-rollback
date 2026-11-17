@@ -166,9 +166,12 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    monitor*, `display/adaptive_sync`: frames may tear, which such a monitor needs
    to follow the game; *Off*), *Brightness* (`display/brightness`, 100 % unless
    changed: the runtime's `brightness`, a gamma curve over the game's own ramp,
-   blacks and whites kept), *Stretch Deadly Alliance to fill the screen*
-   (`display/stretch_4x3`, on unless unticked; the runtime's `stretch_4x3` for a
-   game with no 16:9 layout, else 4:3 between bars), *Frame data in practice*
+   blacks and whites kept), *Stretch the picture to fill the screen*
+   (`display/stretch_4x3`, on unless unticked; the runtime's `stretch_4x3`, all
+   three games: the picture over the whole screen or window whatever its shape,
+   Deadly Alliance's 4:3 one too, else each game's own shape between bars,
+   runtime patch 0050; the key's name is from when it was Deadly Alliance's
+   alone), *Frame data in practice*
    (`display/frame_data`, on unless unticked: whether a game shows the practice
    frame data panel when it starts, `recomp/common/src/mk3d/framedata.h`; F7 in
    the game shows or hides it, F8 makes the dummy block; the practice record,

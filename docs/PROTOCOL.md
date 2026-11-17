@@ -1064,8 +1064,9 @@ The display variables (Settings, *Display*) override what the game's
 `GameInfo::init`); a game started by hand keeps its `settings.toml` alone. A
 game started with `MK3D_DISPLAY_FILE` reads that file again whenever it changes
 (every 0.5 s it looks), so a game that stays up between matches follows the
-Settings page: v-sync, *G-SYNC or FreeSync*, brightness, the 4:3 stretch and
-frame data at once (a v-sync choice that changes whether frames may tear makes
+Settings page: v-sync, *G-SYNC or FreeSync*, brightness, the picture's stretch
+(`stretch_4x3`, all three games: over the whole window, else each game's own
+shape between bars) and frame data at once (a v-sync choice that changes whether frames may tear makes
 a new swap chain), the window's mode and size the next time the game's window
 is the foreground window, so a change made in the launcher never pulls the game
 over it or switches the display's mode behind it.

@@ -331,6 +331,18 @@ for p in recomp/patches/xboxxberecomp-*.patch; do git -C external/XboxXBERecomp 
   games' music, one with the jukebox's songs and one with the game's own, and took it for a fault of their game).
 - `0049-master-volume`: `audio::SetMasterVolume`: the output voice's volume, from the next buffer on (above 1 is
   louder; `XBE_AUDIO_MUTE` still wins). The launcher's master sound level (`recomp/common/src/mk3d/volume.cpp`).
+- `0050-the-picture-fills-the-screen`: `Settings::stretch_4x3` stretches every title's picture over the whole window,
+  whatever its shape, and no longer only a title without a 16:9 layout to 16:9 (Deadly Alliance). The blit always
+  kept the frame at exactly 16:9 or 4:3 and centred it, so Deception and Armageddon (and Deadly Alliance) left black
+  bars on a 16:10 or ultrawide screen; off, each keeps its own shape between bars as before. `app::FrameRect` is
+  where the blit puts the frame and where overlays find it (`mk3d/names.cpp`), `app::FrameAspect` its shape on screen
+  from any thread (`mk3d/ranks.cpp` keeps a badge's own shape with it). Fullscreen no longer switches the monitor to
+  a size of another shape than the desktop's (1440x1080, 1280x1024, 1920x1200 on a 16:9 desktop): the monitor or its
+  graphics driver fitted such a mode to the screen as each was set, stretched on one PC and between bars on the next.
+  The window covers the monitor at its own mode then and the game draws at the size asked for (`display: fullscreen
+  at ..., another shape than the monitor's ...` in the log); a size of the desktop's shape (1280x720, 1920x1080 on a
+  16:9 one) still switches it. The log says where the picture goes (`d3d12: the picture fills the WxH window`, or
+  `... at 16:9, WxH in the WxH window, black bars ...`) each time that changes.
 
 `tools/py/lib_audit.py <game dir> <xbsdb symbols>` lists the XDK library
 functions the game calls that still run console code against host objects,

@@ -488,10 +488,13 @@ SettingsPage::SettingsPage(ServerClient* server, QWidget* parent) : Page(parent)
                          "driver is set to force v-sync off.\nOn, G-SYNC or FreeSync monitor: the monitor follows the "
                          "game's 60 frames a second instead, as smooth as it gets (turn G-SYNC or FreeSync on in your "
                          "graphics driver).\nOff: each frame is shown at once and may tear."));
-    auto* stretch = new QCheckBox(tr("Stretch Deadly Alliance to fill the screen"));
+    auto* stretch = new QCheckBox(tr("Stretch the picture to fill the screen"));
     stretch->setChecked(cfg::stretch4x3());
-    stretch->setToolTip(tr("Deadly Alliance has no widescreen mode. Ticked, it fills a widescreen monitor, a little "
-                           "wider than drawn; unticked, it keeps its original 4:3 shape with black bars at the sides."));
+    stretch->setToolTip(tr("Ticked, all three games fill your whole screen, whatever its shape: Deadly Alliance, which "
+                           "has no widescreen mode, a little wider than drawn, and Deception and Armageddon on a "
+                           "monitor that is not 16:9 (16:10, ultrawide) or at a 4:3 resolution (which gives them "
+                           "their original 4:3 picture). Unticked, each keeps its own shape (Deadly Alliance 4:3, the "
+                           "others 16:9) with black bars where it does not fill."));
     df->addRow(tr("Window"), mode);
     df->addRow(tr("Resolution"), res);
     df->addRow(tr("V-sync"), vsync);

@@ -130,9 +130,10 @@ Picture PictureOf(const std::string& rank) {
 void FrameStart(uint64_t) {
     Place place;
     const bool up = g_game.place && g_game.place(place) && place.hud_width >= 320;
-    // the screen's width over its height (16:9 when app::Widescreen, else 4:3) spread over the HUD's width: a HUD unit
-    // as wide as a line is tall on screen times this
-    const float unit = place.hud_width / ((app::Widescreen() ? 16.0f / 9 : 4.0f / 3) * 480.0f);
+    // the frame's width over its height on screen (app::FrameAspect: the window's own when the picture is stretched to
+    // fill it, else 16:9 when app::Widescreen, 4:3 when not) spread over the HUD's width: a HUD unit as wide as a line is
+    // tall on screen times this, so a badge keeps its own shape however the frame is stretched
+    const float unit = place.hud_width / (app::FrameAspect() * 480.0f);
     std::lock_guard<std::mutex> lock(g_lock);
     Ready();
     const std::string* source = g_match[0].empty() && g_match[1].empty() ? g_test : g_match;

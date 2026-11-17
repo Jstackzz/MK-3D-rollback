@@ -491,7 +491,7 @@ void Take(Display& d, const std::string& key, const std::string& v) {
         d.vsync = std::atoi(v.c_str()) != 0;
     } else if (key == "adaptive_sync") {
         d.adaptive_sync = std::atoi(v.c_str()) != 0;
-    } else if (key == "stretch_4x3") {  // a 4:3 game (Deadly Alliance): fill the screen or not
+    } else if (key == "stretch_4x3") {  // the picture fills the screen or keeps its shape, in all three games
         d.stretch_4x3 = std::atoi(v.c_str()) != 0;
     } else if (key == "brightness") {
         d.brightness = uint32_t(std::clamp(std::atoi(v.c_str()), 50, 200));
@@ -559,7 +559,7 @@ void SetWindow(app::DisplayMode mode, std::pair<uint32_t, uint32_t> size) {
 }
 
 // The launcher's Settings while the game runs (MK3D_DISPLAY_FILE, written again at each change): vsync, brightness,
-// the 4:3 stretch and frame data change at once; the window's mode and size the next time the game is in front
+// the picture's stretch and frame data change at once; the window's mode and size the next time the game is in front
 // (app::ApplyDisplayWhenActive), so a change made in the launcher never pulls the game over it, nor switches the
 // display's mode behind it. `last`: what the game took at start.
 void WatchDisplayFile(std::wstring path, Display last) {

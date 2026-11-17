@@ -480,10 +480,16 @@ game's UDP port, and the display: borderless (fills the screen), fullscreen or
 a window; the resolution, your monitor's own unless you pick another of its
 sizes from the list (a window at your monitor's resolution is as large as fits
 on the screen); v-sync; brightness (100 % is the picture as the game draws it;
-more lifts the dark tones, blacks and whites stay); and whether Deadly Alliance
-(which has no widescreen mode) is stretched to fill a widescreen monitor, as it
-is unless you untick it, or keeps its original 4:3 shape with black bars at the
-sides. A game that is running takes a change at once, its window's mode and
+more lifts the dark tones, blacks and whites stay); and whether the games'
+picture is stretched to fill your screen, as it is unless you untick it, or
+keeps its own shape with black bars where it does not fill. Deadly Alliance
+has no widescreen mode, so stretched it is a little wider than drawn;
+Deception and Armageddon are drawn 16:9, so the stretch only shows on a
+monitor of another shape (16:10, ultrawide) or at a 4:3 resolution, which
+gives them their original 4:3 picture. A resolution of another shape than your
+monitor's never switches the monitor to it in fullscreen: the game draws at
+that size and the picture is stretched, or kept to its shape, the same on
+every PC. A game that is running takes a change at once, its window's mode and
 size the next time you switch to it.
 
 V-sync has three choices. On, the default: every frame waits for your monitor,

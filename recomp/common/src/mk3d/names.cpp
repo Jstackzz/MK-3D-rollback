@@ -1,7 +1,7 @@
 // The players' names over an online fight (names.h). The game's adapter says at the top of every frame, on the main
 // thread, whether the fight's HUD is up and where its bars are; the overlay draws from that copy on the render path with
-// the runtime's UI lock held, in the frame's place in the window (the runtime shows the 640x480 frame centred, 16:9 when
-// app::Widescreen(), else 4:3).
+// the runtime's UI lock held, in the frame's place in the window (app::FrameRect: the whole window when the picture is
+// stretched to fill the screen, else centred at 16:9 when app::Widescreen(), at 4:3 when not).
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -204,10 +204,10 @@ void Ui(double) {
     }
     ranks::KeepClear(p.p1_end, p.p2_start);  // the rank badges beside the timer (ranks.h)
     const ImGuiIO& io = ImGui::GetIO();
-    // the frame's place in the window, as the runtime's blit puts it (gpu/d3d12.cpp BlitFrame)
-    const float aspect = app::Widescreen() ? 16.0f / 9.0f : 4.0f / 3.0f;
-    const float fw = std::min(io.DisplaySize.x, io.DisplaySize.y * aspect), fh = fw / aspect;
-    const float fx = (io.DisplaySize.x - fw) / 2, fy = (io.DisplaySize.y - fh) / 2;
+    // the frame's place in the window, as the runtime's blit puts it (gpu/d3d12.cpp BlitFrame): the whole window when the
+    // picture is stretched to fill it
+    const app::Rect frame = app::FrameRect(io.DisplaySize.x, io.DisplaySize.y);
+    const float fw = frame.w, fh = frame.h, fx = frame.x, fy = frame.y;
     const float sx = fw / 640.0f, sy = fh / 480.0f;
     ImFont* font = g_font ? g_font : ImGui::GetFont();
     const int alpha = int(std::lround(255.0f * std::clamp(p.shade, 0.0f, 1.0f)));
