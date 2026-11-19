@@ -343,6 +343,14 @@ for p in recomp/patches/xboxxberecomp-*.patch; do git -C external/XboxXBERecomp 
   at ..., another shape than the monitor's ...` in the log); a size of the desktop's shape (1280x720, 1920x1080 on a
   16:9 one) still switches it. The log says where the picture goes (`d3d12: the picture fills the WxH window`, or
   `... at 16:9, WxH in the WxH window, black bars ...`) each time that changes.
+- `0051-online-games-lay-out-16x9`: `Settings::widescreen_always` (set by the game layer, never saved): the console
+  reports a widescreen TV whatever the output's shape, so a title with a 16:9 layout lays out 16:9 on any screen, and
+  on an output narrower than 3:2 its picture keeps that shape between bars above and below, `stretch_4x3` or not
+  (`app::FrameRect`). `app::WidescreenOutput` is the output's own shape. Deception and Armageddon take their whole
+  layout from the shape at boot (the viewport width 640 or 720, the projection, every HUD and menu position, the
+  frame buffers and the textures laid on them), and the fight camera's framing follows it, so a 4:3 player's game
+  and a wide one's took forward and back differently and parted. A game for online play (`MK3D_NET=1`,
+  `mk3d::link::ApplyLauncherDisplay`) sets it.
 
 `tools/py/lib_audit.py <game dir> <xbsdb symbols>` lists the XDK library
 functions the game calls that still run console code against host objects,

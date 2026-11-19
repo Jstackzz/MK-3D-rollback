@@ -5,7 +5,8 @@
 // from it, and Chess Kombat's sliding panels (0x105CA0..0x11D310) their stops, so a slide ends a few frames apart. A 4:3
 // player and a wide one played one match by different numbers and their games parted. In a match in sync those
 // functions see the width both games agreed on at the meeting point, the narrower one; two players with the same shape
-// of screen see no change at all.
+// of screen see no change at all. Since 1.0.13 every game for online play lays out 16:9 (mk3d::link::
+// ApplyLauncherDisplay), so both games' widths are 720 and this changes nothing; it stays for a game that is not.
 #include <algorithm>
 #include <cstdint>
 

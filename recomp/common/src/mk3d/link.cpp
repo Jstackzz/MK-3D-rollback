@@ -629,6 +629,14 @@ void ApplyLauncherDisplay() {
                                    std::pair("vsync", "MK3D_VSYNC"), std::pair("adaptive_sync", "MK3D_ADAPTIVE_SYNC"),
                                    std::pair("stretch_4x3", "MK3D_STRETCH_4X3"), std::pair("brightness", "MK3D_BRIGHTNESS")})
         if (const char* v = std::getenv(var)) Take(d, key, v);
+    // Online the two games of a match must lay out alike. Deception and Armageddon lay out 16:9 or 4:3 by each PC's
+    // screen, and the fight camera's framing follows the layout, so in a 4:3 player's game and a wide one's the camera
+    // stood apart and the fighters took forward and back differently: the match went out of sync. A game for online
+    // play lays out 16:9 whatever the screen (a 4:3 one shows it between bars above and below); Deadly Alliance has
+    // no 16:9 layout and stays as it is.
+    const char* net = std::getenv("MK3D_NET");
+    const bool online_wide = net && !std::strcmp(net, "1") && app::kGame.widescreen;
+    if (online_wide) app::Get().widescreen_always = true;
     if (!d.Any()) return;  // started by hand: the settings file alone
     app::Settings& s = app::Get();
     SetWindow(d.mode.value_or(s.display_mode), d.size.value_or(std::pair(s.width, s.height)));
@@ -636,6 +644,9 @@ void ApplyLauncherDisplay() {
     if (d.adaptive_sync) s.adaptive_sync = *d.adaptive_sync;
     if (d.stretch_4x3) s.stretch_4x3 = *d.stretch_4x3;
     if (d.brightness) s.brightness = *d.brightness;
+    if (online_wide)
+        LOGR("display: online, so 16:9 on every screen (both games of a match lay out alike)%s",
+             app::WidescreenOutput() ? "" : ", kept at its own shape at this narrower size");
     if (const char* v = std::getenv("MK3D_FRAMEDATA")) d.frame_data = std::atoi(v) != 0;  // framedata.cpp took it
     if (const wchar_t* file = _wgetenv(L"MK3D_DISPLAY_FILE"); file && *file) WatchDisplayFile(file, d);
 }

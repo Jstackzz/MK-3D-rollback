@@ -1,0 +1,66 @@
+diff --git a/runtime/app/app.h b/runtime/app/app.h
+index 1cfc72c..d265b08 100644
+--- a/runtime/app/app.h
++++ b/runtime/app/app.h
+@@ -31,6 +31,11 @@ struct Settings {
+     // was the stretch of a title without a 16:9 layout alone (GameInfo::widescreen false), which it still also decides:
+     // such a title is told 4:3 when false
+     bool stretch_4x3 = true;
++    // the console reports a widescreen TV whatever the output's shape, so a title with a 16:9 layout (GameInfo::
++    // widescreen) lays out 16:9 on any screen; on an output narrower than 3:2 that picture keeps its shape between bars
++    // above and below, stretch_4x3 or not (FrameRect). Set by the game layer, never in the settings file: a networked
++    // game's layout has to be the same on both PCs
++    bool widescreen_always = false;
+     uint32_t brightness = 100;  // percent: a gamma curve over the title's own ramp lifts (or lowers) the mid-tones
+     std::string join_ip;                   // co-op: a host past the LAN the system link search also asks
+ };
+@@ -50,11 +55,13 @@ struct Mode {
+ Mode Desktop();
+ Mode Output();
+ float RenderScale(uint32_t guest_height);
+-// the output is 3:2 or wider: the console reports a widescreen TV and the frame's own shape is 16:9, else 4:3 as on a
+-// 4:3 TV
++// the output is 3:2 or wider (or Settings::widescreen_always, for a title with a 16:9 layout): the console reports a
++// widescreen TV and the frame's own shape is 16:9, else 4:3 as on a 4:3 TV
+ bool Widescreen();
++bool WidescreenOutput();  // the output itself is 3:2 or wider, whatever the title is told
+ // The frame's place in a window w x h, as the renderer shows it and overlays over it find it: the whole window when
+-// Settings stretch it (stretch_4x3), else as large as fits at its own shape (Widescreen's), centred between bars
++// Settings stretch it (stretch_4x3), else as large as fits at its own shape (Widescreen's), centred between bars; a
++// 16:9 frame that Settings::widescreen_always asked for on an output narrower than 3:2 is never stretched
+ struct Rect {
+     float x, y, w, h;
+ };
+diff --git a/runtime/app/settings.cpp b/runtime/app/settings.cpp
+index 0196112..ec7ddc1 100644
+--- a/runtime/app/settings.cpp
++++ b/runtime/app/settings.cpp
+@@ -116,8 +116,7 @@ Mode Output() {
+     return Desktop();
+ }
+ 
+-bool Widescreen() {
+-    if (!kGame.widescreen && !Get().stretch_4x3) return false;
++bool WidescreenOutput() {
+     // asked per frame and per HUD quad: the desktop mode lookup only runs when the resolution setting changes
+     static std::atomic<uint64_t> key{~0ull};
+     static std::atomic<bool> wide{true};
+@@ -130,8 +129,17 @@ bool Widescreen() {
+     return wide;
+ }
+ 
++bool Widescreen() {
++    if (!kGame.widescreen && !Get().stretch_4x3) return false;
++    if (kGame.widescreen && Get().widescreen_always) return true;
++    return WidescreenOutput();
++}
++
+ Rect FrameRect(float w, float h) {
+-    if (Get().stretch_4x3 || w <= 0 || h <= 0) return {0, 0, std::max(w, 0.0f), std::max(h, 0.0f)};
++    // a 16:9 frame only widescreen_always made, on a narrower output: at its own shape, the stretch setting
++    // notwithstanding (stretched over a 4:3 screen everything in it would look a third narrower)
++    const bool wide_on_narrow = kGame.widescreen && Get().widescreen_always && !WidescreenOutput();
++    if ((Get().stretch_4x3 && !wide_on_narrow) || w <= 0 || h <= 0) return {0, 0, std::max(w, 0.0f), std::max(h, 0.0f)};
+     const float aspect = Widescreen() ? 16.0f / 9.0f : 4.0f / 3.0f;
+     const float fw = std::min(w, h * aspect), fh = fw / aspect;
+     return {(w - fw) / 2, (h - fh) / 2, fw, fh};

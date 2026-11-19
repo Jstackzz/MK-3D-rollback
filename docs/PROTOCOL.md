@@ -1050,7 +1050,7 @@ environment variables and two small text files in a per-session folder.
 
 | variable | value |
 |---|---|
-| `MK3D_NET` | `1`: launcher-controlled; boot to the hold point and follow `cmd.txt` |
+| `MK3D_NET` | `1`: launcher-controlled; boot to the hold point and follow `cmd.txt`. From 1.0.13 Deception and Armageddon also lay out 16:9 whatever the screen's shape (the runtime's `widescreen_always`, patch 0051; a narrower screen shows the picture between bars above and below): both games of a match must lay out alike |
 | `MK3D_GAME` | `mkda`, `mkd` or `mka` |
 | `MK3D_SESSION_DIR` | absolute path of the per-session folder |
 | `MK3D_CMD` | `<session>\cmd.txt` |

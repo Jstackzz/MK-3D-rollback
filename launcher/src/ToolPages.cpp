@@ -494,7 +494,9 @@ SettingsPage::SettingsPage(ServerClient* server, QWidget* parent) : Page(parent)
                            "has no widescreen mode, a little wider than drawn, and Deception and Armageddon on a "
                            "monitor that is not 16:9 (16:10, ultrawide) or at a 4:3 resolution (which gives them "
                            "their original 4:3 picture). Unticked, each keeps its own shape (Deadly Alliance 4:3, the "
-                           "others 16:9) with black bars where it does not fill."));
+                           "others 16:9) with black bars where it does not fill.\nOnline, Deception and Armageddon are "
+                           "always 16:9, so that both players' games are drawn alike: on a 4:3 screen with black bars "
+                           "above and below, ticked or not."));
     df->addRow(tr("Window"), mode);
     df->addRow(tr("Resolution"), res);
     df->addRow(tr("V-sync"), vsync);

@@ -486,7 +486,12 @@ keeps its own shape with black bars where it does not fill. Deadly Alliance
 has no widescreen mode, so stretched it is a little wider than drawn;
 Deception and Armageddon are drawn 16:9, so the stretch only shows on a
 monitor of another shape (16:10, ultrawide) or at a 4:3 resolution, which
-gives them their original 4:3 picture. A resolution of another shape than your
+gives them their original 4:3 picture. Online, Deception and Armageddon are
+always 16:9, whatever your screen: both games of a match have to be drawn
+alike, or a 4:3 player and a 16:9 player go out of sync. On a 4:3 screen or in
+a 4:3 window that picture keeps its shape between bars above and below,
+stretched or not; at a 4:3 resolution in fullscreen on a 16:9 monitor it fills
+the screen. Offline they stay as above. A resolution of another shape than your
 monitor's never switches the monitor to it in fullscreen: the game draws at
 that size and the picture is stretched, or kept to its shape, the same on
 every PC. A game that is running takes a change at once, its window's mode and

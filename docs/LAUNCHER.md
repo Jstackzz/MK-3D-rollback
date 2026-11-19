@@ -171,7 +171,9 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    three games: the picture over the whole screen or window whatever its shape,
    Deadly Alliance's 4:3 one too, else each game's own shape between bars,
    runtime patch 0050; the key's name is from when it was Deadly Alliance's
-   alone), *Frame data in practice*
+   alone; a game for online play of Deception or Armageddon is 16:9 on every
+   screen, between bars above and below on a narrower one, stretch or not:
+   runtime patch 0051, `mk3d::link::ApplyLauncherDisplay`), *Frame data in practice*
    (`display/frame_data`, on unless unticked: whether a game shows the practice
    frame data panel when it starts, `recomp/common/src/mk3d/framedata.h`; F7 in
    the game shows or hides it, F8 makes the dummy block; the practice record,

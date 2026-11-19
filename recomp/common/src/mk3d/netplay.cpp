@@ -1181,12 +1181,14 @@ std::string PcFacts(uint32_t frame, uint32_t mxcsr) {
                                                                       : "borderless";
     // MXCSR's control (masks, rounding, flush to zero 8000, denormals as zero 0040) apart from its sticky flags, which
     // only say what the math met so far (1F80 is Windows' own control)
-    // the shape the game was told (16:9, 4:3) and whether its picture is stretched over the screen
-    char buf[200];
+    // the shape the game was told (16:9, 4:3; 16:9 on a narrower screen for online play, link.cpp) and whether its
+    // picture is stretched over the screen
+    const char* shape = !app::Widescreen() ? "4:3" : app::WidescreenOutput() ? "16:9" : "16:9 on a narrower screen";
+    char buf[256];
     std::snprintf(buf, sizeof buf, "MXCSR control %04X flags %02X at frame %u (control %04X as the match began), %s "
                   "%ux%u at %u Hz, vsync %s, cap %u, render %u%%, %s%s", mxcsr & 0xFFC0, mxcsr & 0x3F, frame,
                   g_match_mxcsr & 0xFFC0, mode, out.width, out.height, hz, s.vsync ? "on" : "off", s.fps_cap,
-                  s.render_percent, app::Widescreen() ? "16:9" : "4:3", s.stretch_4x3 ? ", stretched" : "");
+                  s.render_percent, shape, s.stretch_4x3 ? ", stretched" : "");
     return buf;
 }
 
