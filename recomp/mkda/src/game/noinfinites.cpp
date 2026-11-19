@@ -136,9 +136,8 @@ constexpr uint32_t kOpponentObject = 0x320A10;  // the object of the other fight
 constexpr uint32_t kHellfireSpot = 0x200;       // the fighter's: the x and, 4 on, the z it remembers
 constexpr float kHellfireGame = 0.5f, kHellfireReach = 0.6f;
 
-// LT in Jax's and Frost's strings, see the hook of sub_00053650: the players' rings of presses, 30 entries {action, frame count
+// LT in Frost's string, see the hook of sub_00053650: the players' rings of presses, 30 entries {action, frame count
 // 0x42A888, ...}, the index of the newest, and the action and frame of the press a move last used
-constexpr uint32_t kJax = 0x01;
 constexpr uint32_t kObject = 0x320A14;  // the object of the fighter whose task runs
 constexpr uint32_t kObjects[2] = {0x2EA538, 0x2EA53C};
 constexpr uint32_t kRing[2] = {0x42C220, 0x42C0A0}, kNewest[2] = {0x266B3C, 0x266B40};
@@ -426,18 +425,18 @@ X86_FUNC(sub_000537B0) {
     ctx.eax = noted;
 }
 
-// Jax's and Frost's strings often have LT and then the next attack button a few frames later (2, 2, LT, 4; 4, 4, LT, 4;
-// Frost's 1, 1, 2, 2, LT, 4, 1). A move's script
+// Frost's string 1, 1, 2, 2, LT, 4, 1 has LT and then the next attack button a few frames later. A move's script
 // only asks about the newest press (this function: the newest entry of the player's ring of presses, unless a move has
 // used it), and it reaches its style change check some frames after the hit, so an attack button pressed in those frames
-// hid the LT and the old style's move came out, or none: the string ended there. Now, for these two, the check
+// hid the LT and the old style's move came out, or none: the string ended there. Now, for Frost, the check
 // also sees an unused LT right behind the newest press: the style change happens and the button waits for the new style's
-// script (EachFrame). The ring and the mark are guest memory, so a rollback puts them back. The computer's stay as they are.
+// script (EachFrame). The ring and the mark are guest memory, so a rollback puts them back. The computer's stay as they
+// are, and so do other fighters'.
 X86_FUNC(sub_00053650) {
     using namespace mkda::rules;
     const uint32_t self = kernel::R32(kSelf), m = Mem();
     const uint32_t character = self ? kernel::R32(self + kCharacterId) : 0xFFFFFFFF;
-    if (kernel::R32(ctx.esp + 4) == kActionStyle && self && m && (character == kJax || character == kFrost) &&
+    if (kernel::R32(ctx.esp + 4) == kActionStyle && self && m && character == kFrost &&
         !kernel::R32(self + kComputer)) {
         const int side = kernel::R32(kObject) == kernel::R32(kObjects[0]) ? 0 : 1;
         const Presses p = PressesOf(side);

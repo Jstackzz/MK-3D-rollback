@@ -839,6 +839,13 @@ game files' line adds `contents <hash>`, every file's bytes hashed once in the
 background (`game-files-<game>.txt` beside the launcher keeps each file's hash,
 size and time), or `contents not hashed yet`.
 
+From 1.0.12 a check is compared only once neither game is loading (each CHECK
+carries its game's loading flag): while a game still loads, what it creates as
+its files arrive differs for a moment between two games in step (Deadly
+Alliance's load-time objects of each fighter, the health bars still filling),
+and matches had ended as a desync at frame 0. The random numbers were already
+compared that way; a real parting shows at the first check after the load.
+
 ### 1.13.2 F3 reports (0.1.18)
 
 ```json

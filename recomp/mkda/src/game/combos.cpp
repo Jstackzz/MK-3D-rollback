@@ -16,12 +16,6 @@
 // 0x06xx, in a combo); blocked, or out of the reaction, they test as the game made them. It is all the game's own
 // state, so two games online decide the same.
 //
-// Jax's string ... 4, 4, style change (Judo into tonfa), its two swings: a juggle. Once the Judo 4
-// starts, the kicks and the two swings come on fixed frames, and each only reaches the falling opponent at the right
-// height: the whole string landed on one exact frame of the 4, and that frame moves with the launch before it (7 of 70
-// timings of the launch and the 4 landed all 10 hits, on Frost). So those strikes' spheres are larger too while the
-// opponent still reels in a combo, the first kick 2.5 times and the rest 4.5 times: 59 of the 70 land all 10, the others 9.
-//
 // Frost's string 1, 1, 2, 2, style change, 4, 1 and the 1s after it (Tong Bei into Yuan Yang, 8 hits): the same. Its second
 // hit fell short of Mavado, Hsu Hao and Kung Lao from further off, its seventh of Li Mei and its eighth of Kenshi, Moloch,
 // Quan Chi, Mavado and Drahmin from one side of the arena or the other, so the strikes from its second on are larger too
@@ -55,7 +49,7 @@ namespace {
 constexpr uint32_t kSelf = 0x320A18, kOpponent = 0x320A0C;  // the fighter whose task runs, the other one
 constexpr uint32_t kCharacterId = 0x144, kState = 0x194, kComboHits = 0x1A0;
 constexpr uint32_t kBlock = 0x9F0, kCommand = 0x9F8;  // its move's script block, the command it is at
-constexpr uint32_t kBoRaiCho = 0x14, kJax = 0x01, kFrost = 0x0B;
+constexpr uint32_t kBoRaiCho = 0x14, kFrost = 0x0B;
 constexpr uint32_t kPuddleSlip = 0x4207;  // slipping in Bo' Rai Cho's puddle
 
 struct Hit {
@@ -68,12 +62,6 @@ constexpr Hit kHits[] = {{"drunken_2", 0x688, 2, 2.5f},
                          {"drunken_2", 0x76C, 3, 2.5f},
                          {"drunken_2", 0x810, 4, 2.5f},
                          {"mizong_entry_2center", 0x1D4, 5, 2.5f}};
-constexpr Hit kJaxHits[] = {{"judo_4", 0x78C, 1, 2.5f},
-                            {"judo_4", 0x840, 1, 2.5f},
-                            {"judo_4", 0x860, 2, 4.5f},
-                            {"tonfa_entry_4neutral", 0x170, 3, 4.5f},
-                            {"tonfa_entry_4neutral", 0x240, 4, 4.5f},
-                            {"tonfa_entry_4neutral", 0x264, 4, 4.5f}};
 constexpr Hit kFrostHits[] = {{"tongbei_1", 0x2C8, 2, 2.5f},
                               {"tongbei_1", 0x498, 3, 2.5f},
                               {"tongbei_1", 0x550, 4, 2.5f},
@@ -102,19 +90,19 @@ void BeforeHitTest(X86Context& ctx) {
     const uint32_t self = kernel::R32(kSelf), opp = kernel::R32(kOpponent);
     if (!self || !opp) return;
     const uint32_t character = kernel::R32(self + kCharacterId);
-    if (character != kBoRaiCho && character != kJax && character != kFrost) return;
+    if (character != kBoRaiCho && character != kFrost) return;
     // still reeling from the string's last hit
     if ((kernel::R32(opp + kState) & 0xFF00) != 0x0600 || !kernel::R32(opp + kComboHits)) return;
     const uint32_t block = kernel::R32(self + kBlock), command = kernel::R32(self + kCommand) - block;
-    const Hit* const first = character == kJax ? kJaxHits : character == kFrost ? kFrostHits : kHits;
-    const size_t count = character == kJax ? std::size(kJaxHits) : character == kFrost ? std::size(kFrostHits) : std::size(kHits);
+    const Hit* const first = character == kFrost ? kFrostHits : kHits;
+    const size_t count = character == kFrost ? std::size(kFrostHits) : std::size(kHits);
     for (size_t i = 0; i < count; i++) {
         const Hit& h = first[i];
         if (command != h.command || !BlockIs(block, h.block)) continue;
         float scale;
         std::memcpy(&scale, kernel::HostPtr(ctx.esp + 8), sizeof scale);
         LOGR_FIRST(16, "combos: %s string, hit %d: its spheres %.2f times larger (scale %.2f)",
-                   character == kJax ? "Jax's" : character == kFrost ? "Frost's" : "Bo' Rai Cho's", h.number, h.grow, scale);
+                   character == kFrost ? "Frost's" : "Bo' Rai Cho's", h.number, h.grow, scale);
         scale *= h.grow;
         std::memcpy(kernel::HostPtr(ctx.esp + 8), &scale, sizeof scale);
         return;

@@ -1543,10 +1543,14 @@ void Checks(uint32_t frame, bool agreed) {
         }
         const Check& mine = mine_it->second;
         const Check& theirs = it->second;
-        const bool rand_counts = !mine.loading && !theirs.loading;
-        if ((mine.state != theirs.state || (rand_counts && mine.rand != theirs.rand)) && !g_desynced) {
-            LOGE("netplay: DESYNC at frame %u (ours %08X/%08X, theirs %08X/%08X%s)", it->first, mine.state, mine.rand,
-                 theirs.state, theirs.rand, rand_counts ? "" : ", loading");
+        // compared once neither game is loading: while one still loads, what it creates as its files arrive (Deadly
+        // Alliance: a fighter's two load-time objects at +0x11C, one of them made a moment later on a slower PC; the
+        // health bars still filling) differs for a moment between two games in step, and a match ended as a desync at
+        // frame 0. A real parting shows at the next check after the load.
+        const bool counts = !mine.loading && !theirs.loading;
+        if (counts && (mine.state != theirs.state || mine.rand != theirs.rand) && !g_desynced) {
+            LOGE("netplay: DESYNC at frame %u (ours %08X/%08X, theirs %08X/%08X)", it->first, mine.state, mine.rand,
+                 theirs.state, theirs.rand);
             g_desynced = true;
             g_desync_frame = it->first;
             BeginDetail(it->first);
