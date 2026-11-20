@@ -391,15 +391,18 @@ void QueuePage::refreshRoster() {
         const QSignalBlocker block(pickInGame_);
         pickInGame_->setChecked(cfg::pickInGame());  // the other queue page may have changed it
     }
-    const bool team = m && m->picksInGame();  // the mode's own (Chess Kombat's teams)
-    const bool inGame = team || pickInGame_->isChecked();
+    // the mode's own: always on the game's select screen (Chess Kombat's teams, Puzzle Kombat's fighters)
+    const bool always = m && m->picksInGame();
+    const bool inGame = always || pickInGame_->isChecked();
     deathTraps_->setVisible(m && m->deathTraps);
-    pickInGame_->setVisible(!team);
+    pickInGame_->setVisible(!always);
     picker_->setVisible(!inGame);
     inGamePick_->setVisible(inGame);
-    inGamePick_->setText(team ? tr("Teams are picked inside the game for this mode.")
-                              : tr("You pick your fighter on the game's select screen when the match starts, with "
-                                   "your own controller; your opponent picks on theirs."));
+    inGamePick_->setText(always && m->inGameTeam ? tr("Teams are picked inside the game for this mode.")
+                         : always ? tr("Fighters are picked inside the game for this mode: you pick yours on the "
+                                       "game's select screen at every match, with your own controller.")
+                                  : tr("You pick your fighter on the game's select screen when the match starts, with "
+                                       "your own controller; your opponent picks on theirs."));
     picker_->setRoster(g->roster(modeId), cfg::get(QStringLiteral("ui/%1/%2/character").arg(gameId_, modeId)).toString());
     delayInfo_->setText((cfg::autoDelay() ? tr("Input delay %1 frame(s), more at a high ping; game UDP port %2 "
                                                "(change in Settings)")
@@ -461,8 +464,9 @@ bool QueuePage::startSearch(const QString& mode, const QString& character) {
         return false;
     }
     log_->line(tr("Searching: %1 %2 as %3 in %4, max ping %5").arg(g->shortName, m->name,
-               m->picksInGame() ? tr("in-game team")
-                                : req.character.isEmpty() ? tr("a fighter picked in the game") : picker_->currentName(),
+               m->picksInGame() && m->inGameTeam ? tr("in-game team")
+               : req.character.isEmpty()         ? tr("a fighter picked in the game")
+                                                 : picker_->currentName(),
                GameData::regionName(req.region), maxPing_->currentText()));
     return true;
 }

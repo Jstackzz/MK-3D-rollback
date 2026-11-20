@@ -301,13 +301,29 @@ async def test_ranked_winner_whose_fighter_is_not_known_picks_again(server, conn
     assert (gos4[1]["p1"], gos4[1]["p2"]) == ("-", "-")
 
 
-async def test_ranked_motor_set_keeps_the_queued_karts(server, connect, udp_peers):
-    sides, gos = await first_match(server, connect, udp_peers, ["Dairou", "Darrius"], ranked=True, character="Jax",
-                                   game="mka", mode="motor")
+async def test_puzzle_kombat_never_picks_for_a_player(server, connect, udp_peers):
+    """Puzzle Kombat (1.0.15): both pick on the game's select screen in every match, whatever a launcher sends, and a
+    Kasual rematch goes back there too (it repeated the last match's fighters, picked by the autopilot)."""
+    sides, gos = await first_match(server, connect, udp_peers, ["Dairou", "Darrius"], ranked=False, character="Jax",
+                                   mode="puzzle")
     (c1, _), (c2, _) = sides[1], sides[2]
+    assert (gos[1]["p1"], gos[1]["p2"]) == ("-", "-") == (gos[2]["p1"], gos[2]["p2"])
     s1, _ = await play(c1, c2, gos[1]["match"], 1, fighters=(("3", "4"), ("3", "4")))
+    assert s1["same_fighters"] is False and s1["keeps"] is None
     gos2 = await next_match(server, sides, s1["series"], choices=("rematch", "rematch"))
-    assert (gos2[1]["p1"], gos2[1]["p2"]) == ("Jax", "Jax")
+    assert (gos2[1]["p1"], gos2[1]["p2"]) == ("-", "-")
+
+
+async def test_ranked_is_kombat_only(server, connect):
+    """Chess, Puzzle and Motor Kombat left ranked (1.0.15): a ranked search for them is refused, Kasual goes on."""
+    c = await connect("Hotaru")
+    for game, mode in (("mkd", "chess"), ("mkd", "puzzle"), ("mka", "motor")):
+        with pytest.raises(ServerError) as exc:
+            await c.request(queue_msg(game, mode, ranked=True))
+        assert exc.value.code == "bad_mode", mode
+        queued = await c.request(queue_msg(game, mode, ranked=False))
+        assert queued["mode"] == mode and queued["ranked"] is False
+        await c.request({"type": "queue_leave"})
 
 
 async def test_bad_fighters_or_choice(server, connect, udp_peers):

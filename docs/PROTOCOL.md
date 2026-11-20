@@ -230,6 +230,10 @@ C: {"type":"queue_leave"}
 S: {"type":"queue_left","reason":"left"}
 ```
 
+- Ranked is `kombat` only (1.0.15, the server's `RANKED_MODES`): a ranked
+  `queue_join` in `chess`, `puzzle` or `motor` gets `bad_mode`; Kasual takes
+  them. In `puzzle` (and the lobby-only `sparring`; `PICK_IN_GAME_MODES`)
+  `character` is ignored: both players pick on the game's select screen.
 - `max_ping` is the highest acceptable round trip in ms; `0` means any. A
   search that finds nobody raises it (0.1.8, unless `strict`): after `after`
   seconds by `step` ms, again every `every` seconds, up to `cap` ms (never
@@ -512,7 +516,10 @@ S: {"type":"series","series":"8d01c3e2a9f4", ...,"state":"over","outcome":"won",
   fighters both reports agreed on (`same_fighters` false: a desync, a mode
   without fighters, an older launcher) a rematch uses the characters both
   queued with. `you_choice`/`them_choice` show what each chose once ready. A
-  ranked set of another mode keeps the characters both queued with.
+  ranked set of another mode kept the characters both queued with (before
+  1.0.15, when the side modes were ranked). Puzzle Kombat (1.0.15) has no
+  `rematch` of fighters: every match after the first goes back to the select
+  screen (`p1`/`p2` `-`, `same_fighters` false) whatever `choice` says.
 - Once a series is over, a launcher searches again by itself with the search
   it came from (`cfg::searchAgain`, on unless the player turned it off), unless
   the player left the series themselves, let a Kasual rematch offer run out
@@ -580,7 +587,10 @@ S: {"type":"lobby_left","lobby":"K7WQ2"}
   (someone who never played it ranked: the starting one; 1.3 `ranks`), whose
   badge the launcher shows by their name. Online Practice keeps no record of
   its own: its members (and its matches' `p1_title` / `p2_title`) show their
-  title in the game's `kombat` (1.0.14; before, everyone showed the start).
+  title in the game's `kombat` (1.0.14; before, everyone showed the start), and
+  so do the side modes, out of ranked since 1.0.15. A Puzzle Kombat lobby keeps
+  no `character` for its members (`lobby_character` changes nothing): both pick
+  in the game.
 - A member whose connection drops (or is replaced by a new login of the same
   account) keeps their place for 60 s: when that account logs in again within
   it, the server puts it back in the lobby (a player's place if one is free,
@@ -759,7 +769,9 @@ S: {"type":"leaderboard","game":"mkd","mode":"kombat","by":"respect","total":12,
 ```
 
 `by` (default `elo`; else `bad_request`): `elo` lists the accounts with at
-least one ranked game in that game and mode, ordered by Elo, then wins, then
+least one ranked game in that game and mode (`kombat` only since 1.0.15: a side
+mode's gets `bad_mode`, and profiles no longer carry a side mode's `ranked`
+record, which stays in the database), ordered by Elo, then wins, then
 name, each with the title of their Elo (1.3 `ranks`); `respect` lists every
 account with Respect Points there (1.10.2), the most first, then the fewer
 `ratings` that gave them, then name, each with their ranked record (or the

@@ -3,7 +3,8 @@ MK3D Online: player guide
 
 Native PC versions of the original Xbox Mortal Kombat: Deadly Alliance, Deception
 and Armageddon, with online play (rollback netcode): Kasual and ranked matchmaking,
-lobbies, and the side modes (Chess Kombat, Puzzle Kombat, Motor Kombat).
+lobbies, and the side modes (Chess Kombat, Puzzle Kombat, Motor Kombat) in Kasual
+and lobbies (Ranked is Kombat only).
 
 This package contains no game. You build each game once from your own disc image,
 on your PC; nothing from the games is downloaded.
@@ -78,11 +79,13 @@ whether to trust it: compare it with your host's.
   the game's own select screen" ticked (the default) you choose your fighter in
   the game when the match starts, with your own controller, while your opponent
   does the same on their PC; the game shows their pick once they made it. Untick
-  it to choose your fighter in the launcher instead. Puzzle Kombat's fighter and
-  Motor Kombat's kart are picked the same way (in Motor Kombat player 1 chooses
-  first, then player 2 from the karts still free), and Chess Kombat's team
-  (leader, champion, sorcerer, shifter, grunt) always on the game's own select
-  screen, in lobbies too. Your record (wins, losses,
+  it to choose your fighter in the launcher instead. Motor Kombat's kart is
+  picked the same way (player 1 chooses first, then player 2 from the karts still
+  free). Puzzle Kombat's fighter and Chess Kombat's team (leader, champion,
+  sorcerer, shifter, grunt) are always picked on the game's own select screen, by
+  each player, at every match (rematches and lobbies too): nobody picks them for
+  you. Ranked is Kombat only; Chess, Puzzle and Motor Kombat are played in Kasual
+  and lobbies, and the Leaderboard is Kombat's. Your record (wins, losses,
   and Elo and rank in Ranked) is on the right of the page: in Ranked it counts the
   sets you won and lost (a set won 3-2 is one win), in Kasual each match. Above it how many play the
   game right now: searching (and how many of them in the mode you picked, the

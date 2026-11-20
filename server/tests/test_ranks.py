@@ -99,8 +99,9 @@ async def test_lobby_members_come_with_their_titles_in_its_game_and_mode(server,
     assert [(m["name"], m["title"]) for m in joined["lobby"]["members"]] == [("Kitana", "God"), ("Jade", "Beginner")]
     await guest.request({"type": "lobby_leave"})
     await host.request({"type": "lobby_leave"})
+    # a side mode left ranked (1.0.15): its lobby shows the Kombat title, not the old chess record's
     chess = await host.request(create_msg(mode="chess"))
-    assert [(m["name"], m["title"]) for m in chess["lobby"]["members"]] == [("Kitana", "Beginner")]
+    assert [(m["name"], m["title"]) for m in chess["lobby"]["members"]] == [("Kitana", "God")]
 
 
 async def test_a_new_player_starts_a_beginner_and_a_record_from_the_old_start_stays(server, connect):
@@ -108,12 +109,16 @@ async def test_a_new_player_starts_a_beginner_and_a_record_from_the_old_start_st
     assert elo.INITIAL == 475
     start = {"elo": 475, "title": "Beginner", "wins": 0, "losses": 0}
     prof = await c.request({"type": "profile"})
-    assert all(prof["stats"][game][mode]["ranked"] == start for game, modes in P.GAMES.items() for mode in modes
-               if mode not in P.LOBBY_ONLY_MODES)  # Online Practice keeps no record
+    # every game's Kombat; Online Practice keeps no record, and the side modes left ranked (1.0.15)
+    assert all(prof["stats"][game]["kombat"]["ranked"] == start for game in P.GAMES)
+    assert all("ranked" not in prof["stats"].get(game, {}).get(mode, {}) for game, modes in P.GAMES.items()
+               for mode in modes if mode not in P.RANKED_MODES)
     set_rating(server, "Goro", 1516)  # played ranked while everyone started at 1500
+    set_rating(server, "Goro", 1300, mode="chess")  # an old chess record stays in the database, unshown
     prof = await c.request({"type": "profile"})
     assert prof["stats"]["mkd"]["kombat"]["ranked"] == {"elo": 1516, "title": "Chosen One", "wins": 3, "losses": 2}
-    assert prof["stats"]["mkd"]["chess"]["ranked"] == start  # each mode has its own
+    assert prof["stats"]["mka"]["kombat"]["ranked"] == start  # each game has its own
+    assert "ranked" not in prof["stats"]["mkd"].get("chess", {})
 
 
 EVERY_RECORD = [("mka", "kombat", "ranked", 1640), ("mkd", "chess", "ranked", 1300), ("mkda", "kombat", "casual", 1500),

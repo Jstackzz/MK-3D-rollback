@@ -233,13 +233,25 @@ async def test_online_lists_who_is_searching(server, connect):
 
     kitana, tanya, watcher = [await connect(n) for n in ("Kitana", "Tanya", "Jade")]
     await kitana.request(queue_msg(game="mkd"))
-    await tanya.request(queue_msg(game="mka", mode="motor", ranked=True))
+    await tanya.request(queue_msg(game="mka", mode="motor"))
     online = await watcher.request({"type": "online"})
     assert online["searchers"] == [
         {"name": "Kitana", "game": "mkd", "queue": "mkd/kombat/casual"},
-        {"name": "Tanya", "game": "mka", "queue": "mka/motor/ranked"},
+        {"name": "Tanya", "game": "mka", "queue": "mka/motor/casual"},
     ]
     watcher.take_all("online")  # the pushes so far
     await kitana.request({"type": "queue_leave"})
     pushed = await watcher.expect("online", timeout=5, pred=lambda m: "id" not in m and len(m["searchers"]) == 1)
-    assert pushed["searchers"] == [{"name": "Tanya", "game": "mka", "queue": "mka/motor/ranked"}]
+    assert pushed["searchers"] == [{"name": "Tanya", "game": "mka", "queue": "mka/motor/casual"}]
+
+
+async def test_puzzle_kombat_lobbies_pick_in_the_game(server, connect):
+    """Puzzle Kombat (1.0.15): nobody's fighter is picked for them, so a lobby keeps no fighter for its members
+    (the autopilot picked the one a launcher sent): both pick on the game's select screen."""
+    host, guest = await connect("Darrius"), await connect("Hotaru")
+    created = await host.request(create_msg(mode="puzzle", character="Scorpion"))
+    assert [m["character"] for m in created["lobby"]["members"]] == [""]
+    joined = await guest.request({"type": "lobby_join", "lobby": created["lobby"]["id"], "character": "Kenshi"})
+    assert [m["character"] for m in joined["lobby"]["members"]] == ["", ""]
+    await guest.request({"type": "lobby_character", "character": "Mileena"})  # no effect
+    assert [m.character for m in server.lobbies[created["lobby"]["id"]].members] == ["", ""]

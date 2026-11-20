@@ -20,6 +20,7 @@ struct GameMode {
     QString description;
     QString roster;
     QString characterSelect;  // "launcher" or "in_game"
+    bool inGameTeam = false;  // what the game's select screen builds is a team (Chess Kombat), not a fighter
     bool online = false;
     bool ranked = false;
     QList<int> rounds;

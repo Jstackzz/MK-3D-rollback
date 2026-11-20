@@ -24,11 +24,12 @@
     {
       "id": "chess",
       "name": "Chess Kombat",
-      "description": "Chess-style board game; captures are decided by fights. Teams are picked in the game.",
+      "description": "Chess-style board game; captures are decided by fights. Teams are picked in the game. Played in Kasual and lobbies (Ranked is Kombat only).",
       "online": true,
-      "ranked": true,
+      "ranked": false,
       "roster": "fighters",
       "character_select": "in_game",
+      "in_game_team": true,
       "rounds": [1],
       "default_rounds": 1,
       "death_traps": true
@@ -36,11 +37,11 @@
     {
       "id": "puzzle",
       "name": "Puzzle Kombat",
-      "description": "Falling-block puzzle duel with super-deformed fighters, each with a special move.",
+      "description": "Falling-block puzzle duel with super-deformed fighters, each with a special move. Fighters are picked in the game, at every match. Played in Kasual and lobbies (Ranked is Kombat only).",
       "online": true,
-      "ranked": true,
+      "ranked": false,
       "roster": "puzzle",
-      "character_select": "launcher",
+      "character_select": "in_game",
       "rounds": [1, 3, 5],
       "default_rounds": 3
     },

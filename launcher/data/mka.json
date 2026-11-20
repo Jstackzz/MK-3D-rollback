@@ -24,9 +24,9 @@
     {
       "id": "motor",
       "name": "Motor Kombat",
-      "description": "Kart racing with ten fighters.",
+      "description": "Kart racing with ten fighters. Played in Kasual and lobbies (Ranked is Kombat only).",
       "online": true,
-      "ranked": true,
+      "ranked": false,
       "roster": "motor",
       "character_select": "launcher",
       "rounds": [1],

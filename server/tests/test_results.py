@@ -5,7 +5,10 @@ from __future__ import annotations
 
 import logging
 
+import pytest
+
 from server import elo
+from server.client import ServerError
 
 from .conftest import played, queue_msg, run_to_go
 
@@ -45,8 +48,10 @@ async def test_ranked_agreement_counts_in_the_set(server, connect, udp_peers):
         assert prof["stats"]["mkd"]["kombat"]["ranked"] == start
     board = await c2.request({"type": "leaderboard", "game": "mkd", "mode": "kombat"})
     assert board["rows"] == [] and board["total"] == 0 and "me" not in board
-    empty = await c2.request({"type": "leaderboard", "game": "mkd", "mode": "chess"})
-    assert empty["rows"] == [] and empty["total"] == 0
+    # ranked is Kombat only (1.0.15): a side mode has no ranked leaderboard
+    with pytest.raises(ServerError) as exc:
+        await c2.request({"type": "leaderboard", "game": "mkd", "mode": "chess"})
+    assert exc.value.code == "bad_mode"
 
     row = server.db.match_row(match)
     assert row["status"] == "agreed" and row["p1_elo_after"] is None

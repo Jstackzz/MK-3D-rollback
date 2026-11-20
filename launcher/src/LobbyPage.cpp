@@ -543,10 +543,10 @@ void LobbyPage::showLobby(const QJsonObject& lobby) {
     if (g && (newLobby || character_->count() == 0)) {
         const QSignalBlocker block(character_);
         character_->clear();
-        // the game's own select screen, with the player's own controller (cfg::pickInGame); Online Practice and Chess
-        // Kombat's teams always
+        // the game's own select screen, with the player's own controller (cfg::pickInGame); Online Practice, Chess
+        // Kombat's teams and Puzzle Kombat's fighters always
         if (m && m->picksInGame()) {
-            character_->addItem(tr("Your team: built in the game"), QString());
+            character_->addItem(m->inGameTeam ? tr("Your team: built in the game") : tr("Pick in the game"), QString());
         } else {
             character_->addItem(tr("Pick in the game"), QString());
             if (!(m && m->lobbyOnly))

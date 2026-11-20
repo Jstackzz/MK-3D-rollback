@@ -117,6 +117,7 @@ bool GameData::load(QString* error) {
             m.description = mo.value(QStringLiteral("description")).toString();
             m.roster = mo.value(QStringLiteral("roster")).toString();
             m.characterSelect = mo.value(QStringLiteral("character_select")).toString(QStringLiteral("launcher"));
+            m.inGameTeam = mo.value(QStringLiteral("in_game_team")).toBool();
             m.online = mo.value(QStringLiteral("online")).toBool();
             m.ranked = mo.value(QStringLiteral("ranked")).toBool();
             for (const auto& r : mo.value(QStringLiteral("rounds")).toArray()) m.rounds.append(r.toInt());

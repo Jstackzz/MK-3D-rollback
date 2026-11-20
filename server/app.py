@@ -1115,8 +1115,12 @@ class Server:
         start = {"elo": elo.INITIAL, "title": elo.title(elo.INITIAL), "wins": 0, "losses": 0}
         for game, modes in P.GAMES.items():
             for mode in modes:
-                if mode not in P.LOBBY_ONLY_MODES:  # Online Practice keeps no records
+                if mode in P.RANKED_MODES:  # Online Practice keeps no records, the side modes no ranked one (1.0.15)
                     stats.setdefault(game, {}).setdefault(mode, {}).setdefault("ranked", dict(start))
+        for modes in stats.values():  # a side mode's ranked record from before 1.0.15 stays in the database, unshown
+            for mode, kinds in modes.items():
+                if mode not in P.RANKED_MODES:
+                    kinds.pop("ranked", None)
         # King of the Hill: the Respect Points spectators gave them in each game and mode they have any
         for (game, mode), respect in self.db.respect_all(int(row["id"])).items():
             stats.setdefault(game, {}).setdefault(mode, {})["respect"] = respect
@@ -1219,10 +1223,15 @@ class Server:
         if mode in P.LOBBY_ONLY_MODES:
             raise P.ProtocolError("bad_mode", "Online Practice is played in a lobby: share its code with a friend.")
         ranked = P.get_bool(msg, "ranked", default=False)
+        if ranked and mode not in P.RANKED_MODES:
+            raise P.ProtocolError("bad_mode", "Ranked is Kombat only: play Chess, Puzzle and Motor Kombat in Kasual or "
+                                              "a lobby.")
         region = P.get_region(msg)
         max_ping = P.get_int(msg, "max_ping", lo=0, hi=2000, default=0)
         strict = P.get_bool(msg, "strict", default=False)
         character = P.get_character(msg)
+        if mode in P.PICK_IN_GAME_MODES:
+            character = ""  # Puzzle Kombat: picked on the game's select screen, whatever the launcher sent
         delay = P.get_int(msg, "delay", lo=0, hi=P.DELAY_MAX, default=2)
         death_traps = P.get_bool(msg, "death_traps", default=True)
         relay = P.get_bool(msg, "relay", default=False)
@@ -1897,7 +1906,8 @@ class Server:
             return
         series.match = None
         series.played += 1
-        series.last_picks = fighters
+        # Puzzle Kombat: no "same fighters" to repeat, both pick again on the select screen (1.0.15)
+        series.last_picks = None if series.mode in P.PICK_IN_GAME_MODES else fighters
         if fault is not None and series.ranked:
             sp = series.player_for(fault.account_id)
             if sp is not None and first and fault.game_state != "in_match":
@@ -1973,6 +1983,8 @@ class Server:
         when both want a rematch, the select screen when either wants to select (the characters they queued with when
         the last match's are not known); ranked: the queued ones."""
         p1, p2 = sorted(series.players, key=lambda p: p.side)
+        if series.mode in P.PICK_IN_GAME_MODES:
+            return "", ""  # Puzzle Kombat: both pick on the game's select screen every match, nobody's picked for them
         if series.mode in P.SELECT_SCREEN_MODES:
             if series.ranked and series.winner_keeps is not None:
                 keeper, fighter = series.winner_keeps
@@ -2482,9 +2494,10 @@ class Server:
         region = P.get_region(msg)
         character = P.get_character(msg)
         death_traps = P.get_bool(msg, "death_traps", default=True) and mode not in P.LOBBY_ONLY_MODES
+        if mode in P.PICK_IN_GAME_MODES:
+            character = ""  # both players pick on the game's select screen (Online Practice, Puzzle Kombat)
         if mode in P.LOBBY_ONLY_MODES:
-            character = ""  # both players pick on the game's select screen, and go back to it whenever they like
-            rounds = 1      # nobody is knocked out: no rounds to count
+            rounds = 1  # Online Practice: nobody is knocked out, no rounds to count; back to select whenever they like
         koth = P.get_bool(msg, "koth", default=False)
         if koth and mode in P.LOBBY_ONLY_MODES:  # two players, nobody watching: no line, no one to rate
             raise P.ProtocolError("bad_mode", "Online Practice is for two players: it has no King of the Hill.")
@@ -2538,7 +2551,8 @@ class Server:
         if lobby.password and not hmac.compare_digest(lobby.password.encode(), password.encode()):
             raise P.ProtocolError("bad_lobby_password", "Wrong lobby password.")
         self._quit_series(s)
-        character = "" if lobby.mode in P.LOBBY_ONLY_MODES else P.get_character(msg)  # Online Practice: picked in game
+        # Online Practice, Puzzle Kombat: picked in the game
+        character = "" if lobby.mode in P.PICK_IN_GAME_MODES else P.get_character(msg)
         member = LobbyMember(s, character, spectator=spectate or in_line)
         self._member_connection(member, msg)
         lobby.members.append(member)
@@ -2729,7 +2743,7 @@ class Server:
             raise P.ProtocolError("busy", "A match is running.")
         member = lobby.member(s)
         assert member is not None
-        if lobby.mode in P.LOBBY_ONLY_MODES:  # Online Practice: both pick on the game's select screen
+        if lobby.mode in P.PICK_IN_GAME_MODES:  # Online Practice, Puzzle Kombat: both pick on the game's select screen
             self._broadcast_lobby(lobby, reply_to=(s, msg))
             return
         member.character = P.get_character(msg)
@@ -2894,6 +2908,9 @@ class Server:
         by = msg.get("by", "elo")
         if by not in ("elo", "respect"):
             raise P.ProtocolError("bad_request", "by must be elo or respect.")
+        if by == "elo" and mode not in P.RANKED_MODES:
+            raise P.ProtocolError("bad_mode", "Ranked is Kombat only: Chess, Puzzle and Motor Kombat have no ranked "
+                                              "leaderboard.")
         # by Elo: the ranked players; by Respect Points: everyone King of the Hill spectators rated (both with each
         # player's Respect Points)
         board, rank_of = ((self.db.respect_board, self.db.respect_rank_of) if by == "respect"

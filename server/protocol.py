@@ -29,9 +29,16 @@ SELECT_SCREEN_MODES: frozenset[str] = frozenset({"kombat", "sparring"})
 # Online Practice: two friends by a lobby's code (never listed, never queued), fights without a timer or a knockout
 # until one of them goes back to the select screen; nothing is recorded
 LOBBY_ONLY_MODES: frozenset[str] = frozenset({"sparring"})
+# Ranked is Kombat only (1.0.15): Chess, Puzzle and Motor Kombat are played in Kasual and lobbies. Their old ranked
+# records stay in the database, out of every list (no ranked search, leaderboard or profile entry)
+RANKED_MODES: frozenset[str] = frozenset({"kombat"})
+# the modes whose players always pick on the game's own select screen, whatever a launcher sends: nobody's fighter is
+# picked for them, in a series' next match either (Online Practice; Puzzle Kombat since 1.0.15)
+PICK_IN_GAME_MODES: frozenset[str] = frozenset({"sparring", "puzzle"})
 # the ranked record whose title a mode's players show (lobby members, the badges in the game): a mode with no record of
-# its own shows the one its fights are (1.0.14: Online Practice showed every player as a new one, a Beginner)
-TITLE_MODE: dict[str, str] = {"sparring": "kombat"}
+# its own shows the one its fights are (1.0.14: Online Practice showed every player as a new one, a Beginner; 1.0.15:
+# the side modes, out of ranked)
+TITLE_MODE: dict[str, str] = {"sparring": "kombat", "chess": "kombat", "puzzle": "kombat", "motor": "kombat"}
 REGIONS: tuple[str, ...] = ("na", "sa", "eu", "me", "af", "as", "oc")
 
 NAME_RE = re.compile(r"^[A-Za-z0-9_-]{3,16}$")
