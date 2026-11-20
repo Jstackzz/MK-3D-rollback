@@ -149,7 +149,7 @@ void SetOptions(const mk3d::link::game::Start& start) {
 const bool g_sparring_hook = (mk3d::OnFrameStart([](uint64_t) {
                                   if (!mk3d::sparring::On()) return;
                                   const uint32_t health[2] = {kP1Health, kP2Health};
-                                  mk3d::sparring::KeepHealth(health, !InFrontEnd());
+                                  mk3d::sparring::KeepHealth(health, !InFrontEnd(), (kernel::R32(kFlags) >> 13) & 1);
                               }),
                               true);
 
@@ -215,8 +215,16 @@ void Rematch(const Start& start) {
 
 void ExpectMenu() { autopilot::ExpectMenu(); }
 
-// the game's own state switch to the main menu task; it leaves through the engine's longjmp to the main loop
-void Park(X86Context& ctx) { kernel::CallGuest(ctx, kStateSwitch, {6, kMainMenuTask}); }
+// the game's own state switch to the main menu task; it leaves through the engine's longjmp to the main loop. A game
+// at the main menu already stays there (Online Practice: its pause menu's QUIT GAME, 1.0.14).
+void Park(X86Context& ctx) {
+    if (kernel::R32(kMainTask) == kMainMenuTask) {
+        LOGR("link: the game is at the main menu already");
+        autopilot::MenuIsUp();
+        return;
+    }
+    kernel::CallGuest(ctx, kStateSwitch, {6, kMainMenuTask});
+}
 
 bool AutopilotActive() { return autopilot::Active(); }
 

@@ -597,6 +597,11 @@ void ExpectMenu() {
     Enter(Phase::ToMenu);
 }
 
+void MenuIsUp() {
+    std::lock_guard<std::mutex> lock(g_lock);
+    if (g_phase == Phase::ToMenu && g_base_menus > 0 && MainMenus() == g_base_menus) g_base_menus--;
+}
+
 void Apply(int port, input::Pad& pad) {
     std::lock_guard<std::mutex> lock(g_lock);
     if (g_phase == Phase::Off || g_phase == Phase::Done || g_phase == Phase::Hold) return;

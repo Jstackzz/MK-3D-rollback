@@ -578,7 +578,9 @@ S: {"type":"lobby_left","lobby":"K7WQ2"}
   `link` and `ping` (`null` unknown).
 - Each member's `title`: their ranked title in the lobby's game and mode
   (someone who never played it ranked: the starting one; 1.3 `ranks`), whose
-  badge the launcher shows by their name.
+  badge the launcher shows by their name. Online Practice keeps no record of
+  its own: its members (and its matches' `p1_title` / `p2_title`) show their
+  title in the game's `kombat` (1.0.14; before, everyone showed the start).
 - A member whose connection drops (or is replaced by a new login of the same
   account) keeps their place for 60 s: when that account logs in again within
   it, the server puts it back in the lobby (a player's place if one is free,
@@ -623,7 +625,12 @@ S: {"type":"lobby_left","lobby":"K7WQ2"}
   Both players pick on the game's own select screen (their `character` is
   always empty), there are no death traps, and the players stay ready after
   each match, so the next one counts down by itself: a player who presses
-  BACK in the game goes back to the select screen with the other. It has no
+  BACK in the game, or picks PLAYER SELECT (or MAIN MENU, QUIT GAME) in its
+  pause menu, goes back to the select screen with the other. START pauses
+  both games in the same frame there (1.0.14: the games let START into what
+  they exchange in this mode only), and the pause menu, MOVES LIST included,
+  runs alike on both from both players' input (Deception and Armageddon take
+  only the pausing player's presses there, Deadly Alliance either's). It has no
   King of the Hill (`koth` with it: `bad_mode`).
 - `koth`: a King of the Hill lobby (1.10.2), chosen with `lobby_create` and
   kept for the lobby's life; the list's `in_line` counts the spectators who

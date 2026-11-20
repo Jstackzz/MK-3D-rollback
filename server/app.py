@@ -1350,10 +1350,11 @@ class Server:
 
     def _title_of(self, account_id: int | None, game: str, mode: str) -> str | None:
         """The ranked title a player's rating in a game and mode holds, ranked or not: the launchers show its badge by
-        their name and the games beside the timer. Someone new to it holds the starting one."""
+        their name and the games beside the timer. Someone new to it holds the starting one. Online Practice keeps no
+        record: its players show their Kombat rank (P.TITLE_MODE)."""
         if self.db is None or account_id is None:
             return None
-        return elo.title(self.db.rating(account_id, game, mode)["elo"])
+        return elo.title(self.db.rating(account_id, game, P.TITLE_MODE.get(mode, mode))["elo"])
 
     # --- match flow -------------------------------------------------------------------------------
 

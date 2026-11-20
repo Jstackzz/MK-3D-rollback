@@ -146,10 +146,11 @@ void SetOptions(int wins_needed, bool sparring) {
     }
 }
 
-// Online Practice's fight: the fighters' health kept up (sparring.h) while a round can be under way
+// Online Practice's fight: the fighters' health kept up (sparring.h) while a round can be under way, not while paused
 const bool g_sparring_hook = (OnFrameStart([](uint64_t) {
                                   if (!mk3d::sparring::On()) return;
-                                  mk3d::sparring::KeepHealth(kHealth, GameMode() == kModeVersus && !InFrontEnd());
+                                  mk3d::sparring::KeepHealth(kHealth, GameMode() == kModeVersus && !InFrontEnd(),
+                                                             kernel::R32(kPaused) != 0);
                               }),
                               true);
 
@@ -199,8 +200,25 @@ void Rematch(const Start& start) {
 void ExpectMenu() { autopilot::ExpectMenu(); }
 
 // the game's own state switch to the main menu task (as backing out of character select does, priority 4); it leaves
-// through the engine's longjmp to the main loop
+// through the engine's longjmp to the main loop. A game at the main menu already stays there (Online Practice: its
+// pause menu's MAIN MENU, 1.0.14): switched to it again, both games of a test stood still for good, paused between
+// two screens, with the main loop running without a picture.
+// A pause menu open in a fight (Online Practice: a player's BACK, or the other game gone, while paused) is closed first,
+// as the menu's own ways out do (sub_000CC630 pops a menu; the last one turns the menus off, 0x2CE63C, and the pause
+// flag with them, sub_000CDBD0). Switched with it open, the menus' depth went to 0 while they still took input, so the
+// word before the menu stack read as the pause menu on top, which paused the game again every frame: the main menu
+// never came (both games of a test).
+constexpr uint32_t kMenusOn = 0x2CE63C, kCloseMenu = 0xCC630;
 void Park(X86Context& ctx) {
+    if (kernel::R32(kMainTask) == kMainMenuTask) {
+        LOGR("link: the game is at the main menu already");
+        autopilot::MenuIsUp();
+        return;
+    }
+    if (kernel::R32(kMainTask) == kFightTask && kernel::R32(kMenusOn)) {
+        LOGR("link: a menu is open in the fight: closed first");
+        for (int i = 0; i < 8 && kernel::R32(kMenusOn); i++) kernel::CallGuest(ctx, kCloseMenu, {});
+    }
     kernel::W32(kPaused, 0);  // a pause menu open in a fight is gone with it (as its quit item does)
     kernel::CallGuest(ctx, kStateSwitch, {4, kMainMenuTask});
 }

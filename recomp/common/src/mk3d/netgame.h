@@ -19,10 +19,13 @@ namespace game {
 
 // --- controllers: the game's per-port input blocks, as its pad update left them
 uint32_t NeutralSticks();  // both sticks centred, packed as the blocks hold them
-// this PC's controller as the game read it this frame (the physical pad is port 0)
-void ReadLocal(uint32_t& buttons, uint32_t& sticks);
-// this PC's controller holds BACK this frame (ReadLocal leaves it out, as START): Online Practice's way back to the
-// select screen
+// this PC's controller as the game read it this frame (the physical pad is port 0), without START and BACK: a pause
+// menu would stop the other player's game as well. `start` (Online Practice, 1.0.14) leaves START in, so a player's
+// START reaches both games in the same frame: both pause there, and the pause menu (MOVES LIST, PLAYER SELECT...)
+// runs alike on both from both players' input, as the rest of the game does
+void ReadLocal(uint32_t& buttons, uint32_t& sticks, bool start);
+// this PC's controller holds BACK this frame (ReadLocal leaves it out): Online Practice's way back to the select
+// screen
 bool LocalBack();
 // what a port's block gets: these buttons and sticks, with prev_buttons as the last frame's
 void WritePort(int port, uint32_t buttons, uint32_t sticks, uint32_t prev_buttons);

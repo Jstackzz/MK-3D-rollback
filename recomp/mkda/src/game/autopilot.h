@@ -44,6 +44,9 @@ void Rematch();
 void Restart(const Request& req);
 // the game is being sent back to the main menu: hold there once it is up
 void ExpectMenu();
+// the park found the game at the main menu already (Online Practice: a pause menu's MAIN MENU or QUIT GAME, 1.0.14):
+// no new one comes, the one up is where to hold
+void MenuIsUp();
 int ModeForName(const std::string& mode);  // "versus"/"kombat", "arcade", "practice"; -1 if unknown
 
 // a character index by name (any case and punctuation: "SubZero", "Sub-Zero", "BO' RAI CHO", "cage") or number, -1

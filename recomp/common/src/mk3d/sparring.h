@@ -17,7 +17,8 @@ bool On();
 
 // From a game's frame hook, at the top of a frame: the fighters' health (floats, 1.0 full; P1's, P2's), kept up while
 // the match is Online Practice and in sync. `fighting`: a round is under way (the game's own test), so nothing is
-// touched while a fight loads or after it.
-void KeepHealth(const uint32_t health[2], bool fighting);
+// touched while a fight loads or after it. `paused`: the game's pause menu is up (1.0.14: START pauses both games
+// there), and the rules wait: no frame counts towards a refill.
+void KeepHealth(const uint32_t health[2], bool fighting, bool paused);
 
 }  // namespace mk3d::sparring

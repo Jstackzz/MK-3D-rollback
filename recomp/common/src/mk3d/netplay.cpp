@@ -942,7 +942,7 @@ uint32_t WanderingSticks() {
 
 Input ReadLocal() {
     Input in;
-    game::ReadLocal(in.buttons, in.sticks);
+    game::ReadLocal(in.buttons, in.sticks, g_cfg.sparring);  // Online Practice: START opens the pause menu on both
     if (g_cfg.sparring && game::LocalBack()) in.buttons |= kBackBit;
     g_local_sticks = in.sticks;
     g_local_sticks_in = true;

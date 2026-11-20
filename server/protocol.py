@@ -29,6 +29,9 @@ SELECT_SCREEN_MODES: frozenset[str] = frozenset({"kombat", "sparring"})
 # Online Practice: two friends by a lobby's code (never listed, never queued), fights without a timer or a knockout
 # until one of them goes back to the select screen; nothing is recorded
 LOBBY_ONLY_MODES: frozenset[str] = frozenset({"sparring"})
+# the ranked record whose title a mode's players show (lobby members, the badges in the game): a mode with no record of
+# its own shows the one its fights are (1.0.14: Online Practice showed every player as a new one, a Beginner)
+TITLE_MODE: dict[str, str] = {"sparring": "kombat"}
 REGIONS: tuple[str, ...] = ("na", "sa", "eu", "me", "af", "as", "oc")
 
 NAME_RE = re.compile(r"^[A-Za-z0-9_-]{3,16}$")

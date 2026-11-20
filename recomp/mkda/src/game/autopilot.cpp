@@ -549,6 +549,11 @@ void ExpectMenu() {
     Enter(Phase::ToMenu);
 }
 
+void MenuIsUp() {
+    std::lock_guard<std::mutex> lock(g_lock);
+    if (g_phase == Phase::ToMenu && g_base_menus > 0 && MainMenus() == g_base_menus) g_base_menus--;
+}
+
 // The main menu falls back into the attract sequence (its state task 0x238E0: the title, the movies, the demo
 // fights) after 2700 frames without a press, as on the console: a launcher's game waiting at its hold point gets there
 // (a spectator's between two matches, a lobby whose players take their time), and its next start found no menu to

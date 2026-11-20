@@ -168,10 +168,16 @@ whether to trust it: compare it with your host's.
   in the list, and nobody else can join or watch it: two players only). Both
   of you pick on the game's own select screen. There is no timer, health fills
   up again a moment after a combo (and before anyone could be knocked out),
-  and nothing is recorded. Press **BACK** (Backspace on a keyboard) in the game
-  to go back to character select: both games go there and the next fight
-  starts once you have both picked again. The frame data panel (below) follows
-  your own fighter on either side there; **F7** shows or hides it.
+  and nothing is recorded; the lobby shows each of you with your Kombat rank.
+  **START** pauses the game for both of you, with the game's own pause menu
+  (both of you see it): **MOVES LIST** shows the moves of the fighter of
+  whoever opens it, **PLAYER SELECT** (after its "are you sure") goes back to
+  character select. In Deception and Armageddon only the player who paused
+  can use the menu; in Deadly Alliance either of you can.
+  **BACK** (Backspace on a keyboard) also goes back to character select: both
+  games go there and the next fight starts once you have both picked again.
+  The frame data panel (below) follows your own fighter on either side there;
+  **F7** shows or hides it.
 - Watching a lobby: select it in the list and press Watch selected (or join it,
   then press Watch). Each of its matches plays in your own game, a moment
   behind the players, select screen and ending included; a match already under

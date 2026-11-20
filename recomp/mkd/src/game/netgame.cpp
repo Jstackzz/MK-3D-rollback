@@ -143,7 +143,9 @@ uint32_t NeutralSticks() { return kNeutralSticks; }
 
 // The logical bits the pad update (sub_001C52F0) sets for START and BACK: it maps 16 physical inputs (0x453A48:
 // {analog, XInput button mask or analog index}) through the port's table of logical bits (default 0x3E95A0, 12 bytes
-// an entry). They stay out of a match in sync: the pause menu would stop the other player's game as well.
+// an entry). They stay out of a match in sync: the pause menu would stop the other player's game as well. Online
+// Practice lets START in: both games pause in the same frame and run the pause menu alike (it takes only the presses
+// of the player who paused).
 uint32_t PauseBits() {
     static const uint32_t bits = [] {
         uint32_t out = 0;
@@ -157,21 +159,24 @@ uint32_t PauseBits() {
     return bits;
 }
 
-void ReadLocal(uint32_t& buttons, uint32_t& sticks) {
-    buttons = kernel::R32(kPortBlock + kPortCurrent) & ~PauseBits();  // the physical controller of this PC is port 0
-    sticks = kernel::R32(kPortBlock + kPortSticks);
-}
-
 // BACK's logical bits alone (the physical map's digital 0x20)
-bool LocalBack() {
+uint32_t BackBits() {
     static const uint32_t bits = [] {
         uint32_t out = 0;
         for (uint32_t i = 0; i < 16; i++)
             if (!kernel::R32(0x453A48 + i * 8) && kernel::R32(0x453A4C + i * 8) == 0x20) out |= kernel::R32(0x3E95A0 + i * 12);
         return out;
     }();
-    return (kernel::R32(kPortBlock + kPortCurrent) & bits) != 0;
+    return bits;
 }
+
+void ReadLocal(uint32_t& buttons, uint32_t& sticks, bool start) {
+    // the physical controller of this PC is port 0
+    buttons = kernel::R32(kPortBlock + kPortCurrent) & ~(start ? BackBits() : PauseBits());
+    sticks = kernel::R32(kPortBlock + kPortSticks);
+}
+
+bool LocalBack() { return (kernel::R32(kPortBlock + kPortCurrent) & BackBits()) != 0; }
 
 void WritePort(int port, uint32_t buttons, uint32_t sticks, uint32_t prev) {
     uint32_t b = kPortBlock + uint32_t(port) * kPortStride;

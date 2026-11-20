@@ -35,7 +35,7 @@
     {
       "id": "sparring",
       "name": "Online Practice",
-      "description": "Practice with a friend through a lobby's code: no timer, health refills, nobody is knocked out, and BACK in the game goes back to character select. Nothing is recorded.",
+      "description": "Practice with a friend through a lobby's code: no timer, health refills, nobody is knocked out, START pauses both games (moves list, player select) and BACK in the game goes back to character select. Nothing is recorded.",
       "online": true,
       "ranked": false,
       "lobby_only": true,

@@ -10,6 +10,7 @@
 #include "game/autopilot.h"
 #include "game/colours.h"
 #include "game/events.h"
+#include "game/frame.h"
 #include "game/netgame.h"
 #include "kernel/kernel.h"
 #include "mk3d/game.h"
@@ -130,7 +131,9 @@ void ApplyOptions() {
 const bool g_sparring_hook = (mk3d::OnFrameStart([](uint64_t) {
                                   if (!mk3d::sparring::On()) return;
                                   const uint32_t health[2] = {kP1Health, kP2Health};
-                                  mk3d::sparring::KeepHealth(health, !InFrontEnd());
+                                  // paused: the game's own flag, or the Xbox Live code's second pause (0x7350B0)
+                                  mk3d::sparring::KeepHealth(health, !InFrontEnd(),
+                                                             ((kernel::R32(kFlags) >> 13) & 1) || kernel::R32(0x7350B0));
                               }),
                               true);
 
@@ -209,8 +212,16 @@ void Rematch(const Start& start) {
 void ExpectMenu() { autopilot::ExpectMenu(); }
 
 // the game's own state switch to the main menu task (priority 3, as the game's own way back); it leaves through the
-// engine's longjmp to the main loop
-void Park(X86Context& ctx) { kernel::CallGuest(ctx, kStateSwitch, {3, kMainMenuTask}); }
+// engine's longjmp to the main loop. A game at the main menu already stays there (Online Practice: its pause menu's
+// MAIN MENU, 1.0.14).
+void Park(X86Context& ctx) {
+    if (kernel::R32(kMainTask) == kMainMenuTask) {
+        LOGR("link: the game is at the main menu already");
+        autopilot::MenuIsUp();
+        return;
+    }
+    kernel::CallGuest(ctx, kStateSwitch, {3, kMainMenuTask});
+}
 
 bool AutopilotActive() { return autopilot::Active(); }
 

@@ -170,13 +170,8 @@ using namespace mka;
 
 uint32_t NeutralSticks() { return kNeutralSticks; }
 
-void ReadLocal(uint32_t& buttons, uint32_t& sticks) {
-    buttons = kernel::R32(kPortBlock + kPortCurrent) & ~PauseBits();  // the physical controller of this PC is port 0
-    sticks = kernel::R32(kPortBlock + kPortSticks);
-}
-
 // BACK's logical bits alone (the physical map's digital 0x20)
-bool LocalBack() {
+uint32_t BackBits() {
     static const uint32_t bits = [] {
         uint32_t out = 0;
         for (uint32_t i = 0; i < 16; i++)
@@ -184,8 +179,18 @@ bool LocalBack() {
                 out |= kernel::R32(kDefaultButtons + i * 12);
         return out;
     }();
-    return (kernel::R32(kPortBlock + kPortCurrent) & bits) != 0;
+    return bits;
 }
+
+// Online Practice (`start`) lets START in: both games pause in the same frame and run the pause menu alike (it takes
+// only the presses of the player who paused)
+void ReadLocal(uint32_t& buttons, uint32_t& sticks, bool start) {
+    // the physical controller of this PC is port 0
+    buttons = kernel::R32(kPortBlock + kPortCurrent) & ~(start ? BackBits() : PauseBits());
+    sticks = kernel::R32(kPortBlock + kPortSticks);
+}
+
+bool LocalBack() { return (kernel::R32(kPortBlock + kPortCurrent) & BackBits()) != 0; }
 
 void WritePort(int port, uint32_t buttons, uint32_t sticks, uint32_t prev) {
     uint32_t b = kPortBlock + uint32_t(port) * kPortStride;

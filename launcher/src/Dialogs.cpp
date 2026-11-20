@@ -450,8 +450,8 @@ CreateLobbyDialog::CreateLobbyDialog(const Game& game, const QString& defaultNam
     v->addLayout(form);
     // Online Practice: two players by the code, no rounds to count (rounds and death traps stay out of it)
     auto* practiceNote = ui::label(tr("Online Practice: share the lobby's code with one friend. No timer, health "
-                                      "refills, nobody is knocked out; BACK in the game goes back to character "
-                                      "select."), "Muted");
+                                      "refills, nobody is knocked out; START pauses both games (moves list, player "
+                                      "select), BACK in the game goes back to character select."), "Muted");
     practiceNote->setWordWrap(true);
     v->addWidget(practiceNote);
     // only for a mode whose fights have them

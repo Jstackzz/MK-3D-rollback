@@ -125,7 +125,9 @@ using namespace mkda;
 uint32_t NeutralSticks() { return kNeutralSticks; }
 
 // The logical bits the pad update sets for START and BACK (the button map's digital 0x10 and 0x20). They stay out of
-// a match in sync: the pause menu would stop the other player's game as well.
+// a match in sync: the pause menu would stop the other player's game as well. Online Practice lets START in (the
+// pause sub_000CB1B0 takes either player's START, its menu either player's presses: both games pause in the same
+// frame and run the menu alike).
 uint32_t PauseBits() {
     static const uint32_t bits = [] {
         uint32_t out = 0;
@@ -139,13 +141,8 @@ uint32_t PauseBits() {
     return bits;
 }
 
-void ReadLocal(uint32_t& buttons, uint32_t& sticks) {
-    buttons = kernel::R32(LocalButtons()) & ~PauseBits();
-    sticks = kernel::R32(LocalSticks());
-}
-
 // BACK's logical bits alone (the button map's digital 0x20)
-bool LocalBack() {
+uint32_t BackBits() {
     static const uint32_t bits = [] {
         uint32_t out = 0;
         for (uint32_t i = 0; i < kConfigActions; i++)
@@ -153,8 +150,15 @@ bool LocalBack() {
                 out |= kernel::R32(kLogicalBits + i * 12);
         return out;
     }();
-    return (kernel::R32(LocalButtons()) & bits) != 0;
+    return bits;
 }
+
+void ReadLocal(uint32_t& buttons, uint32_t& sticks, bool start) {
+    buttons = kernel::R32(LocalButtons()) & ~(start ? BackBits() : PauseBits());
+    sticks = kernel::R32(LocalSticks());
+}
+
+bool LocalBack() { return (kernel::R32(LocalButtons()) & BackBits()) != 0; }
 
 // a port is a player here: the pad update keeps the logical buttons per player
 void WritePort(int port, uint32_t buttons, uint32_t sticks, uint32_t prev) {

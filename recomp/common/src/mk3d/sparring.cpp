@@ -50,8 +50,8 @@ void Set(bool on) {
 
 bool On() { return g_on.load(); }
 
-void KeepHealth(const uint32_t health[2], bool fighting) {
-    if (!g_on.load() || !g_mem) return;
+void KeepHealth(const uint32_t health[2], bool fighting, bool paused) {
+    if (!g_on.load() || !g_mem || paused) return;
     const net::Status st = net::GetStatus();
     if (st != net::Status::Lockstep && st != net::Status::Rollback) return;
     for (int s = 0; s < 2; s++) {

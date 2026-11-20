@@ -601,8 +601,9 @@ void LobbyPage::showLobby(const QJsonObject& lobby) {
             : meWatching ? tr("-- Watching lobby %1: each of its matches plays in your game.").arg(s(lobby, "id"))
             : m && m->lobbyOnly
                 ? tr("-- Online Practice, lobby %1: share the code with one friend (two players, nobody watching). No "
-                     "timer, health refills, nobody is knocked out. Press BACK in the game (Backspace on a keyboard) to "
-                     "go back to character select.").arg(s(lobby, "id"))
+                     "timer, health refills, nobody is knocked out. START pauses both games: its menu has your moves "
+                     "list and player select. Press BACK in the game (Backspace on a keyboard) to go back to "
+                     "character select.").arg(s(lobby, "id"))
             : hill ? tr("-- Joined King of the Hill lobby %1: the winner stays on, the loser goes to the back of the "
                         "line. Share the code.").arg(s(lobby, "id"))
                    : tr("-- Joined lobby %1. Share the code with your opponent.").arg(s(lobby, "id")));

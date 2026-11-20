@@ -11,6 +11,7 @@ from server import protocol as P
 from server.client import ServerError
 
 from .conftest import hello_and_accept
+from .test_ranks import set_rating
 
 
 def practice_msg(**kw):
@@ -89,6 +90,23 @@ async def test_online_practice_is_a_lobby_by_code_that_goes_on_and_records_nothi
     assert [m["ready"] for m in again["lobby"]["members"]] == [True, True]
     nxt = await host.expect("match_found")
     assert nxt["mode"] == "sparring" and nxt["match"] != gh["match"]
+
+
+async def test_online_practice_players_show_their_kombat_rank(server, connect, udp_peers):
+    """Online Practice keeps no record of its own: the lobby and the match's badges show each player's Kombat rank in
+    that game (before 1.0.14 everyone showed as a new player, a Beginner)."""
+    host, guest = await connect("Shao_Kahn"), await connect("Sindel")
+    set_rating(server, "Shao_Kahn", 1700, game="mkda")  # a God at Deadly Alliance's Kombat
+    set_rating(server, "Shao_Kahn", 500, game="mkd")  # a Beginner at Deception's: not this lobby's game
+    created = await host.request(practice_msg())
+    assert [(m["name"], m["title"]) for m in created["lobby"]["members"]] == [("Shao_Kahn", "God")]
+    joined = await guest.request({"type": "lobby_join", "lobby": created["lobby"]["id"]})
+    # Sindel never played ranked: the start, as in any lobby
+    assert [(m["name"], m["title"]) for m in joined["lobby"]["members"]] == [("Shao_Kahn", "God"), ("Sindel", "Beginner")]
+    await host.request({"type": "lobby_ready", "ready": True})
+    await guest.request({"type": "lobby_ready", "ready": True})
+    gh, gg = await go(server, host, guest, udp_peers)
+    assert (gh["p1_title"], gh["p2_title"]) == (gg["p1_title"], gg["p2_title"]) == ("God", "Beginner")
 
 
 async def test_sparring_is_not_an_outcome_of_a_kombat_match(server, connect, udp_peers):
