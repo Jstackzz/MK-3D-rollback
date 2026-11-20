@@ -167,8 +167,11 @@ S: {"type":"logged_out"}
 ```
 
 - `register` logs the new account in (same `account` reply).
-- `token` is a persistent login token (30 days, stored only as its SHA-256 on
-  the server). The launcher keeps it when "remember me" is checked.
+- `token` is a persistent login token (stored only as its SHA-256 on the
+  server). The launcher keeps it when "remember me" is checked. It lasts 30
+  days from its last use: every `auth` with it starts its 30 days again (the
+  reply's `token_expires`), so it runs out only on a player who has not
+  played for 30 days. Accounts themselves are never deleted.
 - `udp_token` is a **per-connection session token** for the UDP rendezvous
   (section 2). It is not a login credential (it cannot be used with `auth`),
   so seeing it on the wire does not expose the account.

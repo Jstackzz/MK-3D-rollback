@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from server import auth
@@ -89,6 +91,28 @@ async def test_register_login_auth_logout(server, connect):
     fourth = await connect()
     with pytest.raises(ServerError) as exc:
         await fourth.request({"type": "auth", "token": acc["token"]})
+    assert exc.value.code == "bad_token"
+
+
+async def test_a_saved_login_lasts_its_time_again_from_each_use(server, connect):
+    """A remembered token used again lasts token_days from that use, so a player who keeps playing is never asked for
+    the password again; only one left unused that long runs out."""
+    first = await connect("Erin")
+    token = first.account["token"]
+    hashed = auth.token_hash(token)
+    # made 29 days ago: a day left
+    server.db.conn.execute("UPDATE tokens SET expires = ? WHERE token_hash = ?", (time.time() + 86400, hashed))
+    again = await connect()
+    resumed = await again.request({"type": "auth", "token": token})
+    assert resumed["name"] == "Erin" and resumed["token"] == token
+    expires = server.db.conn.execute("SELECT expires FROM tokens WHERE token_hash = ?", (hashed,)).fetchone()[0]
+    assert expires > time.time() + (server.cfg.token_days - 1) * 86400
+    assert resumed["token_expires"] == int(expires)
+    # one left unused past its time is refused, as before
+    server.db.conn.execute("UPDATE tokens SET expires = ? WHERE token_hash = ?", (time.time() - 1, hashed))
+    late = await connect()
+    with pytest.raises(ServerError) as exc:
+        await late.request({"type": "auth", "token": token})
     assert exc.value.code == "bad_token"
 
 

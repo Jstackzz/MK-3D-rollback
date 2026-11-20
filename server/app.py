@@ -990,7 +990,12 @@ class Server:
         if found is None:
             self._failed_login(s.ip)
             raise P.ProtocolError("bad_token", "Saved login expired; log in again.")
-        row, expires = found
+        row, _ = found
+        # A saved login lasts token_days from its last use, not from the password login that made it: a player who
+        # keeps playing is never asked for the password again (a forgotten one cannot be reset, and a player locked out
+        # of an account makes a new one, which looks like the old one was deleted).
+        expires = time.time() + self.cfg.token_days * 86400
+        self.db.renew_token(auth.token_hash(token), expires)
         self._login(s, row, msg, token=token, expires=expires)
 
     def _login(self, s: Session, row: Any, msg: dict[str, Any], *, token: str | None = None,

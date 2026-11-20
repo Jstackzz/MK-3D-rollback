@@ -246,6 +246,10 @@ class Database:
             return None
         return row, float(row["token_expires"])
 
+    def renew_token(self, token_hash: str, expires: float) -> None:
+        """A saved login used again lasts its whole time again, from this use."""
+        self.conn.execute("UPDATE tokens SET expires = ? WHERE token_hash = ?", (expires, token_hash))
+
     def delete_token(self, token_hash: str) -> None:
         self.conn.execute("DELETE FROM tokens WHERE token_hash = ?", (token_hash,))
 
