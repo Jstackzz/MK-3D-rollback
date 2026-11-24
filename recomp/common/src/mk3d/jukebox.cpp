@@ -13,6 +13,7 @@
 
 #include "core/log.h"
 #include "kernel/kernel.h"
+#include "mk3d/openhook.h"
 
 namespace mk3d::jukebox {
 namespace {
@@ -174,7 +175,7 @@ void Install(const Adapter& adapter) {
     const char* file = std::getenv("MK3D_JUKEBOX");
     if (!file || !*file) return;
     g_file = fs::path(file);
-    kernel::SetOpenHook(Hook);
+    AddOpenHook(Hook);  // beside Deadly Alliance's costumes (openhook.h)
     LOGR("jukebox: map %s", file);
 }
 

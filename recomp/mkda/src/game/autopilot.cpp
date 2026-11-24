@@ -375,6 +375,20 @@ Press FollowCursor(int side) {
     return p;
 }
 
+// MKDA_TEST_PICK_LT, _START=<ports> (tests, "1", "2" or "12"): the autopilot's picks on those ports hold LT (the
+// costume's other colours, costumes.h) or press START (the second costume) instead of A
+bool TestPick(const char* name, int port) {
+    const char* s = std::getenv(name);
+    return s && std::strchr(s, '1' + port) != nullptr;
+}
+void PressPick(int port, input::Pad& pad, uint8_t a) {
+    static const bool lt[2] = {TestPick("MKDA_TEST_PICK_LT", 0), TestPick("MKDA_TEST_PICK_LT", 1)};
+    static const bool start[2] = {TestPick("MKDA_TEST_PICK_START", 0), TestPick("MKDA_TEST_PICK_START", 1)};
+    if (start[port & 1]) pad.buttons |= kStart;
+    else pad.analog[0] = a;
+    if (lt[port & 1]) pad.analog[6] = 0xFF;
+}
+
 // one port's character select; port 0 is P1, port 1 P2 (practice: port 0 picks both, the opponent second)
 void Select(int port, input::Pad& pad, double t) {
     if (g_req.by_player[port] && port != g_req.local_side && GameMode() != kModePractice) {
@@ -429,7 +443,7 @@ void Select(int port, input::Pad& pad, double t) {
     }
     if (Pulse(t, 0.25, 0.08)) {
         pad.buttons |= p.buttons;
-        if (p.a) pad.analog[0] = p.a;
+        if (p.a) PressPick(port, pad, p.a);
     }
 }
 

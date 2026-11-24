@@ -3,7 +3,8 @@
 // in the game's data (its "ap" texture sections: ap_scorpion.sec beside scorpion.sec), which the game itself gives
 // only to the second player of a mirror match. Holding LT (L1 on a PlayStation pad) while picking gives them: LT and A
 // the first costume's, LT and START the second costume's (START picks the second costume, as ever). The costume word
-// keeps it as its bit 1 (bit 0 the second costume), as the game's own mirror rule sets it.
+// keeps it as its bit 1 (bit 0 the second costume), as the game's own mirror rule sets it, and whether the pick held LT
+// (costumes.h kAltPick: the mirror rule can turn the colours either way).
 //
 // The select screen's end settles both players' words the same way on every game of a match (a spectator's too): the
 // costumes as both games agreed on them online (autopilot.cpp sends the whole word with the pick), and when both

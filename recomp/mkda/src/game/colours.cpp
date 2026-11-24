@@ -4,6 +4,7 @@
 #include "core/log.h"
 #include "cpu/x86_ops.h"
 #include "game/autopilot.h"
+#include "game/costumes.h"
 #include "game/events.h"
 #include "kernel/kernel.h"
 
@@ -19,10 +20,13 @@ constexpr uint32_t kColoursBit = 2;  // the costume word: bit 0 the second costu
 void Picked(X86Context& ctx, uint32_t player) {
     if (player > 1) return;
     const uint32_t word = kernel::R32(kCostume[player]);
-    if (!word || !kernel::CallGuest(ctx, kHeld, {player, kActionLT})) return;
-    kernel::W32(word, kernel::R32(word) | kColoursBit);
-    LOGR("colours: P%u picked holding LT: the costume's other colours (costume word %X)", player + 1,
-         kernel::R32(word));
+    if (!word) return;
+    // the pick's own choice as well (costumes.h: a mirror look settles at the select screen's end)
+    uint32_t w = kernel::R32(word) & ~(costumes::kAltPick | costumes::kMirrorLook);
+    const bool lt = kernel::CallGuest(ctx, kHeld, {player, kActionLT}) != 0;
+    if (lt) w |= kColoursBit | costumes::kAltPick;
+    kernel::W32(word, w);
+    if (lt) LOGR("colours: P%u picked holding LT: the costume's other colours (costume word %X)", player + 1, w);
 }
 
 void SelectEnds() {
@@ -32,13 +36,15 @@ void SelectEnds() {
     for (int s = 0; s < 2; s++) {
         int character = -1, arena = -1;
         uint32_t costume = 0;
-        if (autopilot::AgreedPick(s, character, costume, arena)) word[s] = (word[s] & ~3u) | (costume & 3u);
+        constexpr uint32_t kAgreed = 3u | costumes::kAltPick | costumes::kMirrorLook;
+        if (autopilot::AgreedPick(s, character, costume, arena)) word[s] = (word[s] & ~kAgreed) | (costume & kAgreed);
     }
     if (kernel::R32(kCharacter[0]) == kernel::R32(kCharacter[1]) && (word[0] & 3u) == (word[1] & 3u)) {
         word[1] ^= kColoursBit;
         LOGR("colours: both players have character %u in the same costume and colours: P2 the other colours",
              kernel::R32(kCharacter[0]));
     }
+    costumes::SelectEnds(word);
     kernel::W32(va[0], word[0]);
     kernel::W32(va[1], word[1]);
 }
