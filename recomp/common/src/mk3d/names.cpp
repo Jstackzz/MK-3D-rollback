@@ -22,6 +22,7 @@
 #include "kernel/kernel.h"
 #include "kernel/memory.h"
 #include "mk3d/game.h"
+#include "mk3d/link.h"
 #include "mk3d/ranks.h"
 
 namespace mk3d::names {
@@ -188,10 +189,33 @@ void ReportNotice() {
     draw->AddText(font, size, ImVec2(x, y), IM_COL32(255, 255, 255, 255), text);
 }
 
+// A game the launcher started for a match, while it boots: its window stays black until the game's main menu is up (some
+// 11 s on a fast PC, more on a slow one or from a cloud folder), and players closed it for a broken one (2026-11-23).
+// A line in the middle says it is loading and that the match starts by itself.
+void LoadingNotice() {
+    if (!link::Booting()) return;
+    const char* text = "Loading the game for your match... it starts by itself";
+    const ImGuiIO& io = ImGui::GetIO();
+    ImFont* font = g_font ? g_font : ImGui::GetFont();
+    const float size = std::max(16.0f, io.DisplaySize.y / 30.0f);
+    const ImVec2 extent = font->CalcTextSizeA(size, FLT_MAX, 0.0f, text);
+    const float x = std::floor((io.DisplaySize.x - extent.x) / 2), y = std::floor((io.DisplaySize.y - extent.y) / 2);
+    // the dots after "Loading" come and go, so it plainly runs; on a dark box, readable over the game's boot screens
+    const int dots = int(ImGui::GetTime() * 2.0) % 4;
+    std::string shown = std::string("Loading the game for your match") + std::string(size_t(dots), '.');
+    shown += std::string(size_t(3 - dots), ' ') + " it starts by itself";
+    const float pad = size / 2;
+    ImDrawList* draw = ImGui::GetForegroundDrawList();
+    draw->AddRectFilled(ImVec2(x - pad, y - pad), ImVec2(x + extent.x + pad, y + extent.y + pad), IM_COL32(0, 0, 0, 200),
+                        pad / 2);
+    draw->AddText(font, size, ImVec2(x, y), IM_COL32(235, 235, 235, 255), shown.c_str());
+}
+
 }  // namespace
 
 void Ui(double) {
     ReportNotice();
+    LoadingNotice();
     std::string names[2];
     Place p;
     {

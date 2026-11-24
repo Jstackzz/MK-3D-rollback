@@ -454,9 +454,16 @@ S: {"type":"match_result","match":"5f2c9a01d4e3","status":"agreed","winner":1,
   launcher's word for it from the game's log (`crash`, `asked to leave N`,
   `shut down`, `relaunched`, `window closed`, `ended from outside`; up to 40
   characters), and `exit_code`, the process's exit code; a value it does not
-  take is dropped. A ranked set is lost by the one who left, whatever its
-  score (1.9.1); a Kasual series offers the rematch again, the match counting
-  for nobody. Two games that lost each other with neither at fault
+  take is dropped. A game that ended before its match started also sends
+  `lines`: its log's last 20 lines, after those where a game that never got to
+  its hold point said where it stood (up to 40 more, launcher 1.0.16; 60 at
+  most, 200 characters each), which the server logs (`LEFT_REPORT`). A ranked
+  set is lost by the one who left, whatever its score (1.9.1), except before
+  anything of it counted when their own game never took the match's start
+  (`match_state` `in_match` never came from it): its first match, or one after
+  matches that did not count (server after 1.0.15; before, its first match
+  only); such a set ends void. A Kasual series offers the rematch again, the
+  match counting for nobody. Two games that lost each other with neither at fault
   (`no_contest` with `disconnected` or `error`, `unconfirmed`) end a ranked
   set with no result; a Kasual series goes on the same way. A desync does not
   end a series.
@@ -530,9 +537,12 @@ S: {"type":"series","series":"8d01c3e2a9f4", ...,"state":"over","outcome":"won",
 - `over` carries `outcome`:
   - `won`: a set's `winner` reached `need` wins. Elo update with `K = 32`,
     `E_a = 1 / (1 + 10^((R_b - R_a) / 400))`, `d = round(K * (S_a - E_a))`
-    (half away from zero), `R_a' = R_a + d`, `R_b' = R_b - d` (zero-sum,
-    integer ratings); `elo` lists both players' change, with the title of the
-    rating before and after (`title_before`, `title_after`).
+    (half away from zero) for the winner `a`: `R_a' = R_a + max(2d, 16)`,
+    `R_b' = R_b - d` (integer ratings, not zero-sum: a set won gains twice the
+    change since 1.0.4, and never less than 16, half of an even set's 32, since
+    the server after 1.0.15; it gained 0 from some 720 Elo above the loser);
+    `elo` lists both players' change, with the title of the rating before and
+    after (`title_before`, `title_after`).
   - `forfeit`: `left` left the set after at least one of its matches counted:
     `series_ready` false, its time ran out while the other was ready, the next
     match was cancelled on their side, or they searched or went to a lobby. They
@@ -1232,6 +1242,18 @@ Typical sequences: `booting` -> `ready` -> (`start`) -> `starting` -> `in_match`
 `result ...` -> (`park`) -> `ready`; practice: `ready` -> (`start
 mode=practice`) -> `in_match match=practice` -> (`park`, or the player leaves
 practice in the game) -> `ready`.
+
+A start can get lost on its way (its file held by an antivirus or a cloud folder
+a moment, a start that came as the game was still getting back to its hold point
+and whose `error not at the hold point` the launcher never read). Since 1.0.16
+the launcher writes a command it could not write again, sends a match's `start`
+again while the game still says `ready` 4 s after it (5 times at most), and on
+`error not at the hold point` sends it again once the game is `ready`; the game
+reads a command file it claimed but could not open yet on its next look, and
+ignores a `start` for the match it already took. A game still not at its hold
+point 30 s after it started logs the frames it ran and every thread's stack
+(`link: not at the hold point`), and while it boots draws "Loading the game for
+your match" over its black window.
 
 The launcher reports `result`, `desync` and `disconnected` to the server
 (1.9), shows every state in its footer and log, sends `park` once the server

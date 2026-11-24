@@ -44,7 +44,9 @@ NEEDS_LOGIN = {
 CRASH_REPORTS_PER_SESSION = 20  # a game crashing over and over says so this many times, then no more
 DESYNC_REPORTS_PER_SESSION = 10  # matches out of step a session reports, then no more
 DESYNC_LINES = 40  # a desync report's lines from the game's log, 200 characters each at most
-LEFT_LINES = 20  # a game that ended before its match started: its log's last lines, 200 characters each at most
+# a game that ended before its match started: its log's last lines (20), after where a game that never got to its hold
+# point stood (up to 40, launcher 1.0.16), 200 characters each at most
+LEFT_LINES = 60
 CRASH_TEXT = re.compile(r"[\x20-\x7E]*")  # printable ASCII only: it goes into the log as is
 # F3 reports (what a player saw drawn wrong: the game's capture, its log), docs/PROTOCOL.md 1.13.2
 REPORTS_PER_SESSION = 3
@@ -1915,10 +1917,13 @@ class Server:
         series.last_picks = None if series.mode in P.PICK_IN_GAME_MODES else fighters
         if fault is not None and series.ranked:
             sp = series.player_for(fault.account_id)
-            if sp is not None and first and fault.game_state != "in_match":
-                # a set's first match their own game never took the start of: it failed to come up or closed while
-                # loading, before anything of the set was played, which changes nothing, as declining the match would
-                log.info("set %s: %s's game never started its first match: void", series.id, fault.name)
+            if sp is not None and fault.game_state != "in_match" and not any(p.wins for p in series.players):
+                # a match their own game never took the start of (it failed to come up, stood black while loading or
+                # closed then) before anything of the set counted (its first match, or one after matches that did not
+                # count, as a desync): that changes nothing, as declining the match would. Once a match counted,
+                # leaving loses the set, whatever state the game was in.
+                log.info("set %s: %s's game never started %s: void", series.id, fault.name,
+                         "its first match" if first else f"match {series.played} with nothing counted yet")
                 self._end_series(series, "void", now=now)
                 return
             # a player whose game closed mid-match (or who vanished) left the set: whatever the score, that loses it,

@@ -6,6 +6,8 @@ namespace mk3d::link {
 
 // the launcher owns this process
 bool Active();
+// the launcher's game is still on its way to its hold point the first time (booting): its window is black meanwhile
+bool Booting();
 // the player's own controller is kept from the game (menus are the autopilot's, the player plays the match)
 bool SuppressPhysicalPads();
 // GameInfo::init: the display the launcher's Settings chose, over the settings file's, for a game the launcher started

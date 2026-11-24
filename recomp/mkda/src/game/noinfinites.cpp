@@ -94,12 +94,22 @@ struct BlockTime {
 };
 constexpr BlockTime kBlockTimes[] = {{"jojutsu_4", 0xAD8, 1}, {"jojutsu_2", 0x5E0, 4}};
 
-// Sonya's Tae Kwon Do 3: -9 on block. Its script gives her block back only as the move ends (-30 on block): the kick is
-// live while the next command is +0x950, then a wait (+0x958), then the recovery command (the one after it +0x974) with
-// 9 more frames of block wait and of move gate, then stance.
-constexpr char kTkdThree[] = "taekwondo_attack3";
-constexpr uint32_t kTkdThreeKick = 0x950, kTkdThreeWait = 0x958, kTkdThreeRecovery = 0x974;
-constexpr uint32_t kTkdThreeOpensAfter = 12;  // frames after the frame's top that first sees the kick blocked
+// Moves -9 on block whose script gives the block back only as the move ends, the fighter in it to the end: from a set
+// time after the strike was first seen blocked, the block opens for the rest of the move; the move gate (the next
+// attack) stays. Sonya's Tae Kwon Do 3 (-30 on block in its script): the kick live while the next command is +0x950,
+// then a wait (+0x958), then the recovery command (the one after it +0x974) with 9 more frames of block wait and of move
+// gate, then stance. Bo' Rai Cho's Drunken Fist standing 4 (-14 on block and to attack in its script, 2026-11-24): the
+// kick live at +0xEE8, a wait at +0xEF4, the recovery at +0xF10 (10 frames of block wait and move gate), then stance.
+struct OpensAfter {
+    uint32_t character;
+    const char* script;
+    uint32_t strike, wait, recovery;  // the command after each, counted from the script's name
+    uint32_t frames;                  // after the frame's top that first sees the strike blocked
+};
+constexpr OpensAfter kOpensAfter[] = {
+    {kSonya, "taekwondo_attack3", 0x950, 0x958, 0x974, 12},
+    {kBoRaiCho, "drunken_4", 0xEE8, 0xEF4, 0xF10, 12},
+};
 
 // the block lock, see the hook of sub_000537B0
 constexpr uint32_t kLockLater = 4;          // frames
@@ -110,7 +120,7 @@ constexpr uint32_t kComputer = 0x20C;       // not 0: the computer plays this fi
 
 // guest memory: per side, the hits of the combo it is in or still getting up from (added up across knockdowns), and
 // the game's own count when last looked at; the attack its block routine is not told of yet, and since when; the count
-// set aside for the Puke Puddle's test (the hook of sub_000E97A0); per side, when Sonya's Tae Kwon Do 3 was seen blocked
+// set aside for the Puke Puddle's test (the hook of sub_000E97A0); per side, when a kOpensAfter move was seen blocked
 constexpr uint32_t kComboOf = 0, kSeenOf = 8, kLockAttack = 16, kLockSince = 24, kStyleAt = 32, kStrikeLive = 40, kFirstStrike = 48, kHeldHits = 56, kKickBlocked = 60, kBytes = 68;
 uint32_t g_mem = 0;
 uint32_t g_logged = 0;  // rule lines logged so far, the first 200 (LOG_FIRST is silent in release builds)
@@ -214,29 +224,34 @@ void ForwardThreeBlock(uint32_t f, int side, uint32_t m) {
     kernel::W32(m + kFirstStrike + side * 4, first);
 }
 
-// Sonya in her Tae Kwon Do 3 past its startup: the kick live, the wait after it, or the recovery. The contact word is
-// cleared as a strike starts, so from the kick on it is the kick's.
-bool InTkdThree(uint32_t f, uint32_t& at) {
-    if (kernel::R32(f + kCharacterId) != kSonya) return false;
+// a fighter in a kOpensAfter move past its startup: the strike live, the wait after it, or the recovery (`at`, the
+// command after the one it is at). The contact word is cleared as a strike starts, so from the strike on it is its own.
+const OpensAfter* InOpensAfter(uint32_t f, uint32_t& at) {
     const uint32_t kind = kernel::R32(f + kState) & 0xFF00;
-    if (kind != 0x1200 && kind != 0x1300) return false;
-    const uint32_t name = kernel::R32(f + kScriptName);
-    if (!mem::IsCommitted(name) || !mem::IsCommitted(name + sizeof kTkdThree - 1) ||
-        std::memcmp(kernel::HostPtr(name), kTkdThree, sizeof kTkdThree) != 0)
-        return false;
-    at = kernel::R32(f + kCommand) - name;
-    return at == kTkdThreeKick || at == kTkdThreeWait || at == kTkdThreeRecovery;
+    if (kind != 0x1200 && kind != 0x1300) return nullptr;
+    const uint32_t character = kernel::R32(f + kCharacterId), name = kernel::R32(f + kScriptName);
+    for (const OpensAfter& move : kOpensAfter) {
+        const size_t size = std::strlen(move.script) + 1;
+        if (character != move.character || !mem::IsCommitted(name) || !mem::IsCommitted(name + uint32_t(size) - 1) ||
+            std::memcmp(kernel::HostPtr(name), move.script, size) != 0)
+            continue;
+        at = kernel::R32(f + kCommand) - name;
+        return at == move.strike || at == move.wait || at == move.recovery ? &move : nullptr;
+    }
+    return nullptr;
 }
 
-// from a frame's top, so both sides have it before either's task runs: the count when the kick was first seen blocked,
-// and from kTkdThreeOpensAfter frames later her block open for the rest of the move
-void TkdThreeBlock(uint32_t f, int side, uint32_t m) {
+// from a frame's top, so both sides have it before either's task runs: the count when the strike was first seen
+// blocked, and from the move's frames later the block open for the rest of the move
+void OpensAfterBlock(uint32_t f, int side, uint32_t m) {
     uint32_t blocked = 0, at = 0;
-    if (f && mem::IsCommitted(f) && InTkdThree(f, at)) {
-        const uint32_t now = kernel::R32(kGameFrames);
-        blocked = kernel::R32(m + kKickBlocked + side * 4);
-        if (!blocked && kernel::R32(f + kContact) == kBlocked) blocked = now;
-        if (blocked && at != kTkdThreeKick && now >= blocked + kTkdThreeOpensAfter) OpenBlock(f);
+    if (f && mem::IsCommitted(f)) {
+        if (const OpensAfter* move = InOpensAfter(f, at)) {
+            const uint32_t now = kernel::R32(kGameFrames);
+            blocked = kernel::R32(m + kKickBlocked + side * 4);
+            if (!blocked && kernel::R32(f + kContact) == kBlocked) blocked = now;
+            if (blocked && at != move->strike && now >= blocked + move->frames) OpenBlock(f);
+        }
     }
     kernel::W32(m + kKickBlocked + side * 4, blocked);
 }
@@ -244,7 +259,7 @@ void TkdThreeBlock(uint32_t f, int side, uint32_t m) {
 void BlockRules(int side, uint32_t m) {
     const uint32_t f = kernel::R32(kFighter[side]);
     ForwardThreeBlock(f, side, m);
-    TkdThreeBlock(f, side, m);
+    OpensAfterBlock(f, side, m);
 }
 
 void EachFrame(uint64_t) {
@@ -500,24 +515,27 @@ X86_FUNC(sub_001381E0) {
 // strike blocked, the block opens at that frame's top (ForwardThreeBlock) and this command's time is 0, so the recovery
 // (sub_00055AC0) does not shut it again. Only that changes: the move gate (-19 to attack), the animation, and the move
 // on hit or on a whiff stay as they are. Game state only, so a rollback puts it back and two games online decide the same.
-// Sonya's Tae Kwon Do 3 is -9 on block the same way: with the kick blocked her block opens at a frame's top
-// (TkdThreeBlock), and from there the recovery gives it no more time; the move gate (-30 to attack) stays.
+// Sonya's Tae Kwon Do 3 and Bo's Drunken Fist standing 4 are -9 on block the same way (kOpensAfter): with the strike
+// blocked the block opens at a frame's top (OpensAfterBlock), and from there the recovery gives it no more time; the
+// move gate (-30 and -14 to attack) stays.
 X86_FUNC(sub_0011D560) {
     using namespace mkda::rules;
     __imp__sub_0011D560(ctx, base);
     const uint32_t self = kernel::R32(kSelf);
     if (!self || !mem::IsCommitted(self) || kernel::R32(self + kContact) != kBlocked) return;
-    if (kernel::R32(self + kCharacterId) == kSonya) {
+    {
         uint32_t at = 0;
-        const uint32_t m = Mem();
-        const int side = Side(self);
-        if (!m || side < 0 || !InTkdThree(self, at) || at != kTkdThreeRecovery) return;
-        const uint32_t blocked = kernel::R32(m + kKickBlocked + side * 4), now = kernel::R32(kGameFrames);
-        if (!blocked) return;
-        const uint32_t opens = blocked + kTkdThreeOpensAfter;
-        if (now >= opens) OpenBlock(self);
-        else kernel::W32(self + kBlockFrom, std::min(kernel::R32(self + kBlockFrom), opens - now));
-        return;
+        if (const OpensAfter* move = InOpensAfter(self, at)) {
+            const uint32_t m = Mem();
+            const int side = Side(self);
+            if (!m || side < 0 || at != move->recovery) return;
+            const uint32_t blocked = kernel::R32(m + kKickBlocked + side * 4), now = kernel::R32(kGameFrames);
+            if (!blocked) return;
+            const uint32_t opens = blocked + move->frames;
+            if (now >= opens) OpenBlock(self);
+            else kernel::W32(self + kBlockFrom, std::min(kernel::R32(self + kBlockFrom), opens - now));
+            return;
+        }
     }
     if (kernel::R32(self + kCharacterId) != kBoRaiCho) return;
     const uint32_t name = kernel::R32(self + kScriptName), at = kernel::R32(self + kCommand) - name;
@@ -525,7 +543,8 @@ X86_FUNC(sub_0011D560) {
         OpenBlock(self);
         return;
     }
-    // his Jojutsu standing 4 and 2,4, the last strike blocked: -14 on block, the block's time alone changes
+    // his Jojutsu standing 4 and 2,4 (-14) and Drunken Fist standing 4 (-9), the last strike blocked: the block's
+    // time alone changes
     if (!mem::IsCommitted(name) || !mem::IsCommitted(name + 15)) return;
     for (const BlockTime& move : kBlockTimes)
         if (at == move.recovery && std::strncmp(static_cast<const char*>(kernel::HostPtr(name)), move.script, 16) == 0)

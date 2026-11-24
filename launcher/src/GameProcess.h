@@ -38,8 +38,11 @@ public:
     bool isReady() const { return state() == QLatin1String("ready"); }
 
     // Write one command line; if the previous command has not been taken yet it waits up to 2 s
-    // (a newer command replaces a waiting one).
+    // (a newer command replaces a waiting one). One whose file could not be written (held by an antivirus scanning it, a
+    // cloud folder syncing it) waits too, and goes out from the poll once it can: a match's start dropped there left a
+    // game at its hold point for good.
     void command(const QString& line);
+    bool commandWaiting() const { return !pendingCmd_.isEmpty(); }  // a command not written yet
 
     static QHash<QString, QString> parseKeys(const QString& line);  // key=value tokens after the verb
 
@@ -62,7 +65,7 @@ signals:
 
 private:
     void poll();
-    void writeCommand(const QString& line);
+    bool writeCommand(const QString& line);
 
     QString gameId_;
     int instance_;

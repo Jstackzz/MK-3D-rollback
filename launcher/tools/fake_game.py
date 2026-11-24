@@ -17,7 +17,9 @@ with Python). It reads MK3D_STATUS and MK3D_CMD from the environment, like the r
 
 Other knobs: MK3D_FAKE_BOOT (seconds before "ready", default 1.5), MK3D_FAKE_RESULT=desync to
 report "desync frame=600" instead of a result (its game.log, beside status.txt, then has a match's
-lines as a real game writes them, for the launcher's desync report).
+lines as a real game writes them, for the launcher's desync report), MK3D_FAKE_DROP_STARTS=N to
+take the first N starts and do nothing with them (a start lost on its way: the launcher sends it
+again). A start for the match it already took is ignored, as the games do.
 """
 
 from __future__ import annotations
@@ -81,6 +83,7 @@ class FakeGame:
         self.status_path = status_path
         self.cmd_path = cmd_path
         self.match_seconds = float(os.environ.get("MK3D_FAKE_SECONDS", "6"))
+        self.drop_starts = int(os.environ.get("MK3D_FAKE_DROP_STARTS", "0"))
         self.sock: socket.socket | None = None
         self.state = "booting"
         self.start: dict[str, str] = {}
@@ -140,7 +143,14 @@ class FakeGame:
             self.state = "ready"
             self.status("ready")
         elif verb == "start":
-            self.begin(keys)
+            if self.state != "ready" and self.start and keys.get("match") == self.match:
+                log(f"start of match {self.match} again: already taken")  # as the games' link.cpp
+            elif self.drop_starts > 0:
+                # a start lost on its way (its file held by another program): the game stays at its hold point
+                self.drop_starts -= 1
+                log("start dropped (MK3D_FAKE_DROP_STARTS)")
+            else:
+                self.begin(keys)
         elif verb == "rematch" and self.start:
             again = dict(self.start)
             again.update(keys)

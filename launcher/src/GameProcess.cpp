@@ -314,20 +314,26 @@ void GameProcess::command(const QString& line) {
         pendingCmd_ = line;  // previous command not taken yet
         return;
     }
+    pendingCmd_.clear();  // the newest command wins over one still waiting
     writeCommand(line);
 }
 
-void GameProcess::writeCommand(const QString& line) {
+bool GameProcess::writeCommand(const QString& line) {
     QString err;
     if (!winutil::writeFileAtomic(cmdPath_, line.toLatin1() + '\n', &err)) {
-        applog::write(QStringLiteral("game %1/%2: %3").arg(gameId_).arg(instance_).arg(err));
-        return;
+        // never dropped: the poll writes it again (unless a newer command took its place meanwhile)
+        if (pendingCmd_.isEmpty()) pendingCmd_ = line;
+        static int told = 0;
+        if (told++ < 20)
+            applog::write(QStringLiteral("game %1/%2: %3; trying again").arg(gameId_).arg(instance_).arg(err));
+        return false;
     }
     lastWrite_.start();
     // the log leaves the address out (the opponent's or the server's): logs get shared
     static const QRegularExpression remote(QStringLiteral("\\bremote=\\S+"));
     applog::write(QStringLiteral("game %1/%2: cmd %3").arg(gameId_).arg(instance_)
                       .arg(QString(line).replace(remote, QStringLiteral("remote=(hidden)"))));
+    return true;
 }
 
 void GameProcess::quit() {

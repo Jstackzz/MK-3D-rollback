@@ -34,6 +34,14 @@ constexpr float kGap = 6.0f;               // frame pixels (of 640) between a ba
 constexpr uint32_t kFirstPicture = 0x100;  // the renderer's picture ids for the badges (0 is the select screen's)
 constexpr size_t kLongestRank = 32;
 
+// ranks whose badge is drawn larger than the box (Place::room, ::behind), from its own picture (<rank>-big.png): the
+// highest one, a little larger than the rest, where the game gives it the room (Deadly Alliance)
+struct Big {
+    const char* rank;
+    float scale;
+};
+constexpr Big kBig[] = {{"eldest-god", 1.3f}};
+
 // set once at start (Install, before any frame), then read only
 Adapter g_game{};
 
@@ -47,6 +55,7 @@ std::mutex g_lock;  // everything below, between the main thread's frame start, 
 bool g_ready = false;                       // the test switches read and the pictures' folder found
 std::string g_match[2], g_test[2];          // the match's ranks (the link's), the test switch's
 float g_test_height = 0;                    // the test switch's badge height, 0: the game's
+bool g_big = true;                          // kBig's ranks drawn larger (<prefix>_TEST_RANK_BIG=0: not)
 std::filesystem::path g_dir;                // where the badges' pictures are
 std::map<std::string, Picture> g_pictures;  // a rank's picture (id 0: none), named to the renderer at first sight
 std::string g_logged[2];                    // the ranks the log last named
@@ -100,6 +109,7 @@ void Ready() {
     if (g_ready) return;
     g_ready = true;
     if (const char* v = Env("TEST_RANK_SIZE"); v && *v) g_test_height = float(std::atof(v));
+    if (const char* v = Env("TEST_RANK_BIG"); v && *v) g_big = std::atoi(v) != 0;
     if (const char* v = Env("TEST_RANKS"); v && *v) {
         const std::string s(v);
         const size_t bar = s.find('|');
@@ -127,6 +137,14 @@ Picture PictureOf(const std::string& rank) {
     return pic;
 }
 
+// how many times the box's size a rank's badge is drawn: kBig's, 1 for the rest
+float Scale(const std::string& rank) {
+    if (g_big)
+        for (const Big& b : kBig)
+            if (rank == b.rank) return b.scale;
+    return 1.0f;
+}
+
 void FrameStart(uint64_t) {
     Place place;
     const bool up = g_game.place && g_game.place(place) && place.hud_width >= 320;
@@ -143,16 +161,25 @@ void FrameStart(uint64_t) {
         std::copy(std::begin(place.anchor), std::end(place.anchor), f.anchor);
         f.hud_width = place.hud_width;
         for (int side = 0; side < 2; side++) {
-            const Picture pic = PictureOf(source[side]);
+            // a larger one (kBig) where the game gives it the room, from its own picture (the regular one without it)
+            const float scale = place.room > 0 ? Scale(source[side]) : 1.0f;
+            Picture pic = scale > 1 ? PictureOf(source[side] + "-big") : Picture{};
+            const bool big = pic.id != 0;
+            if (!big) pic = PictureOf(source[side]);
             if (!pic.id) continue;
-            // as large as fits in the box, its own shape kept, against the timer and standing on the bar
-            const float h = std::min(box, box * kBox / pic.aspect), w = h * pic.aspect * unit;
+            // as large as fits in the box, its own shape kept, against the timer and standing on the bar. A larger one
+            // is taller than the room above the bars, which the box fills: it reaches up to the room's top and its foot
+            // goes behind the bars (drawn over it), never lower than they cover
+            float h = std::min(box, box * kBox / pic.aspect);
+            if (big) h = std::min(h * scale, place.room + place.behind);
+            const float w = h * pic.aspect * unit;
             const float x0 = side == 0 ? place.inner[0] - w : place.inner[1];
+            const float foot = place.bottom + (place.room > 0 ? std::max(0.0f, h - place.room) : 0.0f);
             f.picture[side] = pic.id;
             f.rect[side][0] = x0;
-            f.rect[side][1] = place.bottom - h;
+            f.rect[side][1] = foot - h;
             f.rect[side][2] = x0 + w;
-            f.rect[side][3] = place.bottom;
+            f.rect[side][3] = foot;
         }
         if ((f.picture[0] || f.picture[1]) && (source[0] != g_logged[0] || source[1] != g_logged[1])) {
             g_logged[0] = source[0];

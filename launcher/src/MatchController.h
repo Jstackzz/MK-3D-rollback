@@ -209,6 +209,11 @@ private:
     QueueRequest request_;
     QJsonObject found_, go_, pendingResult_, series_;
     QString pendingStart_;
+    // the start the game was given, and how often it went out again: a game still at its hold point (status "ready") a
+    // few seconds after its start had not taken it (startCheck_)
+    QString sentStart_;
+    int startResends_ = 0;
+    QTimer startCheck_;
     bool resultSent_ = false;
     bool wantNext_ = false;  // ready for the series' next match, not sent yet (the game still plays the last one's end)
     QString nextChoice_ = QStringLiteral("rematch");

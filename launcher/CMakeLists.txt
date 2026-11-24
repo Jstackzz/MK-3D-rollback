@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(mk3d_launcher VERSION 1.0.15 LANGUAGES CXX)
+project(mk3d_launcher VERSION 1.0.16 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -88,6 +88,7 @@ qt_add_resources(MK3DLauncher "ranks"
           data/ranks/warrior.png data/ranks/gladiator.png data/ranks/master.png data/ranks/commander.png
           data/ranks/grandmaster.png data/ranks/warlord.png data/ranks/chosen-one.png data/ranks/demi-god.png
           data/ranks/god.png data/ranks/elder-god.png data/ranks/titan.png data/ranks/eldest-god.png
+          data/ranks/eldest-god-big.png
 )
 
 qt_add_resources(MK3DLauncher "sounds"

@@ -6,8 +6,12 @@
 // game) goes into the game's own frame just before the HUD draws its bars, so the bars, the timer and the rest of the
 // HUD go over it where they meet, and it slides off and fades with the HUD (runtime patch 0043, d3d::DrawPicture). Each
 // game says where its bars and timer are; the players' names above the bars (names.h) keep clear of the badges.
+// In Deadly Alliance Eldest God's badge is larger than the others' (1.3 times, from its own wider picture
+// ranks/eldest-god-big.png): taller than the room above the bars (which every badge's box fills), it reaches up to near
+// the top of the screen and its foot goes further behind the bars, which the HUD draws over it. A game whose Place gives
+// no room for it (Deception, Armageddon) shows the regular one.
 // <prefix>_TEST_RANKS=god|beginner shows badges in any fight (screenshots of an offline one);
-// <prefix>_TEST_RANK_SIZE=<lines> tries another height.
+// <prefix>_TEST_RANK_SIZE=<lines> tries another height; <prefix>_TEST_RANK_BIG=0 draws Eldest God at the others' size.
 #include <cstdint>
 #include <string>
 
@@ -22,6 +26,11 @@ struct Place {
     float inner[2] = {};
     float bottom = 0;
     float height = 0;
+    // for a badge drawn larger than the box (Eldest God's): the lines above `bottom` it may reach once the HUD is in
+    // (to just under the top of the screen), and the lines under `bottom` the bars still cover beside the timer, where
+    // its foot may go; 0: none drawn larger
+    float room = 0;
+    float behind = 0;
     // the textures (D3D texture headers, as a draw's textures[0]) before whose first draw this frame the badges go:
     // the HUD's first draws at the bars; 0 unused
     uint32_t anchor[4] = {};

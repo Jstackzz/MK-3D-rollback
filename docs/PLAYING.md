@@ -115,7 +115,9 @@ whether to trust it: compare it with your host's.
   (with the next one and the Elo it starts at), the Leaderboard everyone's, a
   lobby each member's by their name, and every online fight each player's
   beside the timer, above their health bar (player 1's on the left, player 2's
-  on the right). Each game has its own: your rank in Deadly Alliance comes from
+  on the right). In Deadly Alliance the highest rank, Eldest God, has a larger
+  badge than the others, in its fights and on its pages of the launcher. Each
+  game has its own: your rank in Deadly Alliance comes from
   your Deadly Alliance Elo. New players start at 475, a Beginner, and show as
   one until they play ranked. Each rank is 100 Elo above the one before it, and
   from God on 120:
@@ -139,8 +141,11 @@ whether to trust it: compare it with your host's.
   | Titan | 1915 to 2034 |
   | Eldest God | 2035 and up |
 
-  A set against a player with your Elo moves it 16, more against a better one
-  and less against a weaker one.
+  A set against a player with your Elo gains you 32 if you win it and costs
+  you 16 if you lose it; against a better player a win gains more and a loss
+  costs less, against a weaker one the other way round. A set won never gains
+  less than 16, however far below you the loser is (half of what an even set
+  gains): it used to gain nothing from about 720 Elo above them.
 - When a ranked set or a Kasual series is over, the launcher searches again by
   itself, the same search as before (with practice while you wait, if that is
   on), unless you left it yourself. Untick "Search again when a set or series
@@ -150,7 +155,12 @@ whether to trust it: compare it with your host's.
   window comes up again (your game starts again for it; LEAVE if you are done);
   in Ranked it loses you the set, whatever the score. If the connection between
   the two games breaks instead, the match does not count: Kasual offers the
-  rematch again, and a ranked set ends there with no rating change.
+  rematch again, and a ranked set ends there with no rating change. A game
+  closed before it even started the match (while it loads, after you accepted)
+  costs nothing as long as nothing of the set has counted yet: the set ends
+  with no rating change. While the match's game loads after you accept, it
+  shows "Loading the game for your match": give it a few seconds, it starts by
+  itself.
 - CANCEL SEARCH closes what the search opened: the game that waited for the
   match, or practice while you wait. A single-player game you started yourself,
   or the game a lobby you are ready in waits with, stays open.
@@ -325,7 +335,12 @@ whether to trust it: compare it with your host's.
   for the first costume's other colours, LT and START for the second
   costume's. Online your opponent sees them too. When both players end up
   with the same fighter in the same costume and colours, player 2 gets the
-  other colours, so you can always tell the two apart.
+  other colours, so you can always tell the two apart. Deadly Alliance has new
+  looks there: Raiden's first costume is a deeper blue, and red with LT and A;
+  Scorpion's first costume with LT and A is black and yellow (black and orange
+  for player 2 when both pick it); Bo' Rai Cho's second costume with LT and
+  START has black pants; Jax's second costume with LT and START is his red
+  jacket with red gloves.
 - Sound: **Settings → SOUND** has a slider for the master level and for the
   music, sound effects, fighter voices, announcer and the arenas' own sounds
   (environment), each a percent of the game's own level (100 %: as the game

@@ -65,7 +65,16 @@ def update(rating_a: int, rating_b: int, score_a: float, k: int = K_FACTOR) -> t
 SET_WIN_GAIN = 2
 
 
+def set_win_floor(k: int = K_FACTOR) -> int:
+    """The least a ranked set won gains: half of what a set won between even players gains (16 of 32). Far above the
+    loser the plain change falls to nothing (+0 from some 720 Elo up), so a win there gained nothing while a loss there
+    cost up to 32 (2026-11-24, the user: "if the rank difference is too high they just earn half elo that they
+    would've won instead of zero")."""
+    return SET_WIN_GAIN * delta(0, 0, 1.0, k) // 2
+
+
 def set_result(winner: int, loser: int, k: int = K_FACTOR) -> tuple[int, int]:
-    """New (winner, loser) ratings after a ranked set: the winner gains SET_WIN_GAIN times the plain change."""
+    """New (winner, loser) ratings after a ranked set: the winner gains SET_WIN_GAIN times the plain change, and never
+    less than set_win_floor; the loser loses the plain change."""
     d = delta(winner, loser, 1.0, k)
-    return winner + SET_WIN_GAIN * d, loser - d
+    return winner + max(SET_WIN_GAIN * d, set_win_floor(k)), loser - d

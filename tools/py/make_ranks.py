@@ -10,6 +10,11 @@ mostly wings and flames (Demi God), so every badge ends up covering the same are
 in their box, so the ranks line up in its lists. The games' keep the box's height with the badge at its foot and no
 room at its sides, so a game can stand each one on its bar right against the timer.
 
+The highest rank's badge (BIG: Eldest God) is drawn 1.3 times the others' size in Deadly Alliance (its fights, where its
+foot goes further behind the bars, and the launcher's Deadly Alliance pages); Deception and Armageddon show the regular
+one. So it gets a second picture, <rank>-big.png, made that much larger, so it stays sharp, and 1.2 times wider than its
+art (WIDE), which the game and the launcher draw as the picture's own shape.
+
     python tools/py/make_ranks.py [art dir]
 """
 import math
@@ -23,6 +28,8 @@ ROOT = Path(__file__).resolve().parents[2]
 BOX = 2.4  # width : height of the box every badge fits in (the badges run 1.6 : 1 to 2.9 : 1)
 LAUNCHER = ROOT / "launcher" / "data" / "ranks", 160      # 80 px on the Ranked page at 200 % display scaling
 GAMES = ROOT / "recomp" / "common" / "data" / "ranks", 240  # some 45 of the frame's 480 lines, sharp at 4K
+BIG = {"eldest-god": 1.3}  # its -big picture this many times the others' size (launcher rankScale, Deadly Alliance kBig)
+WIDE = {"eldest-god": 1.2}  # and this many times wider than the art, to show the rank off a little more
 
 
 def badge(path: Path) -> Image.Image:
@@ -66,13 +73,21 @@ def main() -> int:
         out.mkdir(parents=True, exist_ok=True)
     for name, art in arts:
         even = math.sqrt(least / shown[name])
-        for (out, height), boxed in ((LAUNCHER, True), (GAMES, False)):
-            small = resized(art, fit(art, height) * even)
-            w = round(height * BOX) if boxed else small.width
-            canvas = Image.new("RGBA", (w, height), (0, 0, 0, 0))
-            y = (height - small.height) // 2 if boxed else height - small.height
-            canvas.paste(small, ((w - small.width) // 2, y))
-            canvas.save(out / f"{name}.png", optimize=True)
+        for (out, base), boxed in ((LAUNCHER, True), (GAMES, False)):
+            # the regular picture, and a larger one for a BIG rank
+            for file, scale, wide in ((name, 1, 1), (f"{name}-big", BIG.get(name), WIDE.get(name, 1))):
+                if scale is None:
+                    continue
+                height = round(base * scale)
+                small = resized(art, fit(art, height) * even)
+                if wide != 1:  # wider than its art (the evening out above used the art as it is)
+                    small = small.convert("RGBa").resize((round(small.width * wide), small.height),
+                                                         Image.LANCZOS).convert("RGBA")
+                w = round(height * BOX) if boxed else small.width
+                canvas = Image.new("RGBA", (w, height), (0, 0, 0, 0))
+                y = (height - small.height) // 2 if boxed else height - small.height
+                canvas.paste(small, ((w - small.width) // 2, y))
+                canvas.save(out / f"{file}.png", optimize=True)
         print(f"{name}: {art.width}x{art.height}, shown at {even:.2f} of its fit")
     return 0
 

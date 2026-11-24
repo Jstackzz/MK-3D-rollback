@@ -76,6 +76,7 @@ private:
     QLabel* losses_;
     QLabel* rank_;  // ranked: the title the Elo gives and the next one
     QLabel* rankBadge_;  // ranked: that title's badge
+    QLabel* bigBadge_;   // ranked: that title's badge when drawn larger (Eldest God's), beside the figures
     QWidget* mmCard_;
     QWidget* seriesCard_;
     QLabel* seriesTitle_;

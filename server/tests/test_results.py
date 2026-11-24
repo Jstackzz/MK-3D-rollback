@@ -123,6 +123,12 @@ async def test_elo_math():
     assert elo.set_result(1500, 1500) == (1532, 1484)
     assert elo.set_result(1600, 1400) == (1616, 1392)
     assert elo.set_result(1400, 1600) == (1448, 1576)
+    # far above the loser a set won still gains half of an even set's 32 (it gained 0 from some 720 Elo up); the
+    # loser loses the plain change; the underdog winning gains as before
+    assert elo.set_win_floor() == 16
+    assert elo.set_result(1722, 1500) == (1738, 1493)  # 2 x 7 would be 14
+    assert elo.set_result(2004, 1233) == (2020, 1233)  # 2 x 0
+    assert elo.set_result(1233, 2004) == (1297, 1972)
     assert elo.update(1600, 1400, 1.0) == (1608, 1392)
     assert elo.update(1400, 1600, 1.0) == (1424, 1576)
     a, b = elo.update(1523, 1611, 0.0)

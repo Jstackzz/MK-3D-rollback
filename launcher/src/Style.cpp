@@ -233,15 +233,41 @@ QString rankKey(const QString& title) {
     return key;
 }
 
-QPixmap rankBadge(const QString& title, int height) {
+qreal rankScale(const QString& title, const QString& gameId) {
+    return gameId == QLatin1String("mkda") && rankKey(title) == QLatin1String("eldest-god") ? 1.3 : 1.0;
+}
+
+QPixmap trimmed(const QPixmap& pm) {
+    if (pm.isNull()) return pm;
+    const QImage img = pm.toImage().convertToFormat(QImage::Format_ARGB32);
+    int left = img.width(), right = -1, top = img.height(), bottom = -1;
+    for (int y = 0; y < img.height(); ++y) {
+        const QRgb* row = reinterpret_cast<const QRgb*>(img.constScanLine(y));
+        for (int x = 0; x < img.width(); ++x) {
+            if (qAlpha(row[x]) <= 8) continue;
+            left = qMin(left, x);
+            right = qMax(right, x);
+            top = qMin(top, y);
+            bottom = qMax(bottom, y);
+        }
+    }
+    if (right < left || bottom < top) return pm;
+    QPixmap out = pm.copy(left, top, right - left + 1, bottom - top + 1);
+    out.setDevicePixelRatio(pm.devicePixelRatio());
+    return out;
+}
+
+QPixmap rankBadge(const QString& title, int height, bool big) {
     const QString key = rankKey(title);
     if (key.isEmpty() || height <= 0) return {};
     // drawn at the screen's scale, scaled once per title and size (lists ask for every row)
     const qreal dpr = qGuiApp ? qGuiApp->devicePixelRatio() : 1.0;
     static QHash<QString, QPixmap> made;
-    const QString id = QStringLiteral("%1/%2/%3").arg(key).arg(height).arg(dpr);
+    const QString id = QStringLiteral("%1/%2/%3/%4").arg(key).arg(height).arg(dpr).arg(big ? 1 : 0);
     if (auto it = made.constFind(id); it != made.constEnd()) return *it;
-    const QImage img(QStringLiteral(":/ranks/%1.png").arg(key));
+    // a larger one's own picture (Eldest God's in Deadly Alliance: wider), else the regular one
+    QImage img = big ? QImage(QStringLiteral(":/ranks/%1-big.png").arg(key)) : QImage();
+    if (img.isNull()) img = QImage(QStringLiteral(":/ranks/%1.png").arg(key));
     QPixmap pm;
     if (!img.isNull()) {
         pm = QPixmap::fromImage(img.scaledToHeight(qRound(height * dpr), Qt::SmoothTransformation));

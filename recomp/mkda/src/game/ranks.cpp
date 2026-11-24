@@ -25,6 +25,8 @@ constexpr float kAbove = 44.0f;   // the bars' top edge over the chrome sprites'
 constexpr float kClear = 31.0f;   // the badges' inner edges either side of the centre: the timer's ring (25) and a gap
 constexpr float kTuck = 2.0f;     // lines of a badge's foot under the bars' top edge
 constexpr float kHeight = 40.0f;  // the badges' box: the room between the bars and the top of the screen
+constexpr float kRoom = 43.0f;    // a larger badge's room above its foot (line 45): to 2 lines under the screen's top
+constexpr float kBehind = 18.0f;  // and under its foot, behind the bars (their frame's bottom is some 20 lines lower)
 
 // an object kept at a slot, still the one listed there; 0 for none
 uint32_t Object(uint32_t slot) {
@@ -58,6 +60,8 @@ bool Place(mk3d::ranks::Place& out) {
     out.inner[1] = width / 2 + kClear;
     out.bottom = 480.0f - line + kTuck;
     out.height = kHeight;
+    out.room = kRoom;
+    out.behind = kBehind;
     return out.anchor[2] && out.bottom > 0;  // slid off the top with the HUD
 }
 

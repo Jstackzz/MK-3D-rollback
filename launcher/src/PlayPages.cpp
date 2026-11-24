@@ -200,12 +200,24 @@ QueuePage::QueuePage(bool ranked, ServerClient* server, MatchController* control
     rightCol->addWidget(ui::card(QString(), &rec));
     recordTitle_ = ui::label(QString(), "CardTitle");
     rec->addWidget(recordTitle_);
+    // the figures, and under them the rank; a badge drawn larger (Eldest God's, style::rankScale) stands beside both
+    // instead, so the card hardly grows
+    auto* body = new QHBoxLayout;
+    body->setSpacing(14);
+    bigBadge_ = ranked ? new QLabel : nullptr;
+    if (bigBadge_) {
+        bigBadge_->hide();
+        body->addWidget(bigBadge_, 0, Qt::AlignVCenter);
+    }
+    auto* figures = new QVBoxLayout;
+    body->addLayout(figures, 1);
+    rec->addLayout(body);
     auto* tiles = new QHBoxLayout;
     if (ranked) tiles->addWidget(ui::statTile(tr("Elo"), &elo_));
     else elo_ = nullptr;
     tiles->addWidget(ui::statTile(tr("Wins"), &wins_));
     tiles->addWidget(ui::statTile(tr("Losses"), &losses_));
-    rec->addLayout(tiles);
+    figures->addLayout(tiles);
     // ranked: the title the Elo gives (the server's) with its badge, and the next one up; the whole ladder in the tooltip
     rank_ = ranked ? ui::label(QString(), "Rank") : nullptr;
     rankBadge_ = ranked ? new QLabel : nullptr;
@@ -216,7 +228,7 @@ QueuePage::QueuePage(bool ranked, ServerClient* server, MatchController* control
         rankRow->addWidget(rankBadge_);
         rank_->setWordWrap(true);
         rankRow->addWidget(rank_, 1);
-        rec->addLayout(rankRow);
+        figures->addLayout(rankRow);
     }
 
     find_ = new QPushButton(tr("FIND MATCH"));
@@ -431,10 +443,15 @@ void QueuePage::updateStats() {
                        : next.isEmpty()           ? tr("RANK: %1").arg(title.toUpper())
                                                   : tr("RANK: %1\nnext: %2").arg(title.toUpper(), next));
         rank_->setToolTip(ranks.isEmpty() ? QString() : tr("Ranks by Elo:\n%1").arg(rankLadder(ranks)));
-        const QPixmap badge = online ? style::rankBadge(title, kRankBadge) : QPixmap();
-        rankBadge_->setPixmap(badge);
-        rankBadge_->setVisible(!badge.isNull());
-        rankBadge_->setToolTip(rank_->toolTip());
+        const qreal scale = style::rankScale(title, gameId_);
+        const QPixmap badge = online ? style::rankBadge(title, qRound(kRankBadge * scale), scale > 1) : QPixmap();
+        QLabel* shown = scale > 1 ? bigBadge_ : rankBadge_;  // a larger one beside the figures, as wide as it shows
+        QLabel* other = shown == bigBadge_ ? rankBadge_ : bigBadge_;
+        shown->setPixmap(scale > 1 ? style::trimmed(badge) : badge);
+        shown->setVisible(!badge.isNull());
+        shown->setToolTip(rank_->toolTip());
+        other->clear();
+        other->hide();
     }
 }
 
@@ -1036,15 +1053,21 @@ void LeaderboardPage::onMessage(const QJsonObject& msg) {
             item->setTextAlignment(c == 1 || c == 2 ? (Qt::AlignLeft | Qt::AlignVCenter) : Qt::AlignCenter);
             if (r.value(QStringLiteral("name")).toString() == server_->accountName()) item->setForeground(QColor(0xff, 0x5a, 0x66));
             // the rank: its badge, then its name
-            if (c == 2)
-                if (const QPixmap badge = style::rankBadge(cells[c], kBoardBadge); !badge.isNull())
+            if (c == 2) {
+                const qreal scale = style::rankScale(cells[c], gameId_);
+                if (const QPixmap badge = style::rankBadge(cells[c], qRound(kBoardBadge * scale), scale > 1);
+                    !badge.isNull())
                     item->setData(Qt::DecorationRole, badge);
+            }
             if (c == 7 && r.contains(QStringLiteral("ratings")))
                 item->setToolTip(r.value(QStringLiteral("ratings")).toInt() == 1
                                      ? tr("From 1 rating")
                                      : tr("From %1 ratings").arg(r.value(QStringLiteral("ratings")).toInt()));
             table_->setItem(i, c, item);
         }
+        // a larger badge (Eldest God's) gets a row as tall as it needs; the rest keep the table's own
+        table_->setRowHeight(
+            i, qRound(kBoardBadge * style::rankScale(r.value(QStringLiteral("title")).toString(), gameId_)) + 8);
     }
     // every rank's Elo, from the server's ladder
     const QJsonArray ranks = server_->welcome().value(QStringLiteral("ranks")).toArray();
@@ -1060,7 +1083,9 @@ void LeaderboardPage::onMessage(const QJsonObject& msg) {
                              : tr("You: #%1  |  %2  |  %3").arg(me.value(QStringLiteral("rank")).toInt())
                                    .arg(me.value(QStringLiteral("elo")).toInt())
                                    .arg(me.value(QStringLiteral("title")).toString()));
-    const QPixmap myBadge = me.isEmpty() ? QPixmap() : style::rankBadge(me.value(QStringLiteral("title")).toString(), 36);
+    const QString myTitle = me.value(QStringLiteral("title")).toString();
+    const qreal myScale = style::rankScale(myTitle, gameId_);
+    const QPixmap myBadge = me.isEmpty() ? QPixmap() : style::rankBadge(myTitle, qRound(36 * myScale), myScale > 1);
     meBadge_->setPixmap(myBadge);
     meBadge_->setVisible(!myBadge.isNull());
     const int total = msg.value(QStringLiteral("total")).toInt();

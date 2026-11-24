@@ -92,6 +92,26 @@ async def test_ranked_set_ends_at_three_wins_with_one_elo_change(server, connect
     assert not server.series and not server.series_of
 
 
+async def test_a_set_won_far_above_the_loser_still_gains_half_an_even_win(server, connect, udp_peers):
+    sides, gos = await first_match(server, connect, udp_peers, ["Taven", "Daegon"], ranked=True)
+    (c1, _), (c2, _) = sides[1], sides[2]
+    p1, p2 = gos[1]["p1_name"], gos[1]["p2_name"]
+    s1, _ = await play(c1, c2, gos[1]["match"], 1)
+    match = (await next_match(server, sides, s1["series"]))[1]["match"]
+    s1, _ = await play(c1, c2, match, 1)
+    # meanwhile far apart (the set's Elo is read when it ends): 800 Elo, where the plain change is 0
+    for name, rating in ((p1, 1800), (p2, 1000)):
+        server.db.conn.execute("INSERT OR REPLACE INTO stats (account_id, game, mode, kind, elo, wins, losses, updated) "
+                               "VALUES (?, 'mkd', 'kombat', 'ranked', ?, 0, 0, 0)",
+                               (server.db.account_by_name(name)["id"], rating))
+    match = (await next_match(server, sides, s1["series"]))[1]["match"]
+    over1, over2 = await play(c1, c2, match, 1)
+    assert over1["outcome"] == "won" and over1["winner"] == p1
+    # the winner gains half of an even set won (16 of 32), not 0; the loser loses what the plain change says
+    assert over1["elo"][p1]["delta"] == 16 and over1["elo"][p1]["after"] == 1816
+    assert over2["elo"][p2]["delta"] == 0 and over2["elo"][p2]["after"] == 1000
+
+
 async def test_ranked_set_goes_to_a_fifth_match_at_two_all(server, connect, udp_peers, caplog):
     sides, gos = await first_match(server, connect, udp_peers, ["Kitana", "Mileena"], ranked=True)
     (c1, _), (c2, _) = sides[1], sides[2]
@@ -449,8 +469,8 @@ async def test_a_game_that_ended_before_its_match_sends_its_last_log_lines(serve
 
 
 async def test_leaving_a_later_match_of_a_set_before_its_start_still_loses_it(server, connect, udp_peers):
-    """Only a set's first match: once a match of it was played, a game closed before the next one starts loses the
-    set, so closing it never saves a losing set."""
+    """Only before anything of the set counted: once a match of it counted, a game closed before the next one starts
+    loses the set, so closing it never saves a losing set."""
     sides, gos = await first_match(server, connect, udp_peers, ["Rain", "Tremor"], ranked=True)
     (c1, _), (c2, _) = sides[1], sides[2]
     p1, p2 = gos[1]["p1_name"], gos[1]["p2_name"]
@@ -459,6 +479,42 @@ async def test_leaving_a_later_match_of_a_set_before_its_start_still_loses_it(se
     await c2.request({"type": "result", "match": gos[2]["match"], "outcome": "left"})
     over = await c1.expect("series", state="over")
     assert over["outcome"] == "forfeit" and over["left"] == p2 and over["winner"] == p1
+
+
+async def test_a_game_that_never_started_a_match_after_one_that_did_not_count_changes_no_rating(
+        server, connect, udp_peers, caplog):
+    """The set's first match desynced (it counts for nobody) and the next one's leaver's game never took its start: at
+    0-0 nothing of the set counted yet, so it is void as at its first match (it was a forfeit, 2026-11-19: -13 Elo)."""
+    sides, gos = await first_match(server, connect, udp_peers, ["Daegon", "Taven"], ranked=True)
+    (c1, _), (c2, _) = sides[1], sides[2]
+    p1, p2 = gos[1]["p1_name"], gos[1]["p2_name"]
+    for c in (c1, c2):
+        await c.request({"type": "result", "match": gos[1]["match"], "outcome": "desync", "frame": 900})
+    s1 = await c1.expect("series")
+    assert s1["state"] == "between" and (s1["you"], s1["them"]) == (0, 0)
+    gos = await next_match(server, sides, s1["series"])
+    c1.send({"type": "match_state", "match": gos[1]["match"], "state": "in_match"})  # only P1's game started
+    with caplog.at_level("INFO", logger="mk3d.server"):
+        await c2.request({"type": "result", "match": gos[2]["match"], "outcome": "left", "exit": "window closed",
+                          "exit_code": 0})
+        over = await c1.expect("series", state="over")
+    assert over["outcome"] == "void" and over["winner"] is None and "elo" not in over
+    for name in (p1, p2):
+        assert server.db.rating(server.db.account_by_name(name)["id"], "mkd", "kombat")["elo"] == 475
+    assert any(f"{p2}'s game never started match 2 with nothing counted yet: void" in r.getMessage()
+               for r in caplog.records)
+    # ... but a match their game did start, left at 0-0, still loses the set (quitting a match never saves it)
+    sides, gos = await first_match(server, connect, udp_peers, ["Shujinko", "Onaga"], ranked=True)
+    (c1, _), (c2, _) = sides[1], sides[2]
+    for c in (c1, c2):
+        await c.request({"type": "result", "match": gos[1]["match"], "outcome": "desync", "frame": 900})
+    s1 = await c1.expect("series")
+    gos = await next_match(server, sides, s1["series"])
+    for c in (c1, c2):
+        c.send({"type": "match_state", "match": gos[1]["match"], "state": "in_match"})
+    await c2.request({"type": "result", "match": gos[2]["match"], "outcome": "left"})
+    over = await c1.expect("series", state="over")
+    assert over["outcome"] == "forfeit" and over["winner"] == gos[1]["p1_name"]
 
 
 async def test_a_player_who_vanishes_mid_match_loses_the_set(server, connect, udp_peers):

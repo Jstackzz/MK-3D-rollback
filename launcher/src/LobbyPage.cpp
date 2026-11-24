@@ -531,10 +531,14 @@ void LobbyPage::showLobby(const QJsonObject& lobby) {
         // their rank in the lobby's game and mode (the server's title; someone new to ranked holds the starting one):
         // its badge before the name
         const QString title = s(mem, "title");
-        if (const QPixmap badge = style::rankBadge(title, kBadgeHeight); !badge.isNull()) {
+        const qreal scale = style::rankScale(title, s(lobby, "game"));
+        const int badgeHeight = qRound(kBadgeHeight * scale);
+        if (const QPixmap badge = style::rankBadge(title, badgeHeight, scale > 1); !badge.isNull()) {
             members_->item(i, kPlayer)->setData(Qt::DecorationRole, badge);
             members_->item(i, kPlayer)->setToolTip(tr("Rank: %1").arg(title));
         }
+        // a larger badge (Eldest God's) gets a row as tall as it needs
+        members_->setRowHeight(i, badgeHeight + 8);
         if (const QPixmap icon = style::linkIcon(link, 16); !icon.isNull()) {
             members_->item(i, kConnection)->setIcon(QIcon(icon));
             members_->item(i, kConnection)->setToolTip(style::linkName(link));

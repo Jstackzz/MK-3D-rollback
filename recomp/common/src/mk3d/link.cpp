@@ -68,6 +68,8 @@ std::atomic<bool> g_park{false};
 bool g_park_after_end = false;  // asked to park while the match's end still plays in sync
 std::chrono::steady_clock::time_point g_park_deadline;
 std::chrono::steady_clock::time_point g_park_left_at;  // when netplay was first seen out of the match (none: {})
+std::chrono::steady_clock::time_point g_link_start;    // when the link's loop started, as the game boots
+std::atomic<bool> g_reached_hold{false};               // the game got to its hold point once: its boot is over
 
 std::wstring Widen(const char* s) {
     std::wstring w;
@@ -111,11 +113,21 @@ void WriteStatus(const std::string& line) {
     FlushStatus();
 }
 
+bool g_taken_unread = false;  // a command claimed whose file could not be read yet: read on the next look
+
 bool ClaimCommand(std::string& out) {
     std::wstring taken = g_cmd + L".taken";
-    if (!MoveFileExW(g_cmd.c_str(), taken.c_str(), MOVEFILE_REPLACE_EXISTING)) return false;
+    // a newer command takes the place of one still unread
+    if (!MoveFileExW(g_cmd.c_str(), taken.c_str(), MOVEFILE_REPLACE_EXISTING) && !g_taken_unread) return false;
     FILE* f = _wfopen(taken.c_str(), L"rb");
-    if (!f) return false;
+    if (!f) {
+        // held a moment by another program (an antivirus scanning the file just moved, a cloud folder syncing it).
+        // Dropped here, a match's start left the game at its hold point for good and its player closed it (2026-11-23)
+        if (!g_taken_unread) LOGR("link: the command file is busy (another program holds it): reading it again");
+        g_taken_unread = true;
+        return false;
+    }
+    g_taken_unread = false;
     char buf[2048];
     size_t n = std::fread(buf, 1, sizeof buf - 1, f);
     std::fclose(f);
@@ -168,6 +180,13 @@ void Start(const Command& c) {
     std::string mode = Key(c, "mode", "kombat");
     if (!game::ModeKnown(mode)) {
         WriteStatus("error bad command mode " + mode);
+        return;
+    }
+    // the launcher sends a start again while it reads this game at its hold point (one it may have read just before
+    // the first was taken): the match already taken goes on
+    const std::string match = Key(c, "match");
+    if (g_in_match && !match.empty() && match == g_match && match != "none" && match != "practice") {
+        LOGI("link: start of match %s again: already taken", match.c_str());
         return;
     }
     if (!game::AtHoldPoint()) {
@@ -298,6 +317,25 @@ void RequestPark() {
     Park();
 }
 
+// A launcher's game still not at its hold point long after it started (some 11 s on a fast PC): where it stands goes
+// into its log once, at 30 s, the frames its main loop ran (none more since the last look: it hangs) and every thread's
+// stack, and the frames again at 60 s. Its player sees a black window meanwhile: games stood so from 30 s to over 3
+// minutes after a ranked match was accepted, their logs silent after the window came up (2026-11-23), and their players
+// closed them. The launcher sends these lines with its report of a game that ended before its match started.
+void WatchBoot() {
+    static int told = 0;
+    static uint64_t frames = 0;
+    if (g_reached_hold || told >= 2) return;
+    const long long secs =
+        std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - g_link_start).count();
+    if (secs < (told == 0 ? 30 : 60)) return;
+    const uint64_t now = Frame();
+    LOGR("link: not at the hold point %lld s after the start: %llu frames run, %llu since the last look", secs,
+         (unsigned long long)now, (unsigned long long)(now - frames));
+    frames = now;
+    if (told++ == 0) DumpThreads("the game has not reached its hold point");
+}
+
 // the match's state, written when it changes
 void Update() {
     if (g_park_after_end) {
@@ -313,7 +351,10 @@ void Update() {
         return;
     }
     if (!g_in_match) {
-        if (game::AtHoldPoint()) WriteStatus("ready");
+        if (game::AtHoldPoint()) {
+            WriteStatus("ready");
+            g_reached_hold = true;
+        }
         return;
     }
     net::Status ns = g_online ? net::GetStatus() : net::Status::Off;
@@ -399,6 +440,7 @@ void WatchFrames() {
 }
 
 void Loop() {
+    g_link_start = std::chrono::steady_clock::now();
     WriteStatus("booting");
     for (;;) {
         std::string line;
@@ -406,7 +448,13 @@ void Loop() {
             std::lock_guard<std::mutex> lock(g_lock);
             LOGI("link: command %s", line.c_str());
             Command c = Parse(line);
-            if (c.verb == "start") Start(c);
+            // <prefix>_NET_TEST_DROP_START=1 (tests): the first start is taken and lost, as one whose file another
+            // program held; the launcher sends it again
+            static bool drop = Env("NET_TEST_DROP_START") != nullptr;
+            if (c.verb == "start" && drop) {
+                drop = false;
+                LOGR("link: test: the first start dropped (NET_TEST_DROP_START)");
+            } else if (c.verb == "start") Start(c);
             else if (c.verb == "park") RequestPark();
             else if (c.verb == "rematch") Rematch(c);
             else if (c.verb == "quit") {
@@ -420,6 +468,7 @@ void Loop() {
             Update();
         }
         WatchFrames();
+        WatchBoot();  // as WatchFrames, outside the lock: a thread dump suspends the other threads one by one
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
 }
@@ -449,6 +498,8 @@ const bool g_registered = [] {
 }  // namespace
 
 bool Active() { return g_on; }
+
+bool Booting() { return g_on && !g_reached_hold; }
 
 bool SuppressPhysicalPads() {
     if (!g_on) return false;

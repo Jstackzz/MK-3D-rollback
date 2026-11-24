@@ -152,6 +152,25 @@ MatchController::MatchController(ServerClient* server, QObject* parent)
             reportResult({{QStringLiteral("outcome"), QStringLiteral("error")}});
         }
     });
+    // a game that takes its start leaves its hold point at once (status "starting"): one still there a few seconds after
+    // never got it (its command file held by another program, a start refused while it was getting there and its
+    // "ready" read again over it). Its players saw its menu, or a black screen, and closed it: a lost set (2026-11-23).
+    // The start goes out again, a few times; the game ignores a start for the match it already took.
+    startCheck_.setInterval(4000);
+    connect(&startCheck_, &QTimer::timeout, this, [this] {
+        if (phase_ != Phase::Starting || sentStart_.isEmpty() || !game_ || !game_->isRunning()) {
+            startCheck_.stop();
+            return;
+        }
+        if (!game_->isReady() || game_->commandWaiting()) return;  // taken, or still on its way to the game
+        if (startResends_ >= 5) {
+            startCheck_.stop();
+            return;
+        }
+        ++startResends_;
+        log(tr("The game is still at its hold point: its match's start goes out again (%1)").arg(startResends_));
+        game_->command(sentStart_);
+    });
 }
 
 MatchController::~MatchController() = default;
@@ -258,6 +277,23 @@ QStringList lastLines(const QString& sessionDir, int n) {
     for (const QByteArray& raw : file.readAll().split('\n'))
         if (!raw.trimmed().isEmpty()) out << reportLine(raw);
     return out.mid(std::max<qsizetype>(0, out.size() - n));
+}
+
+// A game that never got to its hold point says where it stood (link.cpp WatchBoot: the frames it ran, then every
+// thread's stack, the main thread's first): that line and up to n after it, none when it never said
+QStringList bootLines(const QString& sessionDir, int n) {
+    QFile file(QDir(sessionDir).filePath(QStringLiteral("game.log")));
+    if (!file.open(QIODevice::ReadOnly)) return {};
+    const QByteArray text = file.read(4 << 20);
+    const qsizetype at = text.indexOf("link: not at the hold point");
+    if (at < 0) return {};
+    QStringList out;
+    for (const QByteArray& raw : text.mid(text.lastIndexOf('\n', at) + 1).split('\n')) {
+        if (raw.trimmed().isEmpty()) continue;
+        out << reportLine(raw);
+        if (out.size() >= n) break;
+    }
+    return out;
 }
 
 // The game files' contents: every file's bytes hashed once in the background (Windows' background mode, behind any
@@ -1314,6 +1350,10 @@ void MatchController::tryStart() {
         return;
     }
     game_->command(pendingStart_);
+    // an online match's start is checked on (startCheck_); a watched match's is not (its game waits for the feed)
+    sentStart_ = phase_ == Phase::Starting ? pendingStart_ : QString();
+    startResends_ = 0;
+    if (!sentStart_.isEmpty()) startCheck_.start();
     pendingStart_.clear();
 }
 
@@ -1370,8 +1410,17 @@ void MatchController::onGameStatus(const QString& line) {
     } else if (st == QLatin1String("error") && inOnline) {
         // "error exited": GameProcess's word for a game that ended by itself (closed, crashed, asked to leave), which
         // ends the match for both: the player left it (onGameExited)
-        if (line.startsWith(QLatin1String("error exited"))) reportLeft();
-        else reportResult({{QStringLiteral("outcome"), QStringLiteral("error")}});
+        if (line.startsWith(QLatin1String("error exited"))) {
+            reportLeft();
+        } else if (line.contains(QLatin1String("not at the hold point")) && phase_ == Phase::Starting &&
+                   !sentStart_.isEmpty()) {
+            // its start came while it was still getting back to its hold point: again once it is there ("ready")
+            log(tr("The game was not at its hold point yet: its match's start goes out again once it is"));
+            pendingStart_ = sentStart_;
+            sentStart_.clear();
+        } else {
+            reportResult({{QStringLiteral("outcome"), QStringLiteral("error")}});
+        }
     }
 }
 
@@ -1436,8 +1485,10 @@ void MatchController::reportLeft() {
         // before the match started (no in_match from the game yet): what its log said last goes to the server's log,
         // which then says why (a game that came up and closed, or never got to its hold point)
         if (phase_ == Phase::Starting) {
+            // and where a game that stood black while it booted stood (WatchBoot), before them
             QJsonArray lines;
-            for (const QString& l : lastLines(game_->sessionDir(), 20)) lines.append(l);
+            for (const QString& l : bootLines(game_->sessionDir(), 40) + lastLines(game_->sessionDir(), 20))
+                lines.append(l);
             if (!lines.isEmpty()) fields.insert(QStringLiteral("lines"), lines);
         }
     }
