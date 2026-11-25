@@ -2,7 +2,8 @@
 // Each player's rank badge in an online fight, and in one watched: beside the timer, standing on their health bar
 // (P1's on the timer's left, P2's on its right). The launcher's start line names each side's ranked title (p1_rank,
 // p2_rank: lower case, dashes for spaces, "chosen-one"; "-" none), which the link hands over for an online or a
-// watched match. Its picture (ranks/<title>.png: the package's ranks folder, two up from the game, or one beside the
+// watched match. In the launcher's practice (alone, or while a search waits) MK3D_PLAYER_RANK names the player's own,
+// shown on P1's side, the player's fighter (the dummy has none). Its picture (ranks/<title>.png: the package's ranks folder, two up from the game, or one beside the
 // game) goes into the game's own frame just before the HUD draws its bars, so the bars, the timer and the rest of the
 // HUD go over it where they meet, and it slides off and fades with the HUD (runtime patch 0043, d3d::DrawPicture). Each
 // game says where its bars and timer are; the players' names above the bars (names.h) keep clear of the badges.

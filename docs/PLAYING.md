@@ -115,7 +115,9 @@ whether to trust it: compare it with your host's.
   (with the next one and the Elo it starts at), the Leaderboard everyone's, a
   lobby each member's by their name, and every online fight each player's
   beside the timer, above their health bar (player 1's on the left, player 2's
-  on the right). In Deadly Alliance the highest rank, Eldest God, has a larger
+  on the right). Practice from the launcher shows yours there too, alone or
+  while a search waits (from 1.0.20; signed in). In Deadly Alliance the
+  highest rank, Eldest God, has a larger
   badge than the others, in its fights and on its pages of the launcher. Each
   game has its own: your rank in Deadly Alliance comes from
   your Deadly Alliance Elo. New players start at 475, a Beginner, and show as

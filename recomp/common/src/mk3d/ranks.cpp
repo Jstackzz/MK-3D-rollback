@@ -54,6 +54,7 @@ struct Picture {
 std::mutex g_lock;  // everything below, between the main thread's frame start, the drawing thread's filter and the UI
 bool g_ready = false;                       // the test switches read and the pictures' folder found
 std::string g_match[2], g_test[2];          // the match's ranks (the link's), the test switch's
+std::string g_own[2];                       // practice: the player's own rank on P1's side (MK3D_PLAYER_RANK)
 float g_test_height = 0;                    // the test switch's badge height, 0: the game's
 bool g_big = true;                          // kBig's ranks drawn larger (<prefix>_TEST_RANK_BIG=0: not)
 std::filesystem::path g_dir;                // where the badges' pictures are
@@ -116,6 +117,9 @@ void Ready() {
         g_test[0] = Clean(s.substr(0, bar));
         g_test[1] = bar == std::string::npos ? std::string() : Clean(s.substr(bar + 1));
     }
+    // the launcher's practice (alone, or while a search waits) names the player's own rank: theirs is P1's fighter,
+    // the dummy has none
+    if (const char* v = std::getenv("MK3D_PLAYER_RANK"); v && *v) g_own[0] = Clean(v);
     g_dir = PictureDir();
     LOGR("ranks: badges from %s", g_dir.empty() ? "nowhere (no ranks folder)" : g_dir.string().c_str());
 }
@@ -154,7 +158,9 @@ void FrameStart(uint64_t) {
     const float unit = place.hud_width / (app::FrameAspect() * 480.0f);
     std::lock_guard<std::mutex> lock(g_lock);
     Ready();
-    const std::string* source = g_match[0].empty() && g_match[1].empty() ? g_test : g_match;
+    // a match's ranks; else the test switch's; else, in the launcher's practice, the player's own
+    const bool match = !g_match[0].empty() || !g_match[1].empty(), test = !g_test[0].empty() || !g_test[1].empty();
+    const std::string* source = match ? g_match : test ? g_test : g_own;
     Frame f;
     const float box = g_test_height > 0 ? g_test_height : place.height;
     if (up && box > 0) {

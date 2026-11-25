@@ -130,6 +130,9 @@ signals:
 private:
     void setPhase(Phase p, const QString& text);
     void onServerMessage(const QJsonObject& msg);
+    // the signed-in player's Kombat rank in a game as their matches show it (its badge's key, "chosen-one"), for
+    // practice's badge; "" when not signed in
+    QString ownRankKey(const QString& gameId) const;
     void onGameStatus(const QString& line);
     void onGameExited();
     void onPunchDone(bool ok, int rtt, const QString& remote, const QString& via);
@@ -186,6 +189,7 @@ private:
     QString watchStartLine(const QJsonObject& info) const;
 
     ServerClient* server_;
+    QJsonObject ownStats_;  // the signed-in player's stats (the server's profile: at sign-in, then after each match)
     UdpRendezvous* udp_;
     GameProcess* game_ = nullptr;
     bool gamePlayed_ = false;  // game_ has started or watched a match since it started

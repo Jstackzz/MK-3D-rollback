@@ -90,7 +90,8 @@ MatchController::MatchController(ServerClient* server, QObject* parent)
     // what a desync report says of the game's files (gameFiles): their contents hashed in the background meanwhile
     for (const QString& g : {QStringLiteral("mkd"), QStringLiteral("mka"), QStringLiteral("mkda")}) startHashingGameFiles(g);
     connect(server_, &ServerClient::message, this, &MatchController::onServerMessage);
-    connect(server_, &ServerClient::loggedIn, this, [this] {
+    connect(server_, &ServerClient::loggedIn, this, [this](const QJsonObject& account) {
+        ownStats_ = account.value(QStringLiteral("profile")).toObject().value(QStringLiteral("stats")).toObject();
         if (!pendingResult_.isEmpty()) {
             server_->send(pendingResult_);
             log(tr("Sent the stored result of match %1").arg(str(pendingResult_, "match")));
@@ -896,9 +897,25 @@ void MatchController::decline() {
 
 void MatchController::releaseUdp() { udp_->close(); }
 
+QString MatchController::ownRankKey(const QString& gameId) const {
+    if (!server_->isLoggedIn()) return {};
+    // the server's title for the player's ranked Kombat rating in that game (_title_of), whatever they play; someone
+    // new to it holds the ladder's first, the starting rating's
+    const QJsonObject ranked = ownStats_.value(gameId).toObject().value(QStringLiteral("kombat")).toObject()
+                                   .value(QStringLiteral("ranked")).toObject();
+    QString title = ranked.value(QStringLiteral("title")).toString();
+    if (title.isEmpty()) {
+        const QJsonArray ladder = server_->welcome().value(QStringLiteral("ranks")).toArray();
+        if (!ladder.isEmpty()) title = ladder.first().toObject().value(QStringLiteral("title")).toString();
+    }
+    return style::rankKey(title);
+}
+
 void MatchController::onServerMessage(const QJsonObject& msg) {
     const QString type = str(msg, "type");
     const QString match = str(msg, "match");
+    if (type == QLatin1String("profile") && str(msg, "name") == server_->accountName())
+        ownStats_ = msg.value(QStringLiteral("stats")).toObject();
     if (type == QLatin1String("queued")) {
         queued_ = msg;
         pingWiden_ = msg.value(QStringLiteral("ping_widen")).toObject();
@@ -1565,7 +1582,10 @@ bool MatchController::startSolo(const QString& gameId, QString* error, bool prac
         }
     }
     auto* g = new GameProcess(gameId, 1, this);
+    // practice shows the player's own rank badge beside the timer, on their fighter's side (mk3d/ranks.h)
+    const QString rank = practice ? ownRankKey(gameId) : QString();
     if (practice) g->setEnv(QStringLiteral("MK3D_TRAINING"), QStringLiteral("1"));
+    if (!rank.isEmpty()) g->setEnv(QStringLiteral("MK3D_PLAYER_RANK"), rank);
     if (versus) g->setEnv(QStringLiteral("MK3D_VERSUS"), QStringLiteral("1"));
     watchForCrash(g, practice ? QStringLiteral("practice") : versus ? QStringLiteral("versus") : QStringLiteral("single player"));
     if (!g->start(cfg::gameExe(gameId), error, false)) {
