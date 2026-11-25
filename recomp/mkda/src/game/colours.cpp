@@ -27,6 +27,7 @@ void Picked(X86Context& ctx, uint32_t player) {
     if (lt) w |= kColoursBit | costumes::kAltPick;
     kernel::W32(word, w);
     if (lt) LOGR("colours: P%u picked holding LT: the costume's other colours (costume word %X)", player + 1, w);
+    costumes::Picked(player);
 }
 
 void SelectEnds() {
@@ -36,13 +37,15 @@ void SelectEnds() {
     for (int s = 0; s < 2; s++) {
         int character = -1, arena = -1;
         uint32_t costume = 0;
-        constexpr uint32_t kAgreed = 3u | costumes::kAltPick | costumes::kMirrorLook;
+        constexpr uint32_t kAgreed =
+            3u | costumes::kAltPick | costumes::kMirrorLook | costumes::kThird | costumes::kFourth;
         if (autopilot::AgreedPick(s, character, costume, arena)) word[s] = (word[s] & ~kAgreed) | (costume & kAgreed);
     }
+    const int side = costumes::Settle(word);  // a player in a look of a costume takes the other row itself
     if (kernel::R32(kCharacter[0]) == kernel::R32(kCharacter[1]) && (word[0] & 3u) == (word[1] & 3u)) {
-        word[1] ^= kColoursBit;
-        LOGR("colours: both players have character %u in the same costume and colours: P2 the other colours",
-             kernel::R32(kCharacter[0]));
+        word[side] ^= kColoursBit;
+        LOGR("colours: both players have character %u in the same costume and colours: P%d the other colours",
+             kernel::R32(kCharacter[0]), side + 1);
     }
     costumes::SelectEnds(word);
     kernel::W32(va[0], word[0]);
