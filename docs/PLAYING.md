@@ -234,12 +234,27 @@ whether to trust it: compare it with your host's.
   round time and blood, whatever your own game's options say, so both players
   play the same fight. Deadly Alliance's Acid Bath never sprays its acid
   (since 1.0.4), online and offline.
-- Every online match (Kasual, Ranked, lobbies) has every fighter, alternate
-  costume and arena open, whatever your own profile has unlocked: hold START
-  as you confirm your fighter on the select screen for their alternate
-  costume, and your opponent's game shows it too. Armageddon's kreated fighters
-  stay out of online matches (your opponent's game has no copy of yours). Your
-  profile's own unlocks stay as they are.
+- Everything is unlocked in all three games, whatever your profile has
+  unlocked: every fighter, alternate costume and arena, in single player
+  (arcade, versus, practice, Puzzle and Chess Kombat, Konquest) and in every
+  online match alike. Your profile's own unlocks (what its Krypt or Konquest
+  gave it) stay saved as they are, and the Krypt works as before.
+  - The hidden fighters: Deadly Alliance's Blaze and Mokap have no square of
+    their own: hold DOWN as you pick Raiden (Blaze) or Cyrax (Mokap).
+    Deception's Noob-Smoke and Shujinko and Armageddon's Blaze, Daegon, Meat
+    and Taven have their squares on the grid. Shujinko fights with all his
+    moves (outside Konquest, where he learns them as on the Xbox).
+  - Alternate costumes: in Deadly Alliance pick with START for the second
+    costume (hold LT as you pick for the other colours); in Deception and
+    Armageddon hold START as you confirm with A. Armageddon's Blaze, Chameleon,
+    Daegon, Onaga, Meat, Mokap and Moloch have no alternate costume.
+  - Arenas: in Deadly Alliance and Armageddon choose one on the select screen
+    before you confirm your fighter (below); Deception has no arena choice
+    outside Xbox Live, so its fights go through all its arenas in turn (a
+    lobby's host can name one).
+- Online, the alternate costume you pick shows in your opponent's game too.
+  Armageddon's kreated fighters stay out of online matches (your opponent's
+  game has no copy of yours).
 - Choosing the arena online (0.1.18): on the select screen, before you confirm
   your fighter, choose an arena the game's own way (Armageddon: BLACK opens the
   arena list, LEFT and RIGHT go through it, A takes one, B closes it without
@@ -250,8 +265,9 @@ whether to trust it: compare it with your host's.
   chose, the game takes one of the two (the same on both PCs); if nobody did,
   the match's own arena. Spectators see the same arena.
 - Single player, then PLAY, starts the whole game with its own menus, as on the
-  console: arcade, its practice mode and the rest. What you unlock and set is
-  saved in the game's folder (games\<game>\hdd).
+  console: arcade, its practice mode and the rest, with everything unlocked
+  (above). Your profiles and what you set are saved in the game's folder
+  (games\<game>\hdd).
 - Single player, then PRACTICE, goes straight to practice's character select
   with every fighter, costume and arena unlocked: pick yours, then the dummy,
   with one controller.

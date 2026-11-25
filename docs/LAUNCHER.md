@@ -294,11 +294,14 @@ Windows Schannel backend; no OpenSSL DLLs are needed).
    (`leaderboard` with `by`) and a *Respect* column, both only on a server
    with `koth`.
 6. **Single player**: *PLAY* starts the game plainly (no `MK3D_NET`), so it
-   runs its own menus as on the console, its practice mode included;
+   runs its own menus as on the console, its practice mode included, with
+   every fighter, costume and arena unlocked as in every game the launcher
+   starts (each game's autopilot sets the built-in unlock masks, which every
+   unlock check ORs in and nothing saves, at every frame from the first:
+   `Unlock` in each `autopilot.cpp`; `<GAME>_UNLOCK_ALL=0` keeps the Xbox
+   game's own locks outside launcher matches and practice, for tests);
    *PRACTICE* starts it with `MK3D_TRAINING=1` (below), straight to practice's
-   character select with every fighter, costume and arena unlocked (each
-   game's autopilot sets the built-in masks, which every unlock check ORs in
-   and nothing saves, as it does in every launcher match);
+   character select;
    *Close the game* closes its window as the player would. One game runs at a time,
    but a queue search can run alongside it (standby): no match game boots
    while it is open (one that was waiting is frozen), the match-found prompt

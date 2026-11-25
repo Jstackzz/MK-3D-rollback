@@ -3,9 +3,10 @@
 //
 //   MKD_AUTOPILOT=versus|chess|puzzle|arcade|practice   or konquest, or a main menu action's number (0x10): those
 //                                            have no select screen, so the autopilot is done once the menu took it
-//   MKD_P1, MKD_P2=<character name or id>   who each side picks (default: what the cursor starts on); every
-//                                            character, costume and arena is unlocked when either is given, or with
-//                                            MKD_UNLOCK_ALL=1 (a launcher match always)
+//   MKD_P1, MKD_P2=<character name or id>   who each side picks (default: what the cursor starts on)
+//   MKD_UNLOCK_ALL=0                         the game's own locks (tests of the Xbox game), except in a launcher
+//                                            match and practice: otherwise every character, costume and arena is
+//                                            unlocked whenever the game runs (Unlock)
 //   MKD_AUTOPILOT_HOLD=1                     stop at character select (for the debug monitor)
 //   MK3D_VERSUS=1                            to the versus select screen, everything unlocked, both players pick
 //   MK3D_TRAINING=1                          to practice's select screen, every character, costume and arena
@@ -23,9 +24,9 @@
 // (6 x 2 in puzzle kombat, 0x471B24 == 2; chess kombat's board game select sets 1); slot to character: 0x3F9210 +
 // slot * 0x28 (puzzle 0x3F95D0); a player record's
 // state +8 is 2 once its pick is confirmed; a character is selectable when its bit is set in the 64-bit masks at
-// 0x601E60 (0x601E68 alternates, 0x601E90 puzzle) or the built-in defaults at 0x3F8FF0, an arena (sub_000406F0, which
-// the versus arena cycle sub_00040640 skips locked ones by) in 0x601E70 or 0x3E4AF0. The masks are rebuilt from the
-// defaults and the profiles' own bits (sub_001726E0); only the profiles' bits are saved.
+// 0x601E60 (0x601E68 alternates, 0x601E90 puzzle) or the built-in defaults at 0x3F8FF0 (sub_0017C7F0), an arena
+// (sub_000406F0, which the versus arena cycle sub_00040640 skips locked ones by) in 0x601E70 or 0x3E4AF0. The masks are
+// rebuilt from the defaults and the profiles' own bits (sub_001726E0); only the profiles' bits are saved.
 #include "game/autopilot.h"
 
 #include <cctype>
@@ -180,7 +181,7 @@ const bool g_loaded = [] {
     }
     if (const char* p = std::getenv("MKD_P1")) g_req.names[0] = p;
     if (const char* p = std::getenv("MKD_P2")) g_req.names[1] = p;
-    g_req.unlock_all = std::getenv("MKD_UNLOCK_ALL") || !g_req.names[0].empty() || !g_req.names[1].empty();
+    g_req.unlock_all = !g_req.names[0].empty() || !g_req.names[1].empty();  // a named fighter may be a locked one
     g_have_request = true;
     g_since = Clock::now();
     g_phase = Phase::ToMenu;
@@ -195,10 +196,22 @@ uint32_t Steer(int cur, int target, int width);
 
 bool PlayersPick() { return g_req.by_player[0] || g_req.by_player[1]; }
 
-// Every character, alternate costume and arena, for as long as the game runs (online matches and practice): the
-// masks the checks read and the built-in ones the checks OR in and every rebuild of the masks starts from
-// (sub_001726E0), so a profile's saved unlocks (its own bits) stay its own. A costume a player picks on the select
-// screen goes to the other game with the pick (ExchangePicks). Shujinko's moves too (g_moves_open, the move gate).
+// Every character, alternate costume and arena, whenever the game runs: its own menus and modes (arcade, versus,
+// practice, Puzzle and Chess Kombat, Konquest, the Krypt), the launcher's practice and every launcher match alike, so
+// both games of an online match open the same. The built-in masks the checks OR in and every rebuild of the masks
+// starts from (sub_001726E0, at every memory unit and profile event), and the masks the checks read until the next
+// rebuild: the game only reads the built-in ones and saves neither, so a profile's own unlocks (its own bits, which the
+// Krypt's koffins, the arcade endings and Konquest's end set one at a time, sub_001729C0) stay its own; the Krypt reads
+// none of these masks. A bit an id, the low words only: the checks take ids up to 0x28 (sub_0017C900) and the attract
+// demos and the random fighter draw any of them until one is open (sub_0016AAF0, sub_0016BBF0, sub_000F7980), so only
+// real ones: the 24 fighters on the select grid (not Noob 2, Smoke 0xD, Ghost 0x11, the young Shujinko 0x1A, the
+// Monster 0x1C, Onaga 0x1D, nor the Deadly Alliance fighters 0x1E to 0x28) and their alternate costumes; the 22
+// arenas (0 to 0x15; the versus cycle names 21 of them, never Dragon King's Temple, 4, arcade's last fight); Puzzle
+// Kombat's 12 fighters and its 6 arenas. On the Xbox the built-in ones open 015804FB, 0, 003E6145, 0000016B and
+// 000C0101. A costume a player picks on the select screen goes to the other game with the pick (ExchangePicks).
+// Shujinko's moves too (MovesOpen, the move gate), outside Konquest, where he learns them.
+constexpr uint32_t kOpen[] = {0x0BFDDFFB, 0x0BFDDFFB, 0x003FFFFF, 0x00A8157B, 0x002C0301};  // in kUnlockMasks' order
+constexpr uint32_t kModeKonquest = 7;
 bool g_moves_open = false;
 
 void Unlock() {
@@ -210,15 +223,21 @@ void Unlock() {
              kernel::R32(kBuiltIn[0] + 4), kernel::R32(kBuiltIn[0]), kernel::R32(kBuiltIn[1] + 4),
              kernel::R32(kBuiltIn[1]), kernel::R32(kBuiltIn[2] + 4), kernel::R32(kBuiltIn[2]));
     }
-    for (uint32_t m : kUnlockMasks) {
-        kernel::W32(m, 0xFFFFFFFF);
-        kernel::W32(m + 4, 0xFFFFFFFF);
-    }
-    for (uint32_t m : kBuiltIn) {
-        kernel::W32(m, 0xFFFFFFFF);
-        kernel::W32(m + 4, 0xFFFFFFFF);
+    for (size_t i = 0; i < std::size(kOpen); i++) {
+        kernel::W32(kBuiltIn[i], kOpen[i]);
+        kernel::W32(kBuiltIn[i] + 4, 0);
+        kernel::W32(kUnlockMasks[i], kernel::R32(kUnlockMasks[i]) | kOpen[i]);
     }
 }
+
+// MKD_UNLOCK_ALL=0 (tests of the Xbox game): the game's own locks, but in a launcher match and practice. Otherwise
+// the unlock at every frame's start, from the first frame on (a few writes a frame).
+const bool g_unlocked_always = [] {
+    const char* s = std::getenv("MKD_UNLOCK_ALL");
+    if (s && std::strcmp(s, "0") == 0) return false;
+    OnFrameStart([](uint64_t) { Unlock(); });
+    return true;
+}();
 
 void UnlockForPractice() {
     Unlock();
@@ -517,7 +536,7 @@ void Select(int port, input::Pad& pad, double t) {
 
 }  // namespace
 
-bool MovesOpen() { return g_moves_open; }
+bool MovesOpen() { return g_moves_open && GameMode() != kModeKonquest; }
 
 bool Active() {
     std::lock_guard<std::mutex> lock(g_lock);

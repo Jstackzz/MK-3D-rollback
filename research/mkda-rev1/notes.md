@@ -727,3 +727,35 @@ players, every result agreed, no counters going back. Each game's frame 0 had th
 Then tools/online-e2e.ps1 on the fix: a lobby with a spectator, 2 matches, the spectator's frames as A's (4537 and
 2944, 0 differ); a queue match at 60 ms of simulated lag on one side, 2 matches, hundreds of rollbacks, both players'
 frames alike (4034 and 3495). Deception and Armageddon got the same margin (their notes).
+
+## Everything unlocked whenever the game runs (2026-11-24)
+
+The user: "make it so in all three games that all characters and costumes and stages are all unlocked", and "when
+people click play that version of the game has everything unlocked". Before, only launcher matches and the launcher's
+practice and versus opened everything (0xFFFFFFFF in the built-in masks); the game the launcher's PLAY starts kept the
+Xbox locks.
+
+- The checks: `sub_00116380(id, kind)` (kind 0 fighters, 1 alternate costumes; ids below 0x19) ORs the profiles' mask
+  0x421530 / 0x421534 with the built-in 0x273580 / 0x2EA844, `sub_00116400(arena)` (below 0x1A) 0x421538 with 0x273584;
+  both answer 1 for locked. The built-in masks have one reader each and no writer: static data, never saved. The
+  profiles' masks are rebuilt by `sub_0010C0B0` (zeroed, then each loaded profile's bits ORed in).
+- Their callers: the select screen (setup `sub_0010CB00`: unlocked or locked portrait per square, each cursor starts on
+  the first open square; moves, the pick `sub_001112A0`, the arena choice `sub_00112C80` / `sub_001133C0`), the arcade
+  ladder (table [0x2D4BE0], 16 bytes a rung: `sub_000C8490` the fighter at +8 if open else +0xC, `sub_000C8440` the
+  arena at +0 else +4), the fight's arena pick `sub_0006F570` (the versus list), the attract (`sub_00024320` skips a step
+  while Blaze is locked; `sub_00101440` takes its two demo fighters from `sub_001014C0`, random ids below 0x18 until
+  one is open) and Konquest's "You have completed all available" check `sub_00114590` (every open fighter's 10
+  missions). The Krypt calls neither check.
+- The unlock (`autopilot.cpp` Unlock, from every frame's start: `g_unlocked_always`; `MKDA_UNLOCK_ALL=0` keeps the Xbox
+  locks outside launcher matches and practice) writes real ids only: fighters 00FFFEFF (0 to 23 but MOLOCH, 8, whom the
+  attract's random pick would otherwise take), costumes the same, arenas 0180FEFF (the 17 of the versus list 0x24D800:
+  9 10 11 0 15 12 2 23 7 4 3 1 24 14 13 6 5; the arena choice's table 0x274390, 12 bytes an entry {name text, text,
+  id}, has the same 17 and entry 8, which has no text and which the choice skips). On the Xbox: 0038723D, 00000000,
+  00002EF3 (10 arenas).
+- Tests (release, hidden desktops, the picks pressed through the debug monitor, the autopilot only taking the menus to
+  the select screen, scratchpad ut\da_offline.py): the plain game has the masks open from its first frame; versus
+  BLAZE vs MOKAP; KITANA with START (costume word 1) and LT+START (01000003); the arena choice offers the 17 (10 with
+  `MKDA_UNLOCK_ALL=0`, where the bottom rows stay dark and RAIDEN's and CYRAX's squares cannot be reached); arcade
+  BLAZE vs NITARA; the game's own practice MOKAP vs RAIDEN. Online (two games by the launcher's protocol over
+  loopback, ut\online.py): P1 BLAZE choosing MOLOCH'S LAIR (24), P2 KITANA in her second costume: "arena 24, costumes 0
+  and 1" in both, the same result, 1508 frames alike (rbcmp).

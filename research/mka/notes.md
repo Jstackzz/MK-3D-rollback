@@ -669,3 +669,49 @@ way: sub_00081070 waits a frame while [0x5BD928] +0x2C is the counter, sub_001A5
 Tested with tools/koth-e2e.ps1's rotation (-Passive a,c, 7 matches, every game's net log compared frame by frame):
 main's 1.0.8 game never parted (14 matches, 14 watches, 12 by the last loser); with the margin, 14 matches and 14
 watches alike (the spectators' own counters were -74 to +4 from the players' larger, none +1 in that run).
+
+## Everything unlocked whenever the game runs (2026-11-24)
+
+The user asked for every fighter, costume and arena unlocked in all three games, and in the game the launcher's PLAY
+starts in particular. Before, launcher matches and the launcher's practice and versus opened everything with
+0xFFFFFFFF (bar the created fighter's bit) in the masks; the plain game kept the Xbox locks.
+
+- The checks: `sub_00208D90(id, kind, player)` (`sub_00208EC0` first; kind 0 fighters, else alternate costumes)
+  reads 0x7363C8 / 0x7363D0 ORed with the built-in 0x561968 / 0x5BD988, `sub_00039440(arena)` (below 0x39; an Xbox
+  Live session opens every arena) 0x7363D8 with 0x548A40. `sub_001FC560` rebuilds the first ones from the built-in ones
+  and the loaded profiles' bits at every profile or device change (`sub_0019E000`, `sub_0026C670`, `sub_0026C790`),
+  then `sub_00209850` moves a player who is still choosing off a fighter that is locked now. Nothing writes the
+  built-in ones (0x5BD988 is in BSS: 0); neither set is saved; a profile changes one bit at a time
+  (`sub_001FC820`, `sub_001FC9F0`). The Krypt (`sub_00193870`, `sub_00194140`) reads none of these masks.
+  `sub_001FCBD0` (a Konquest chest, `sub_0012C6A0`, and the nearest-chest hint) ORs the built-in fighters into its
+  category 1: a chest holding Meat's, Blaze's, Taven's or Daegon's koffin would read as owned, as with a profile that
+  has them all (they come as relic and Konquest-finale awards, which check nothing).
+- The created fighter (0x3E): `sub_00257D10(player)` decides first (that player's profile has one: CAP block flag bit 0;
+  never in the attract or while the online CAP transfer runs; its alternate is always locked); its bit is open in the
+  Xbox's built-in mask.
+- Random pickers draw any id below 64 and keep the first open one: the attract demo (`sub_001F39C0`, from
+  `sub_000281C0`, 50 tries, the alternate 1 in 4) and the fight load's fighter for a record still 0x40
+  (`sub_001F3BD0`, the alternate 1 in 25). With every bit set they could take 63, the select screen's RANDOM (no
+  fighter: its name is null), and the alternate of a fighter that has none, whose load takes an alternate's branch
+  (`sub_001F3C80`, header +0x34 / +0x3C) the game never takes. The arcade ladders (19 tables at 0x5533E8,
+  `sub_00199760` the fighter at +8 if open else +0xC, `sub_00199710` the arena) take their first column once open:
+  Meat (ladders 11, 15), Taven (13, 16) and Daegon (14) at the sixth fight, arenas 12 to 15.
+- The unlock (`autopilot.cpp` Unlock, from every frame's start: `g_unlocked_always`, under the autopilot's lock;
+  `MKA_UNLOCK_ALL=0` keeps the Xbox locks outside launcher matches and practice) writes real ids only, both sets:
+  fighters 3FFFFFFF FFFFFFFF (0 to 61; 63 closed) and the created fighter's bit as the masks have it (closed online,
+  as before), alternates 3FFFFFCB FFFFFB57 (the 55 fighters that have one: not BLAZE 3, CHAMELEON 5, DAEGON 7, ONAGA
+  10, MEAT 34, MOKAP 36, MOLOCH 37; no koffin opens theirs), arenas 000007E7 DC1FFFFF (the arena panel's 34, table
+  0x561970, 12 bytes an entry {id, its BGS_ name, ...}: 0 to 3, 5 to 20, 26 to 28, 30 to 34, 37 to 42, and 4 as the
+  Xbox opens it). On the Xbox: 5FFFFFFB FFFFFF77 (BLAZE, DAEGON, MEAT and TAVEN closed), 0, 00000000 001F07FF.
+  linkgame.cpp PickArena no longer writes the arena mask itself.
+- Motor Kombat has no unlocks: a kart is refused only when another player took it, the tracks are 43 to 47.
+- Tests (release, hidden desktops, scratchpad ut\mka_offline.py: the select screen's cursors are in the screen's own
+  block, so the fighters were steered by the autopilot, or by hand along the moves table 0x561F08 reading the
+  record's fighter back; the panel and START through the debug monitor): the plain game has the masks open from its
+  first frame; the game's own checks (through the monitor) open all 62 fighters, 55 alternates and the panel's 34
+  arenas (with `MKA_UNLOCK_ALL=0`: 4 fighters and every alternate closed, 4 padlocks on the grid, the panel's last open
+  arena 20); versus BLAZE vs TAVEN and MEAT vs DAEGON; TAVEN with START held (costume bit 0 set) and BLAZE with START
+  held (none: his own costume, no crash); the panel's last arena (42) chosen and fought on; arcade DAEGON vs FUJIN; the
+  game's practice MEAT with BLAZE the dummy. Online (two games by the launcher's protocol over loopback,
+  ut\online.py): P1 BLAZE choosing arena 42, P2 TAVEN in his alternate: "arena 42, costume bits 0 and 1" in both, the
+  same result, 1651 frames alike (rbcmp).

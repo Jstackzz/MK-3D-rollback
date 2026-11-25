@@ -29,8 +29,8 @@ bool AgreedPick(int side, int& character, uint32_t& costume, int& arena);
 
 // still pressing buttons
 bool Active();
-// every character's every move open, Shujinko's Konquest-learned specials and fatalities included (online matches
-// and practice, once unlocked): the move gate's override below answers yes for them all
+// every character's every move open, Shujinko's Konquest-learned specials and fatalities included (once unlocked,
+// everywhere but in Konquest, where he learns them): the move gate's override answers yes for them all
 bool MovesOpen();
 // called from the pad hook for every controller read
 void Apply(int port, input::Pad& pad);

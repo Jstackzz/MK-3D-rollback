@@ -6,8 +6,10 @@
 //                                screen, so the autopilot is done once the menu took it
 //   MKA_P1, MKA_P2=<character>   who each side picks (default: what the cursor starts on): the game's name ("SUB-ZERO"),
 //                                the launcher's roster id (launcher/data/mka.json: "SubZero", "JohnnyCage") or the
-//                                index; every character, costume and arena is unlocked when either is given, or with
-//                                MKA_UNLOCK_ALL=1 (a launcher match always)
+//                                index
+//   MKA_UNLOCK_ALL=0             the game's own locks (tests of the Xbox game), except in a launcher match and
+//                                practice: otherwise every character, costume and arena is unlocked whenever the game
+//                                runs (Unlock)
 //   MKA_AUTOPILOT_HOLD=1         stop at character select
 //   MK3D_VERSUS=1                            to the versus select screen, everything unlocked, both players pick
 //   MK3D_TRAINING=1              to practice's select screen, every character, costume and arena unlocked (the created
@@ -196,7 +198,7 @@ const bool g_loaded = [] {
     }
     if (const char* p = std::getenv("MKA_P1")) g_req.names[0] = p;
     if (const char* p = std::getenv("MKA_P2")) g_req.names[1] = p;
-    g_req.unlock_all = std::getenv("MKA_UNLOCK_ALL") || !g_req.names[0].empty() || !g_req.names[1].empty();
+    g_req.unlock_all = !g_req.names[0].empty() || !g_req.names[1].empty();  // a named fighter may be a locked one
     if (const char* t = std::getenv("MKA_TRACK")) g_track_stage = t;  // Motor Kombat's track (43 the first)
     g_have_request = true;
     g_since = Clock::now();
@@ -211,20 +213,51 @@ bool PlayersPick() { return g_req.by_player[0] || g_req.by_player[1]; }
 
 bool Online() { return g_req.local_side >= 0 || g_req.watch; }
 
-// Every character, alternate costume and arena, for as long as the game runs (online matches and practice): the
-// masks the checks read and the built-in ones the checks OR in and every rebuild starts from, so a profile's saved
-// unlocks (its own bits) stay its own. The created fighter lives in a profile: it stays as the profile has it, and
-// locked online (the other game has no such fighter). A costume a player picks on the select screen goes to the
-// other game with the pick (ExchangePicks).
+// Every character, alternate costume and arena, whenever the game runs: its own menus and modes (arcade, versus,
+// practice, Konquest, the Krypt), the launcher's practice and every launcher match alike, so both games of an online
+// match open the same. The masks the checks read (sub_00208D90, sub_00039440) and the built-in ones they OR in and
+// every rebuild starts from (sub_001FC560, at every profile or device change): the game only reads the built-in ones
+// and saves neither, so a profile's own unlocks (its own bits, which the Krypt's koffins set one at a time) stay its
+// own; the Krypt reads none of these masks. Konquest's chests read the built-in characters (sub_001FCBD0): one that
+// held Meat, Blaze, Taven or Daegon would say the fighter is owned, as with a profile that has them all. A bit an id,
+// real ones only (the attract demo and the fight's random fighter draw any id below 64 until one is open,
+// sub_001F39C0, sub_001F3BD0): the 62 fighters (63 is the select screen's RANDOM, no fighter), the alternate
+// costumes of the 55 that have one (BLAZE 3, CHAMELEON 5, DAEGON 7, ONAGA 10, MEAT 34, MOKAP 36 and MOLOCH 37 have
+// none: their load would take an alternate's branch the game never takes), and the 34 arenas of the arena panel
+// 0x561970 (0 to 20, 26 to 28, 30 to 34, 37 to 42; 4 as the Xbox opens it). The created fighter lives in a profile
+// (the select screen offers it only to a player whose profile has one, sub_00257D10): its bit stays as the masks have
+// it, and locked online (the other game has no such fighter). On the Xbox the built-in ones open 5FFFFFFBFFFFFF77,
+// 0 and 00000000001F07FF. A costume a player picks on the select screen goes to the other game with the pick
+// (ExchangePicks).
+constexpr uint32_t kOpen[3][2] = {{0xFFFFFFFF, 0x3FFFFFFF}, {0xFFFFFB57, 0x3FFFFFCB}, {0xDC1FFFFF, 0x000007E7}};
 void Unlock() {
+    static bool told = false;  // what was open before, once: which characters, costumes and arenas this opens
+    if (!told) {
+        told = true;
+        LOGR("autopilot: built-in characters %08X%08X, costumes %08X%08X, arenas %08X%08X open before the unlock",
+             kernel::R32(kBuiltIn[0] + 4), kernel::R32(kBuiltIn[0]), kernel::R32(kBuiltIn[1] + 4),
+             kernel::R32(kBuiltIn[1]), kernel::R32(kBuiltIn[2] + 4), kernel::R32(kBuiltIn[2]));
+    }
     const uint32_t created = 1u << (kCreatedFighter - 32);
     for (const uint32_t* set : {kUnlockMasks, kBuiltIn})
         for (int i = 0; i < 3; i++) {
-            kernel::W32(set[i], 0xFFFFFFFF);
-            const uint32_t own = Online() ? 0 : kernel::R32(set[i] + 4) & created;
-            kernel::W32(set[i] + 4, i == 0 ? ~created | own : 0xFFFFFFFF);
+            const uint32_t own = i == 0 && !Online() ? kernel::R32(set[i] + 4) & created : 0;
+            kernel::W32(set[i], kOpen[i][0]);
+            kernel::W32(set[i] + 4, kOpen[i][1] | own);
         }
 }
+
+// MKA_UNLOCK_ALL=0 (tests of the Xbox game): the game's own locks, but in a launcher match and practice. Otherwise
+// the unlock at every frame's start, from the first frame on (a few writes a frame).
+const bool g_unlocked_always = [] {
+    const char* s = std::getenv("MKA_UNLOCK_ALL");
+    if (s && std::strcmp(s, "0") == 0) return false;
+    OnFrameStart([](uint64_t) {
+        std::lock_guard<std::mutex> lock(g_lock);
+        Unlock();
+    });
+    return true;
+}();
 
 void UnlockForPractice() {
     Unlock();

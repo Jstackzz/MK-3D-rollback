@@ -792,3 +792,49 @@ Tested with tools/koth-e2e.ps1's rotation (-Passive a,c, 7 matches, every game's
 main's 1.0.8 game never parted (14 matches, 14 watches, 12 by the last loser), so the one-frame-ahead case did not
 show here as it did in Deadly Alliance; with the margin, 14 matches and 14 watches alike, and a temporary line in
 Agree showed three of the six last-loser watches one frame ahead of both players (gone forward with the margin).
+
+## Everything unlocked whenever the game runs (2026-11-24)
+
+The user asked for every fighter, costume and arena unlocked in all three games, and in the game the launcher's PLAY
+starts in particular. Before, launcher matches and the launcher's practice and versus opened everything by writing
+0xFFFFFFFF into every mask, both words; the plain game kept the Xbox locks.
+
+- The checks: `sub_0017C7F0(id, kind)` (ids up to 0x28, `sub_0017C900`; kind 0 fighters, 1 alternate costumes; in
+  mode 6 the puzzle mask) and `sub_000406F0(arena)` (below 0x24; mode 6 the puzzle arenas; an Xbox Live session,
+  0x620F24 bit 0 set and bit 1 clear, opens every arena) read the masks 0x601E60 (fighters), 0x601E68 (costumes),
+  0x601E70 (arenas), 0x601E90 / 0x601E98 (Puzzle Kombat's) ORed with the built-in 0x3F8FF0, 0x471B28, 0x3E4AF0,
+  0x3F8FF8, 0x3E4AF8. `sub_001726E0` rebuilds the first ones from the built-in ones and every loaded profile's own
+  bits (0x6020A0 + i * 0x5C0 + memory unit * 0x2ED0) at every memory unit and profile event, then moves a cursor off a
+  square that is locked now (`sub_0017D9C0`, `sub_0017B690`). Nothing writes the built-in ones; neither set is saved.
+  A profile's own bits are set one at a time by `sub_001729C0` (the Krypt's purchase `sub_000D7080`, an arcade ending
+  `sub_00082810`, Konquest's end `sub_00163960`, which gives Shujinko); the Krypt (`sub_000D4F90`) reads none of these
+  masks. Chess Kombat reads the Kombat masks (and its piece list 0x389808); the puzzle masks are read in mode 6 only.
+- Random pickers draw ids 0 to 0x28 and keep the first open one: the attract's fighters (`sub_0016AAF0`, from the
+  kombat and chess demos), the puzzle demo's (`sub_000F7980`), the fighter loader's "random" 0x29 (`sub_0016BBF0`, no
+  try limit) and a Konquest script native (`sub_000B9510`). With every bit set they could take Noob 2, Smoke 0xD, Ghost
+  0x11, the young Shujinko 0x1A, the Monster 0x1C, Onaga 0x1D or a Deadly Alliance fighter 0x1E to 0x28. The arcade
+  ladders (`sub_000DE280` the rung's fighter at +8 if open else +0xC, `sub_000DE230` the arena at +0 else +4; tables
+  0x3ED838 and 0x3EDA50) take their first column once it is open: real fighters and arenas; their last two rungs are
+  Noob-Smoke, then Onaga at Dragon King's Temple, open or not.
+- The unlock (`autopilot.cpp` Unlock, from every frame's start: `g_unlocked_always`; `MKD_UNLOCK_ALL=0` keeps the
+  Xbox locks outside launcher matches and practice) writes the built-in masks with real ids only, high words 0, and
+  ORs the same into the masks the checks read: fighters and costumes 0BFDDFFB (the 24 fighters of the grid 0x3F9210),
+  arenas 003FFFFF (0 to 0x15; the versus cycle 0x3E4D30 names 21: 0 19 18 15 6 11 12 14 7 1 8 16 20 17 9 21 2 5 3 13
+  10, never 4, Dragon King's Temple, arcade's last fight), puzzle fighters 00A8157B (0 1 3 4 5 6 8 0xA 0xC 0x13 0x15
+  0x17) and puzzle arenas 002C0301 (0 8 9 0x12 0x13 0x15). On the Xbox: 015804FB, 0, 003E6145, 0000016B, 000C0101.
+  The other masks of the rebuild stay the game's: 0x601E78 the music list (default 0x3FF), 0x601E80 / 0x601E88 the
+  attract's biographies.
+- Shujinko's moves (`moves.cpp`, the move gate `sub_00170240`): open wherever the masks are, but in Konquest (mode 7,
+  set by the main menu's Konquest action and `sub_00099B00`), where he learns them; before, only online and in
+  practice. A player who picks him without having finished Konquest has all his moves.
+- No arena choice outside Xbox Live, as before: a versus fight takes the cycle's next open arena, now any of the 21
+  (a lobby can name one with `stage`).
+- Tests (release, hidden desktops, the picks pressed through the debug monitor, the autopilot only taking the menus to
+  the select screen, scratchpad ut\mkd_offline.py): the plain game has the masks open from its first frame; the
+  game's own checks (called through the monitor) open all 24 fighters and costumes and all 22 arenas (with
+  `MKD_UNLOCK_ALL=0`: 12 fighters, every costume and 11 arenas locked, the 12 squares dark); versus NOOB-SMOKE vs
+  SHUJINKO ("moves: Shujinko's move 1203 open"); LIU KANG and JADE with START held (costume flags 1); the cycle set to
+  Nexus Arena's place gave a fight there (locked: 6); Puzzle Kombat RAIDEN; arcade NOOB-SMOKE vs SINDEL on Courtyard;
+  the game's practice SHUJINKO; Chess Kombat's team select offers all 24. Online (two games by the launcher's protocol
+  over loopback, `stage=15`, ut\online.py): NOOB-SMOKE in his alternate vs SHUJINKO: "arena 15", "costume flags 1 and
+  0" in both, Shujinko's moves open in both, the same result, 1573 frames alike (rbcmp).

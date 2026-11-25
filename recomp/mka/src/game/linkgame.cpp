@@ -34,8 +34,9 @@ autopilot::Request g_request;
 // that is not locked (64-bit masks 0x7363D8, defaults 0x548A40, sub_00039440), from a place on the list (0x831A64)
 // that moves on every fight and that the boot draws from the random generator, which main seeds from the time stamp
 // counter: two games would load different arenas. Both set the place from the match's seed instead (or to the stage
-// the launcher names, an arena id on the list), with every arena unlocked.
-constexpr uint32_t kArenaList = 0x548F88, kArenaCycle = 0x831A64, kArenaUnlocks = 0x7363D8;
+// the launcher names, an arena id on the list), with every arena unlocked (the autopilot's Unlock: whenever the game
+// runs, and in every launcher match).
+constexpr uint32_t kArenaList = 0x548F88, kArenaCycle = 0x831A64;
 
 // A round end (sub_00098B50) ends the match once the round's winner has as many round wins as 0x723BC0 (the options'
 // rounds to win, 2 by default; 2 in an Xbox Live match): the launcher's best of N.
@@ -141,8 +142,6 @@ void PickArena(uint32_t seed, const std::string& stage) {
     uint32_t n = 0;
     while (n < 64 && int32_t(kernel::R32(kArenaList + 4 * n)) != -1) n++;
     if (!n) return;
-    kernel::W32(kArenaUnlocks, 0xFFFFFFFF);
-    kernel::W32(kArenaUnlocks + 4, 0xFFFFFFFF);
     uint32_t index = seed % n;
     if (!stage.empty()) {
         uint32_t id = uint32_t(std::strtoul(stage.c_str(), nullptr, 10));

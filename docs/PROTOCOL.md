@@ -1213,8 +1213,9 @@ spectators put it where the fight takes it (Armageddon's arena panel, BLACK;
 Deadly Alliance's, BLACK then START; Deception's chooser opens only in an
 Xbox Live match). At the select screen's end both games give the records the
 agreed picks. A rematch picks again. Every fighter, alternate
-costume and arena is open in an online match (the games' built-in unlock masks
-as well as the profile ones, so no profile's saved unlocks change), and the
+costume and arena is open in an online match, as whenever the games run (their
+built-in unlock masks, which nothing saves, so no profile's saved unlocks
+change; both games open the same ids), and the
 costume a player picks reaches the other game with the pick; both games compare
 the arena and the costumes when the fight starts (the READY barrier).
 

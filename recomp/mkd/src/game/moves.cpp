@@ -4,9 +4,10 @@
 // the player has (sub_00170240(fighter, move): only for characters 0x19 and 0x1A, the two Shujinkos; the eleven moves
 // sub_00170150 numbers, 0x4219.. specials and the fatalities 0x1203 and 0x1205, are looked up in the side's record
 // 0x5FDF60 / 0x5FD980 by sub_00173140(record, 4, index); every other move and character passes). The game's six
-// callers are the move inputs, the move list and the fatality checks. Online matches and practice open every move,
-// in both games alike (autopilot::MovesOpen): there is no Konquest progress to read there, and a player whose profile
-// had some would have had moves the other game refused.
+// callers are the move inputs, the move list and the fatality checks. Every move is open everywhere but in Konquest
+// (autopilot::MovesOpen), as every fighter is: Shujinko, open to everyone now, fights with all his moves whatever a
+// player's Konquest got to, and online both games alike (a player whose profile had some would have had moves the
+// other game refused). Konquest itself keeps the profile's: there he learns them.
 #include "core/log.h"
 #include "cpu/x86_ops.h"
 #include "game/autopilot.h"

@@ -5,9 +5,10 @@
 //                                            select: the autopilot is done once the menu took the item; or menu:
 //                                            done at the main menu (KONQUEST and THE KRYPT take a loaded profile)
 //   MKDA_P1, MKDA_P2=<character>             who each side picks (default: what the cursor starts on): the game's
-//                                            name, the launcher's roster id (SubZero, BoRaiCho) or the index; every
-//                                            character, costume and arena is unlocked when either is given, or with
-//                                            MKDA_UNLOCK_ALL=1 (a launcher match always)
+//                                            name, the launcher's roster id (SubZero, BoRaiCho) or the index
+//   MKDA_UNLOCK_ALL=0                        the game's own locks (tests of the Xbox game), except in a launcher
+//                                            match and practice: otherwise every character, costume and arena is
+//                                            unlocked whenever the game runs (Unlock)
 //   MKDA_AUTOPILOT_HOLD=1                    stop at character select (for the debug monitor)
 //   MK3D_VERSUS=1                            to the versus select screen, everything unlocked, both players pick
 //   MK3D_TRAINING=1                          to practice's select screen, every character, costume and arena
@@ -28,7 +29,8 @@
 // (sub_001112A0) stores the character in 0x271F00 / 0x271F04. BLAZE and MOKAP have no square: DOWN held while
 // picking on RAIDEN's (slot 18) or CYRAX's (slot 20) chooses them. A character is selectable when its bit is set in
 // the profiles' mask 0x421530 or the built-in one 0x273580 (alternate costumes 0x421534 / 0x2EA844, arenas 0x421538 /
-// 0x273584); the unlock sets the built-in ones, which nothing saves.
+// 0x273584; sub_00116380 and sub_00116400 check them); the unlock sets the built-in ones, which the game only reads
+// and nothing saves.
 #include "game/autopilot.h"
 
 #include <cctype>
@@ -149,7 +151,7 @@ const bool g_loaded = [] {
     }
     if (const char* p = std::getenv("MKDA_P1")) g_req.names[0] = p;
     if (const char* p = std::getenv("MKDA_P2")) g_req.names[1] = p;
-    g_req.unlock_all = std::getenv("MKDA_UNLOCK_ALL") || !g_req.names[0].empty() || !g_req.names[1].empty();
+    g_req.unlock_all = !g_req.names[0].empty() || !g_req.names[1].empty();  // a named fighter may be a locked one
     g_have_request = true;
     g_connected = 1;
     g_since = Clock::now();
@@ -185,9 +187,19 @@ bool Pulse(double t, double cycle, double press) { return t - int(t / cycle) * c
 
 bool PlayersPick() { return g_req.by_player[0] || g_req.by_player[1]; }
 
-// Every character, alternate costume and arena, for as long as the game runs (online matches and practice): the
-// built-in masks, which the checks OR the profiles' into and nothing saves. A costume a player picks on the select
-// screen goes to the other game with the pick (ExchangePicks).
+// Every character, alternate costume and arena, whenever the game runs: its own menus and modes (arcade, versus,
+// practice, Konquest, the Krypt), the launcher's practice and every launcher match alike, so both games of an online
+// match open the same. The built-in masks, which the checks OR the profiles' into, are only ever read by the game and
+// nothing saves them: a profile's own unlocks (what its Krypt bought) stay as they are, and the Krypt itself never asks
+// these masks. A bit an id, real ones only: the 23 fighters (ids 0 to 23 but MOLOCH, 8, the sub-boss no one plays:
+// the attract demo takes its two fighters at random from every open id, sub_001014C0, and the Xbox never opens his),
+// their alternate costumes, and the 17 arenas, as the versus cycle 0x24D800 and the arena choice 0x274390 name them
+// (0 to 7, 9 to 15, 23 and 24; the choice skips its nameless entry 8). On the Xbox the built-in ones open 0038723D,
+// 00000000 and 00002EF3. A costume a player picks on the select screen goes to the other game with the pick
+// (ExchangePicks).
+constexpr uint32_t kMoloch = 8;
+constexpr uint32_t kFighters = 0x00FFFFFFu & ~(1u << kMoloch), kArenaIds = 0x0180FEFFu;
+constexpr uint32_t kOpen[3] = {kFighters, kFighters, kArenaIds};  // characters, costumes, arenas
 void Unlock() {
     static bool told = false;  // what was open before, once: which characters, costumes and arenas this opens
     if (!told) {
@@ -195,8 +207,18 @@ void Unlock() {
         LOGR("autopilot: built-in characters %08X, costumes %08X, arenas %08X open before the unlock",
              kernel::R32(kUnlockDefaults[0]), kernel::R32(kUnlockDefaults[1]), kernel::R32(kUnlockDefaults[2]));
     }
-    for (uint32_t m : kUnlockDefaults) kernel::W32(m, 0xFFFFFFFF);
+    for (int i = 0; i < 3; i++) kernel::W32(kUnlockDefaults[i], kOpen[i]);
 }
+
+// MKDA_UNLOCK_ALL=0 (tests of the Xbox game): the game's own locks, but in a launcher match and practice. Otherwise
+// the unlock at every frame's start, from the first frame on (the masks are static data the game never writes, so the
+// first frame's unlock holds; each frame's costs three writes).
+const bool g_unlocked_always = [] {
+    const char* s = std::getenv("MKDA_UNLOCK_ALL");
+    if (s && std::strcmp(s, "0") == 0) return false;
+    OnFrameStart([](uint64_t) { Unlock(); });
+    return true;
+}();
 
 void UnlockForPractice() {
     Unlock();
