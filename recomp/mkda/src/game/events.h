@@ -17,6 +17,12 @@ constexpr uint32_t kSetGameMode = 0x12FDE0;  // (mode)
 constexpr uint32_t kPlayerState[2] = {0x2EA550, 0x2EA554};
 constexpr uint32_t kSetPlayerState = 0x12FDF0;
 constexpr uint32_t kCharacter[2] = {0x271F00, 0x271F04};  // character index, 0x18 none; names below
+constexpr uint32_t kNoCharacter = 0x18;
+// practice: the player whose controller picks this side too (sub_0010CB00 at the select screen's start: the dummy's
+// side gets the player in, -1 a side its own player picks). That second pick (sub_00111102) reads the buttons held
+// (START: the second costume) from P1's controller while P1 is in, P2's otherwise, and its caller sets both players'
+// states to 3 after it (any other pick sets its own player's state).
+constexpr uint32_t kPracticePicker[2] = {0x3200E8, 0x3200EC};
 // each player's pointer to their costume (0 the usual one): the pick (sub_001112A0) sets it from the button held while
 // confirming (logical action 0xB, sub_00075B50) when sub_00116380 has the alternate open, and a mirror match turns the
 // costume of the player picking to the other one

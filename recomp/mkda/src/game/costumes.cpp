@@ -1044,11 +1044,13 @@ void Picked(uint32_t player) {
     }
     kernel::W32(va, w);
     // the other player already picked this fighter: the plain one in the row the look leaves, before this pick's model
-    // loads (a task on the next frames)
+    // loads (a task on the next frames). Practice's dummy pick comes before its caller sets the states (events.h
+    // kPracticePicker): there the other side's fighter being in is its pick.
     const uint32_t other = 1 - player, ova = kernel::R32(kCostume[other]);
-    if (!f || !ova || kernel::R32(kPlayerState[other]) != 3 ||
-        kernel::R32(kCharacter[other]) != kernel::R32(kCharacter[player]))
-        return;
+    const bool other_picked = kernel::R32(kPlayerState[other]) == 3 ||
+                              (kernel::R32(kGameMode) == kModePractice &&
+                               kernel::R32(kCharacter[other]) != kNoCharacter);
+    if (!f || !ova || !other_picked || kernel::R32(kCharacter[other]) != kernel::R32(kCharacter[player])) return;
     uint32_t word[2];
     word[player] = w;
     word[other] = kernel::R32(ova);

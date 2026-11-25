@@ -243,13 +243,27 @@ X86_FUNC(sub_0012FDF0) {
     __imp__sub_0012FDF0(ctx, base);
 }
 
-// character select: a player's pick (sets the character from the cursor's slot, state 3)
+// character select: a player's pick (sets the character from the cursor's slot, state 3; practice's second pick, the
+// dummy's, leaves the states to its caller: events.h kPracticePicker)
 X86_FUNC(sub_001112A0) {
     uint32_t player = kernel::R32(ctx.esp + 4);
     const uint32_t before = player < 2 ? kernel::R32(mkda::kPlayerState[player]) : 0;
+    const uint32_t p1_in = kernel::R32(mkda::kPlayerState[0]);
     __imp__sub_001112A0(ctx, base);
-    // LT held as the pick is taken: the costume's other colours (colours.h)
-    if (player < 2 && before != 3 && kernel::R32(mkda::kPlayerState[player]) == 3) mkda::colours::Picked(ctx, player);
+    // the pick's buttons as the game read them (sub_001112A0 at 0x1113AC): practice's second pick, a side another
+    // player picks with its fighter now in, from P1's controller while P1 is in (P2's otherwise)
+    bool second = kernel::R32(mkda::kGameMode) == mkda::kModePractice;
+    if (second) {
+        second = false;
+        for (int s = 0; s < 2; s++)
+            second = second || (kernel::R32(mkda::kPracticePicker[s]) != ~0u &&
+                                kernel::R32(mkda::kCharacter[s]) != mkda::kNoCharacter);
+    }
+    // LT held as the pick is taken: the costume's other colours (colours.h); SQUARE or TRIANGLE: a look (costumes.h)
+    if (player < 2 && second)
+        mkda::colours::Picked(ctx, player, p1_in ? 0u : 1u);
+    else if (player < 2 && before != 3 && kernel::R32(mkda::kPlayerState[player]) == 3)
+        mkda::colours::Picked(ctx, player, player);
     if (mkda::Logging() && player < 2)
         LOGI("event: frame %llu player %u picks slot %u: character %u, state %u", mkda::F(), player,
              kernel::R32(mkda::kSelectCursor[player]), kernel::R32(mkda::kCharacter[player]),

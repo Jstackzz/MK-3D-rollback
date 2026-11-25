@@ -17,16 +17,18 @@ constexpr uint32_t kColoursBit = 2;  // the costume word: bit 0 the second costu
 
 }  // namespace
 
-void Picked(X86Context& ctx, uint32_t player) {
-    if (player > 1) return;
+void Picked(X86Context& ctx, uint32_t player, uint32_t pad) {
+    if (player > 1 || pad > 1) return;
     const uint32_t word = kernel::R32(kCostume[player]);
     if (!word) return;
     // the pick's own choice as well (costumes.h: a mirror look settles at the select screen's end)
     uint32_t w = kernel::R32(word) & ~(costumes::kAltPick | costumes::kMirrorLook);
-    const bool lt = kernel::CallGuest(ctx, kHeld, {player, kActionLT}) != 0;
+    const bool lt = kernel::CallGuest(ctx, kHeld, {pad, kActionLT}) != 0;
     if (lt) w |= kColoursBit | costumes::kAltPick;
     kernel::W32(word, w);
-    if (lt) LOGR("colours: P%u picked holding LT: the costume's other colours (costume word %X)", player + 1, w);
+    if (lt)
+        LOGR("colours: P%u picked holding LT%s: the costume's other colours (costume word %X)", player + 1,
+             pad != player ? " (practice: the picking player's controller)" : "", w);
     costumes::Picked(player);
 }
 

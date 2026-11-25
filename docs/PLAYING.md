@@ -354,7 +354,8 @@ whether to trust it: compare it with your host's.
   LT and START for the second costume's. Online your opponent sees them too.
   When both players end up with the same fighter in the same costume and
   colours, player 2 gets the other colours, so you can always tell the two
-  apart.
+  apart. In practice the dummy's pick takes them the same way (in Deadly
+  Alliance from 1.0.20).
 - Deadly Alliance's new looks, picked on the select screen with a button of
   their own: **Square** or **Triangle** on the fighter (on an Xbox controller
   X and Y). X, START and L2 with either pick the game's own two costumes and
@@ -374,7 +375,8 @@ whether to trust it: compare it with your host's.
 
   When both players pick one fighter, a look stays as picked and a plain
   costume of that fighter takes whichever of its two colours the look does
-  not use; the same look picked twice is worn by both.
+  not use; the same look picked twice is worn by both. In practice the dummy
+  gets a look the same way: Square or Triangle as you pick it (from 1.0.20).
 - Sound: **Settings → SOUND** has a slider for the master level and for the
   music, sound effects, fighter voices, announcer and the arenas' own sounds
   (environment), each a percent of the game's own level (100 %: as the game

@@ -15,8 +15,9 @@ struct X86Context;
 
 namespace mkda::colours {
 
-// a player's pick has just been taken (sub_001112A0, events.cpp): LT held gives the costume's other colours
-void Picked(X86Context& ctx, uint32_t player);
+// a player's pick has just been taken (sub_001112A0, events.cpp): LT held on the controller the pick read (pad: the
+// player's own, practice's dummy pick the picking player's) gives the costume's other colours
+void Picked(X86Context& ctx, uint32_t player, uint32_t pad);
 // the select screen ends on its way to the fight (sub_0010D2B0, linkgame.cpp), before the fight loads its fighters
 void SelectEnds();
 
