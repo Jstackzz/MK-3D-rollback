@@ -78,9 +78,11 @@ struct Except {
     double center, inner, outer, s_min, v_min;
     double hue, sat, val;
 };
-// Drahmin's cloth wraps maroon (Crimson: all of them, the red glyph on his chest a darker maroon) or charcoal (Bronze:
-// the red glyph on his chest kept; the arms' wraps keep nothing, s_min past 1)
+// Drahmin's cloth wraps maroon (Crimson: all of them; his chest's but its logo, gold by then: kCrimsonWrapsKeepGold
+// keeps kRampGold's hues) or charcoal (Bronze: the red logo on his chest kept; the arms' wraps keep nothing, s_min
+// past 1)
 constexpr Except kCrimsonWraps{355, 18, 30, 2.0, 0.12, 352, 0.72, 0.5};
+constexpr Except kCrimsonWrapsKeepGold{40, 8, 14, 0.35, 0.12, 352, 0.72, 0.5};
 constexpr Except kBronzeCloth{355, 18, 30, 0.35, 0.12, 30, 0.08, 0.28};
 constexpr Except kBronzeWraps{355, 18, 30, 2.0, 0.12, 30, 0.08, 0.28};
 // Drahmin's mask in Crimson (sh_drahmin.sec's Dmask): its painted markings (every saturated colour: cyan, green,
@@ -547,11 +549,13 @@ const std::vector<Recolouring> kJaxRedGlovesRecolour = {{"altJX_hoodie", &kAllDa
 // banner's border and glyphs keep those colours' red (grey green in 1.0.17 and 1.0.18)
 const std::vector<Recolouring> kDrahminBronze = {{"Dchestwrap", nullptr, "Bchestwrap", &kBronzeCloth},
                                                  {"Darmwrap", nullptr, "Barmwrap", &kBronzeWraps}};
-// Drahmin's Crimson (TRIANGLE): his second costume itself (its grey metal) with maroon wraps, gold
-// glyphs on his banner (its red border kept), and its own copy of his shared section for an ivory mask with red markings
+// Drahmin's Crimson (TRIANGLE): his second costume itself (its grey metal) with maroon wraps, the logo on his chest
+// gold (the red of its own was lost in the maroon), gold glyphs on his banner (its red border kept), and its own copy of
+// his shared section for an ivory mask with red markings
 const std::vector<Rebuild> kDrahminCrimsonRebuild = {
-    {"Dloincloth", "Cloincloth", &kDrahminBannerGlyphs, {&kRampGold}, 1}};
-const std::vector<Recolouring> kDrahminCrimson = {{"Dchestwrap", nullptr, "Cchestwrap", &kCrimsonWraps},
+    {"Dloincloth", "Cloincloth", &kDrahminBannerGlyphs, {&kRampGold}, 1},
+    {"Dchestwrap", "Cchestwrap", &kDrahminChestLogo, {&kRampGold}, 1}};
+const std::vector<Recolouring> kDrahminCrimson = {{"Cchestwrap", nullptr, nullptr, &kCrimsonWrapsKeepGold},
                                                   {"Darmwrap", nullptr, "Carmwrap", &kCrimsonWraps},
                                                   {"Dflat", &kIvoryFlat, "Cflat"}};
 const std::vector<Recolouring> kDrahminCrimsonMask = {

@@ -10,8 +10,8 @@
 //                undershirt and hood, his own black gloves; TRIANGLE that look with red gloves (his own gloves, on his
 //                own model: the same collision)
 //   DRAHMIN      on his second costume: SQUARE Bronze (made from its other colours): charcoal wraps, his green mask,
-//                bronze metal, a red banner; TRIANGLE Crimson: maroon wraps, an ivory mask with red markings, gold
-//                glyphs on his banner
+//                bronze metal, a red banner; TRIANGLE Crimson: maroon wraps with the logo on his chest gold, an ivory
+//                mask with red markings, gold glyphs on his banner
 //   SHANG TSUNG  on his first costume: SQUARE black and gold, his gloves black too
 //   FROST        on her first costume: SQUARE All Black (Jet Black): a deep sapphire gi without its marks, a bronze
 //                medallion, the rest jet black; TRIANGLE Deep Blue: the same with her gloves' and boots' lines in a
