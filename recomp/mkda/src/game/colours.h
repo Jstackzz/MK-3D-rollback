@@ -1,7 +1,7 @@
 #pragma once
 // The costumes' other colours (MK3D Online 1.0.7). Every costume of the regular fighters has a second set of colours
 // in the game's data (its "ap" texture sections: ap_scorpion.sec beside scorpion.sec), which the game itself gives
-// only to the second player of a mirror match. Holding LT (L1 on a PlayStation pad) while picking gives them: LT and A
+// only to the second player of a mirror match. Holding LT (L2 on a PlayStation pad) while picking gives them: LT and A
 // the first costume's, LT and START the second costume's (START picks the second costume, as ever). The costume word
 // keeps it as its bit 1 (bit 0 the second costume), as the game's own mirror rule sets it, and whether the pick held LT
 // (costumes.h kAltPick: the mirror rule can turn the colours either way).

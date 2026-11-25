@@ -347,16 +347,32 @@ whether to trust it: compare it with your host's.
   (the other player has their own), without F8 and F6: there is no dummy.
 - The other colours of a costume (all three games): every fighter's costume
   has a second set of colours, which the games themselves only give the
-  second player of a mirror match. Hold **LT** (L1) while you pick: LT and A
-  for the first costume's other colours, LT and START for the second
-  costume's. Online your opponent sees them too. When both players end up
-  with the same fighter in the same costume and colours, player 2 gets the
-  other colours, so you can always tell the two apart. Deadly Alliance has new
-  looks there: Raiden's first costume is a deeper blue, and red with LT and A;
-  Scorpion's first costume with LT and A is black and yellow (black and orange
-  for player 2 when both pick it); Bo' Rai Cho's second costume with LT and
-  START has black pants; Jax's second costume with LT and START is his red
-  jacket with red gloves.
+  second player of a mirror match. Hold **LT** (L2 on a PlayStation
+  controller) while you pick: LT and A for the first costume's other colours,
+  LT and START for the second costume's. Online your opponent sees them too.
+  When both players end up with the same fighter in the same costume and
+  colours, player 2 gets the other colours, so you can always tell the two
+  apart.
+- Deadly Alliance's new looks, picked on the select screen with a button of
+  their own: **Square** or **Triangle** on the fighter (on an Xbox controller
+  X and Y). X, START and L2 with either pick the game's own two costumes and
+  their other colours as ever (from 1.0.19; before, some looks took the place
+  of the game's own colours, and L1 held with the pick, which opens the
+  game's HANDICAP outside practice, gave costume 3).
+  - Raiden: Square, a deeper blue; Triangle, red.
+  - Scorpion: Square, black with his own costume's gold; Triangle, black and
+    orange.
+  - Bo' Rai Cho: Square, his second costume with black pants.
+  - Jax: Square, his red jacket with a white belt and black gloves; Triangle,
+    the same with red gloves.
+  - Drahmin: Square, Bronze (black wraps, a bronze club and shoulder pads, a
+    red banner); Triangle, Crimson.
+  - Shang Tsung: Square, black and gold.
+  - Frost: Square, All Black; Triangle, Deep Blue.
+
+  When both players pick one fighter, a look stays as picked and a plain
+  costume of that fighter takes whichever of its two colours the look does
+  not use; the same look picked twice is worn by both.
 - Sound: **Settings → SOUND** has a slider for the master level and for the
   music, sound effects, fighter voices, announcer and the arenas' own sounds
   (environment), each a percent of the game's own level (100 %: as the game

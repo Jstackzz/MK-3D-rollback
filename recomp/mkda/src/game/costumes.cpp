@@ -42,12 +42,12 @@ constexpr uint32_t kTable = 0x243B40, kStride = 0x110, kFirst = 0x00, kSecond = 
 constexpr uint32_t kShared = 0x80;
 constexpr uint32_t kScorpion = 0, kJax = 1, kShangTsung = 2, kRaiden = 10, kFrost = 11, kDrahmin = 18,
                    kBoRaiCho = 20;
-// the game's logical WHITE (frame.h): L1 on a PlayStation pad (the runtime's left shoulder); A and X (cross and square)
-constexpr uint32_t kButtonWhite = 0x1, kButtonA = 0x40, kButtonSquare = 0x80;
+// the game's logical buttons (frame.h): A and START (the picks), X and Y (square and triangle)
+constexpr uint32_t kButtonA = 0x40, kButtonStart = 0x800, kButtonSquare = 0x80, kButtonTriangle = 0x10;
 // the select screen: each player's cursor slot (P1, P2), the grid of slots (a character index each, 0x18 its end)
 constexpr uint32_t kSelectCursor[2] = {0x2EA660, 0x2EA65C};
 constexpr uint32_t kGrid = 0x273E38, kGridStride = 0x2C, kGridSlots = 32;
-// a player's own look of a costume: costume 3 or a Square look
+// a player's own look of a costume: a Triangle or a Square look
 constexpr uint32_t kLooks = kThird | kFourth;
 
 // --- the looks: palette colours near a hue (and saturated enough) become another hue, saturation and value ---
@@ -61,19 +61,15 @@ struct Rule {
 // Raiden's teal (hue 160 to 200, value about 0.15 in the files: the game's lighting brightens it)
 constexpr Rule kDeepBlue{185, 35, 60, 0.2, 228, 1.0, 1.3, 0.85};
 constexpr Rule kRed{185, 35, 60, 0.2, 356, 1.0, 1.25, 0.85};
-// his picture on the select screen: the cloth's darker colours only, so the lightning in his hand stays as it is
-constexpr Rule kDeepBluePicture{185, 35, 60, 0.2, 228, 1.0, 1.3, 0.85, 0.45};
 // Scorpion: the gold rims of his gear (sc_armor: shoulder pads, the plates on his thighs, knee guards; sc_pads: shin
 // and forearm guards) orange
 constexpr Rule kScorpionGearOrange{45, 18, 30, 0.3, 30, 1.2, 1.3, 0.9};
 // Bo' Rai Cho's second costume: its red pants (hue about 352) black; the yellow belt and the gold stay
 constexpr Rule kBoBlackPants{352, 20, 35, 0.3, 0, 0.0, 0.5, 0.0};
-// every colour a dark grey, a quarter of its value (Jax's hood in his costume 3: light grey cloth, his cap black already)
+// every colour a dark grey, a quarter of its value (Jax's hood in his two looks: light grey cloth, his cap black already)
 constexpr Rule kAllDark{0, 180, 180, -0.1, 0, 0.0, 0.25, 0.0};
-// Drahmin: the green of his mask's flat parts (Dflat) ivory (Crimson); his banner's red glyphs and border a grey green
-// (Bronze)
+// Drahmin: the green of his mask's flat parts (Dflat) ivory (Crimson)
 constexpr Rule kIvoryFlat{110, 30, 50, 0.2, 42, 0.3, 1.2, 0.17};
-constexpr Rule kGreyGreenGlyphs{355, 25, 40, 0.25, 140, 0.22, 0.8, 0.14};
 
 
 // every colour OUTSIDE a kept band (hue within inner of center, fading out at outer; saturation and value above s_min
@@ -475,8 +471,8 @@ struct InPlace {
 
 // a look made from one of the costume's sections, put at the end of a copy of its file under the section id of the
 // row that shows it (that row's models look for that id): for everyone in that row, or only for a player of the
-// fighter there with kMirrorLook, kThird or kFourth (a Square look, costumes.h)
-enum class Shown { Always, Mirror, Third, Square };
+// fighter there with kMirrorLook, kThird (a Triangle look) or kFourth (a Square look, costumes.h)
+enum class Shown { Always, Mirror, Triangle, Square };
 struct Look {
     bool from_colours;       // the section it starts from: the other colours' (true), else the costume's own
     bool to_colours;         // the row that shows it: the other colours' (true), else the costume's own
@@ -510,8 +506,8 @@ struct Fighter {
     bool HasShared() const {
         return std::any_of(looks.begin(), looks.end(), [](const Look& l) { return !l.shared.empty(); });
     }
-    bool HasThird() const {
-        return std::any_of(looks.begin(), looks.end(), [](const Look& l) { return l.shown == Shown::Third; });
+    bool HasTriangle() const {
+        return std::any_of(looks.begin(), looks.end(), [](const Look& l) { return l.shown == Shown::Triangle; });
     }
     bool HasSquare() const {
         return std::any_of(looks.begin(), looks.end(), [](const Look& l) { return l.shown == Shown::Square; });
@@ -521,20 +517,37 @@ struct Fighter {
     }
 };
 
-// Jax's costume 3: his alternate costume 2 (below) with red gloves; a copy of the game's section (the red jacket) with
-// the gloves red, the belt white, the undershirt and its hood black (his cap black already), under both rows' section
-// ids, for whichever row it takes
-const std::vector<Rebuild> kJaxThirdRebuild = {
+// Raiden's first costume, its teal (rd_blue, the cape, the hair's cape) a deeper blue (SQUARE) or red (TRIANGLE)
+const std::vector<Recolouring> kRaidenDeepBlue = {
+    {"rd_blue", &kDeepBlue, "rb_blue"}, {"rd_cape", &kDeepBlue, "rb_cape"}, {"rd_haircape", &kDeepBlue, "rb_haircape"}};
+const std::vector<Recolouring> kRaidenRed = {
+    {"rd_blue", &kRed, "r3_blue"}, {"rd_cape", &kRed, "r3_cape"}, {"rd_haircape", &kRed, "r3_haircape"}};
+// Scorpion's first costume black with its own gold (SQUARE), or black and orange, his gear's gold rims orange too
+// (TRIANGLE)
+const std::vector<Rebuild> kScorpionBlackGold = {{"sc_gold", "s3_gold", &kScorpionGold, {&kRampBlack}, 1}};
+const std::vector<Rebuild> kScorpionBlackOrange = {
+    {"sc_gold", "s4_gold", &kScorpionGold, {&kRampBlack, &kRampOrange}, 2}};
+const std::vector<Recolouring> kScorpionGearToOrange = {{"sc_armor", &kScorpionGearOrange, "s4_armor"},
+                                                        {"sc_pads", &kScorpionGearOrange, "s4_pads"}};
+// Bo' Rai Cho's second costume with black pants (SQUARE)
+const std::vector<Recolouring> kBoRaiChoBlackPants = {{"AltBRC_pants", &kBoBlackPants, "BlkBRC_pants"}};
+
+// Jax, on his second costume's other colours (the game's red jacket): SQUARE the belt white, the undershirt and its
+// hood black (his cap black already), his own black gloves; TRIANGLE the same with the gloves red. Every texture a look
+// changes is renamed (the game's own sections of that costume keep the names)
+const std::vector<Rebuild> kJaxBlackGlovesRebuild = {{"altJx_boot", "blgJx_belt", &kJaxBelt, {&kRampWhite}, 1},
+                                                     {"ap-alt_vest", "bg-alt_vest", &kJaxShirt, {&kRampBlack}, 1}};
+const std::vector<Recolouring> kJaxBlackGlovesRecolour = {{"altJX_hoodie", &kAllDark, "bglJX_hoodie"}};
+const std::vector<Rebuild> kJaxRedGlovesRebuild = {
     {"altJx_boot", "redJx_belt", &kJaxGloveBelt, {&kRampGloveRed, &kRampGloveRed, &kRampWhite}, 3},
     {"ap-alt_vest", "c3-alt_vest", &kJaxShirt, {&kRampBlack}, 1}};
-const std::vector<Recolouring> kJaxThirdRecolour = {{"altJX_hoodie", &kAllDark, "blkJX_hoodie"}};
+const std::vector<Recolouring> kJaxRedGlovesRecolour = {{"altJX_hoodie", &kAllDark, "blkJX_hoodie"}};
 
-// Drahmin's Bronze (his second costume's other colours, LT and START): those colours (bronze metal already) with the
-// wraps charcoal and the banner's glyphs grey green
+// Drahmin's Bronze (SQUARE): his second costume's other colours (bronze metal already) with the wraps charcoal; his
+// banner's border and glyphs keep those colours' red (grey green in 1.0.17 and 1.0.18)
 const std::vector<Recolouring> kDrahminBronze = {{"Dchestwrap", nullptr, "Bchestwrap", &kBronzeCloth},
-                                                 {"Darmwrap", nullptr, "Barmwrap", &kBronzeWraps},
-                                                 {"Dloincloth", &kGreyGreenGlyphs, "Bloincloth"}};
-// Drahmin's Crimson (his costume 3, L1 and START): his second costume itself (its grey metal) with maroon wraps, gold
+                                                 {"Darmwrap", nullptr, "Barmwrap", &kBronzeWraps}};
+// Drahmin's Crimson (TRIANGLE): his second costume itself (its grey metal) with maroon wraps, gold
 // glyphs on his banner (its red border kept), and its own copy of his shared section for an ivory mask with red markings
 const std::vector<Rebuild> kDrahminCrimsonRebuild = {
     {"Dloincloth", "Cloincloth", &kDrahminBannerGlyphs, {&kRampGold}, 1}};
@@ -543,18 +556,17 @@ const std::vector<Recolouring> kDrahminCrimson = {{"Dchestwrap", nullptr, "Cches
                                                   {"Dflat", &kIvoryFlat, "Cflat"}};
 const std::vector<Recolouring> kDrahminCrimsonMask = {
     {"Dmask", &kCrimsonMarkings, "Cmask"}, {"Cmask", nullptr, nullptr, &kCrimsonMaskBase}, {"Dflat", &kIvoryFlat, "Cflat"}};
-// Shang Tsung's black and gold (his costume 3, L1 and A): everything of his outfit that is not gold black, his pants and
+// Shang Tsung's black and gold (SQUARE): everything of his outfit that is not gold black, his pants and
 // his brown leather gloves all black (kShangHands), made from his first costume; his face (ShangTsungTexture3) untouched
 const std::vector<Rebuild> kShangBlackGoldRebuild = {
     {"ShangTsungTexture1", "ShangTsungTexturY1", &kShangHands, {&kRampDeepBlack, &kRampDeepBlack}, 2, &kBlackButGold, 1}};
 const std::vector<Recolouring> kShangBlackGold = {{"ShangTsungTexture2", nullptr, "ShangTsungTexturY2", &kBlackButGold}};
 
-// Frost's All Black (Jet Black, SQUARE) and Deep Blue (costume 3, L1 and A), the concept's, both made on her first
-// costume: her gi (the straps, the front panel,
-// the mask) one deep sapphire blue, its marks gone (made of the nearest cloth, smoothed), the medallion on her strap
-// bronze; her top, sleeves, gloves, pants and boots jet black; Jet Black's gloves and boots all black (their lines and
-// the forearms' light panels gone) and the belt around her leg and its tie black, Deep Blue's gloves and boots with
-// their lines in a darker blue and the belt and its tie the gi's blue
+// Frost's All Black (Jet Black, SQUARE) and Deep Blue (TRIANGLE), the concept's, both made on her first costume: her
+// gi (the straps, the front panel, the mask) one deep sapphire blue, its marks gone (made of the nearest cloth,
+// smoothed), the medallion on her strap bronze; her top, sleeves, gloves, pants and boots jet black; Jet Black's gloves
+// and boots all black (their lines and the forearms' light panels gone) and the belt around her leg and its tie black,
+// Deep Blue's gloves and boots with their lines in a darker blue and the belt and its tie the gi's blue
 const std::vector<Rebuild> kFrostJetBlack = {
     {.texture = "FR_belt", .rename = "FJ_belt", .map = &kFrostBelt,
      .ramps = {&kRampSapphire, &kRampJet, &kRampBronze, &kRampJet}, .ramp_count = 4, .fill = 1u << 4, .fill_from = 0,
@@ -579,58 +591,53 @@ const std::vector<Rebuild> kFrostDeepBlue = {
     {.texture = "FR_pants", .rename = "FD_pants", .map = &kFrostPants, .ramps = {&kRampJet}, .ramp_count = 1}};
 
 std::vector<Fighter> g_fighters = {
-    // the first costume in a deeper blue; its other colours (LT and A) red, made from it (the game's are purple)
-    {kRaiden, "RAIDEN", false, "rayden.ssf",
-     {{false,
-       {},
-       {{"rd_blue", &kDeepBlue, nullptr}, {"rd_cape", &kDeepBlue, nullptr}, {"rd_haircape", &kDeepBlue, nullptr}}}},
-     "x_rayden.ssf",
-     {{false, true, Shown::Always, "RAIDEN_RED.SEC", {},
-       {{"rd_blue", &kRed, "r3_blue"}, {"rd_cape", &kRed, "r3_cape"}, {"rd_haircape", &kRed, "r3_haircape"}}}}},
-    // the first costume's other colours (LT and A) black with the first costume's own gold (its mask, trims and studs
-    // kept as they are, his gear as the game's), made from it; black and orange for the second of two players who
-    // both asked for them
+    // SQUARE his first costume in a deeper blue; TRIANGLE red, made from it (his own colours, A, and other colours,
+    // LT and A, the game's teal and purple)
+    {kRaiden, "RAIDEN", false, "rayden.ssf", {}, "x_rayden.ssf",
+     {{false, false, Shown::Square, "RAIDEN_DEEP_BLUE.SEC", {}, kRaidenDeepBlue},
+      {false, true, Shown::Square, "RAIDEN_DEEP_BLUE_IN_COLOURS.SEC", {}, kRaidenDeepBlue},
+      {false, false, Shown::Triangle, "RAIDEN_RED.SEC", {}, kRaidenRed},
+      {false, true, Shown::Triangle, "RAIDEN_RED_IN_COLOURS.SEC", {}, kRaidenRed}}},
+    // SQUARE his first costume black with its own gold (his mask, trims and studs as they are, his gear as the game's);
+    // TRIANGLE black and orange
     {kScorpion, "SCORPION", false, "scorpion.ssf", {}, "x_scorpion.ssf",
-     {{false, true, Shown::Always, "SCORPION_BLACK_GOLD.SEC", {{"sc_gold", "s3_gold", &kScorpionGold, {&kRampBlack}, 1}},
-       {}},
-      {false, false, Shown::Mirror, "SCORPION_BLACK_ORANGE.SEC",
-       {{"sc_gold", "s4_gold", &kScorpionGold, {&kRampBlack, &kRampOrange}, 2}},
-       {{"sc_armor", &kScorpionGearOrange, "s4_armor"}, {"sc_pads", &kScorpionGearOrange, "s4_pads"}}}}},
-    // the second costume's other colours (LT and START): the second costume with black pants (the game's other colours
-    // are purple); x_drunkenfighter2.ssf is alt_drunkenfighter.ssf with it
+     {{false, false, Shown::Square, "SCORPION_BLACK_GOLD.SEC", kScorpionBlackGold, {}},
+      {false, true, Shown::Square, "SCORPION_BLACK_GOLD_IN_COLOURS.SEC", kScorpionBlackGold, {}},
+      {false, false, Shown::Triangle, "SCORPION_BLACK_ORANGE.SEC", kScorpionBlackOrange, kScorpionGearToOrange},
+      {false, true, Shown::Triangle, "SCORPION_BLACK_ORANGE_IN_COLOURS.SEC", kScorpionBlackOrange,
+       kScorpionGearToOrange}}},
+    // SQUARE his second costume with black pants (its other colours, LT and START, the game's purple)
     {kBoRaiCho, "BO' RAI CHO", true, "alt_drunkenfighter.ssf", {}, "x_drunkenfighter2.ssf",
-     {{false, true, Shown::Always, "BO_RAI_CHO_BLACK_PANTS.SEC", {}, {{"AltBRC_pants", &kBoBlackPants, "BlkBRC_pants"}}}}},
-    // the second costume's other colours (LT and START): the game's red jacket with the belt white and the undershirt
-    // and its hood black, his own black gloves (the boot and hood textures renamed, so the second costume itself keeps
-    // its belt and hood in a mirror). Costume 3 (L1 and START): that look with red gloves (his own gloves, on his own
-    // model: the same collision)
-    {kJax, "JAX", true, "alt_jax.ssf",
-     {{true,
-       {{"altJx_boot", "altJx_belt", &kJaxBelt, {&kRampWhite}, 1}, {"ap-alt_vest", nullptr, &kJaxShirt, {&kRampBlack}, 1}},
-       {{"altJX_hoodie", &kAllDark, "blkJX_hoodie"}}}},
-     "x_jax.ssf",
-     {{true, false, Shown::Third, "JAX_COSTUME_3.SEC", kJaxThirdRebuild, kJaxThirdRecolour},
-      {true, true, Shown::Third, "JAX_COSTUME_3_IN_COLOURS.SEC", kJaxThirdRebuild, kJaxThirdRecolour}}},
-    // the concept's Bronze and Crimson, on his second costume: its other colours (LT and START) Bronze (charcoal wraps,
-    // his green mask, bronze metal), made from those colours; costume 3 (L1 and START) Crimson, under both rows' section
-    // ids, each with its own copy of his shared section (the mask). His skin (Dface, Dtorso) is never touched
+     {{false, false, Shown::Square, "BO_RAI_CHO_BLACK_PANTS.SEC", {}, kBoRaiChoBlackPants},
+      {false, true, Shown::Square, "BO_RAI_CHO_BLACK_PANTS_IN_COLOURS.SEC", {}, kBoRaiChoBlackPants}}},
+    // on his second costume's other colours (the game's red jacket): SQUARE with the belt white and the undershirt and
+    // its hood black, his own black gloves; TRIANGLE that look with red gloves (his own gloves, on his own model: the
+    // same collision)
+    {kJax, "JAX", true, "alt_jax.ssf", {}, "x_jax.ssf",
+     {{true, false, Shown::Square, "JAX_BLACK_GLOVES.SEC", kJaxBlackGlovesRebuild, kJaxBlackGlovesRecolour},
+      {true, true, Shown::Square, "JAX_BLACK_GLOVES_IN_COLOURS.SEC", kJaxBlackGlovesRebuild, kJaxBlackGlovesRecolour},
+      {true, false, Shown::Triangle, "JAX_RED_GLOVES.SEC", kJaxRedGlovesRebuild, kJaxRedGlovesRecolour},
+      {true, true, Shown::Triangle, "JAX_RED_GLOVES_IN_COLOURS.SEC", kJaxRedGlovesRebuild, kJaxRedGlovesRecolour}}},
+    // the concept's Bronze and Crimson, on his second costume: SQUARE Bronze (charcoal wraps, his green mask, bronze
+    // metal, a red banner), made from its other colours; TRIANGLE Crimson, made from the costume itself, each with its
+    // own copy of his shared section (the mask). His skin (Dface, Dtorso) is never touched
     {kDrahmin, "DRAHMIN", true, "alt_drahmin.ssf", {}, "x_drahmin2.ssf",
-     {{true, true, Shown::Always, "DRAHMIN_BRONZE.SEC", {}, kDrahminBronze},
-      {false, false, Shown::Third, "DRAHMIN_CRIMSON.SEC", kDrahminCrimsonRebuild, kDrahminCrimson,
+     {{true, false, Shown::Square, "DRAHMIN_BRONZE.SEC", {}, kDrahminBronze},
+      {true, true, Shown::Square, "DRAHMIN_BRONZE_IN_COLOURS.SEC", {}, kDrahminBronze},
+      {false, false, Shown::Triangle, "DRAHMIN_CRIMSON.SEC", kDrahminCrimsonRebuild, kDrahminCrimson,
        "DRAHMIN_CRIMSON_MASK.SEC", kDrahminCrimsonMask},
-      {false, true, Shown::Third, "DRAHMIN_CRIMSON_IN_COLOURS.SEC", kDrahminCrimsonRebuild, kDrahminCrimson,
+      {false, true, Shown::Triangle, "DRAHMIN_CRIMSON_IN_COLOURS.SEC", kDrahminCrimsonRebuild, kDrahminCrimson,
        "DRAHMIN_CRIMSON_MASK_2.SEC", kDrahminCrimsonMask}}},
-    // costume 3 (L1 and A) black and gold, under both rows' section ids; his first costume's other colours the game's
+    // SQUARE black and gold on his first costume
     {kShangTsung, "SHANG TSUNG", false, "shangtsung.ssf", {}, "x_shangtsung.ssf",
-     {{false, false, Shown::Third, "SHANG_TSUNG_BLACK_GOLD.SEC", kShangBlackGoldRebuild, kShangBlackGold},
-      {false, true, Shown::Third, "SHANG_TSUNG_BLACK_GOLD_IN_COLOURS.SEC", kShangBlackGoldRebuild, kShangBlackGold}}},
-    // costume 3 (L1 and A) Deep Blue; SQUARE All Black (Jet Black); each under both rows' section ids; her first
-    // costume's other colours the game's
+     {{false, false, Shown::Square, "SHANG_TSUNG_BLACK_GOLD.SEC", kShangBlackGoldRebuild, kShangBlackGold},
+      {false, true, Shown::Square, "SHANG_TSUNG_BLACK_GOLD_IN_COLOURS.SEC", kShangBlackGoldRebuild, kShangBlackGold}}},
+    // on her first costume: SQUARE All Black (Jet Black), TRIANGLE Deep Blue
     {kFrost, "FROST", false, "subzerette.ssf", {}, "x_subzerette.ssf",
-     {{false, false, Shown::Third, "FROST_DEEP_BLUE.SEC", kFrostDeepBlue, {}},
-      {false, true, Shown::Third, "FROST_DEEP_BLUE_IN_COLOURS.SEC", kFrostDeepBlue, {}},
-      {false, false, Shown::Square, "FROST_JET_BLACK.SEC", kFrostJetBlack, {}},
-      {false, true, Shown::Square, "FROST_JET_BLACK_IN_COLOURS.SEC", kFrostJetBlack, {}}}},
+     {{false, false, Shown::Square, "FROST_JET_BLACK.SEC", kFrostJetBlack, {}},
+      {false, true, Shown::Square, "FROST_JET_BLACK_IN_COLOURS.SEC", kFrostJetBlack, {}},
+      {false, false, Shown::Triangle, "FROST_DEEP_BLUE.SEC", kFrostDeepBlue, {}},
+      {false, true, Shown::Triangle, "FROST_DEEP_BLUE_IN_COLOURS.SEC", kFrostDeepBlue, {}}}},
 };
 
 struct Served {
@@ -832,33 +839,6 @@ bool MakeEntries(Fighter& f, uint32_t& mem, uint32_t end, const std::vector<uint
     return true;
 }
 
-// Raiden's picture on the select screen in the deeper blue too: pselart.ssf's second section (the pictures of the
-// first costumes), items 5 (his head, 256 x 128) and 6 (his body, 256 x 256); left as it is when they are not there
-void MakePicture(const fs::path& dir) {
-    constexpr const char* kFile = "pselart.ssf";
-    constexpr size_t kItems[2] = {5, 6};
-    constexpr uint32_t kSizes[2][2] = {{256, 128}, {256, 256}};
-    Bytes d;
-    auto make = [&]() -> std::string {
-        if (!kernel::ReadGameFile(std::string("\\Device\\CdRom0\\artxbox\\") + kFile, d)) return "no file";
-        if (d.size() < 0x18 + 24 || U32(d, 0) != 0x53454320u || U32(d, 16) < 2) return "not the file it was";
-        const size_t at = U32(d, 0x18 + 12 + 4), size = U32(d, 0x18 + 12 + 8);
-        std::vector<Item> items;
-        if (!ReadSection(d, at, size, items)) return "no second section";
-        for (int k = 0; k < 2; k++) {
-            Texture t;
-            if (!FindItem(d, at, items, kItems[k], t) || t.w != kSizes[k][0] || t.h != kSizes[k][1])
-                return "his picture is not where it was";
-            for (int i = 0; i < 256; i++) Recolour(d.data() + t.palette + 4 * i, kDeepBluePicture);
-        }
-        fs::path path;
-        if (!Keep(dir, kFile, d, path)) return "cannot write " + (dir / kFile).string();
-        g_served.push_back({"\\ARTXBOX\\" + Upper(kFile), path.string()});
-        return {};
-    };
-    if (const std::string why = make(); !why.empty())
-        LOGE("costumes: RAIDEN's picture as it was (%s: %s)", kFile, why.c_str());
-}
 
 // at the first frame after boot, the same moment on both games of a match (guest memory lands where it would on the
 // other game): the files, then the entries
@@ -907,7 +887,17 @@ void Make(uint64_t) {
         LOGR("costumes: %s's %s costume made from %s (%zu looks)", f.name, f.second ? "second" : "first", f.file,
              f.looks.size());
     }
-    MakePicture(dir);
+    // a file of the folder this game does not give the game any more goes: up to 1.0.18 rayden.ssf, alt_jax.ssf and
+    // pselart.ssf were the game's own changed in place
+    std::error_code ec;
+    for (const fs::directory_entry& e : fs::directory_iterator(dir, ec)) {
+        const std::string name = Upper(e.path().filename().string());
+        if (!e.is_regular_file(ec) || name.size() < 4 || name.compare(name.size() - 4, 4, ".SSF") != 0) continue;
+        const std::string suffix = "\\ARTXBOX\\" + name;
+        if (std::none_of(g_served.begin(), g_served.end(), [&](const Served& s) { return s.suffix == suffix; }) &&
+            fs::remove(e.path(), ec))
+            LOGR("costumes: %s removed (not used any more)", name.c_str());
+    }
     mk3d::AddOpenHook(OpenHook);
     g_ready.store(true, std::memory_order_release);
 }
@@ -920,7 +910,7 @@ const Fighter* Find(uint32_t character) {
 }
 
 // before each lookup of the table (character, colours, costume, as sub_00103150 has them): a row with a look holds its
-// entry (a mirror look, costume 3 or a Square look only while a player of that fighter in that row has kMirrorLook,
+// entry (a mirror look, a Triangle or a Square look only while a player of that fighter in that row has kMirrorLook,
 // kThird or kFourth), every
 // other row the game's own; the looked-up fighter's shared entry is its look's copy when the row it lands on has one
 void Apply(uint32_t character, uint32_t colours, uint32_t costume) {
@@ -962,63 +952,67 @@ void Apply(uint32_t character, uint32_t colours, uint32_t costume) {
     }
 }
 
-// WHITE held (L1 on a PlayStation pad) by the player who picks: their own controller; practice picks both fighters
-// with P1's
-bool ThirdHeld(uint32_t player) {
-    auto held = [](uint32_t p) {
-        return (kernel::R32(kPlayerBlock + p * kPlayerStride + kPlayerCurrent) & kButtonWhite) != 0;
-    };
-    if (kernel::R32(kGameMode) == kModePractice) return held(0) || held(1);
-    return held(player);
-}
 
 const bool g_registered = (OnFrameStart(Make), true);
 
-// both players of one fighter in the costume a look is made on: one in a look (costume 3, a Square look), the other
-// plain: the plain one keeps the row it asked for (the other colours only with LT held; the game's own rule at a pick
-// gives them to the second of two players of one fighter whatever their costumes) and the look takes the row it leaves;
-// in two different looks: a row each, P1 the costume's own; true when it did (the same look: Settle)
+// A player's look (a Triangle or a Square look) has the row of their side from the pick on: P1 the costume's own, P2 its
+// other colours (each look is under both rows' section ids, the same either way), and never moves. A look that took
+// another row after its player's game had shown it on the select screen parted the two games of a match at once (the
+// fighter's render-path body point +0xA28, from the fight's first frame: linked tests, 2026-11-25), whereas a plain
+// costume moving to the other row is the game's own mirror rule and keeps them alike.
+uint32_t LookRow(uint32_t player) { return player == 1 ? 2u : 0u; }
+
+// both players of one fighter in the costume a look is made on, one in a look and the other plain: the plain one takes
+// the row the look leaves (whatever it asked for); two looks have their sides' rows already. True when a word changed
 bool Share(uint32_t word[2]) {
     if ((word[0] & 1) != (word[1] & 1)) return false;
-    const uint32_t a = word[0] & kLooks, b = word[1] & kLooks;
-    if (a && b) {
-        if (a == b) return false;
-        word[0] &= ~2u;
-        word[1] |= 2u;
-        return true;
-    }
     for (int k = 0; k < 2; k++) {
         const int o = 1 - k;
         if (!(word[k] & kLooks) || (word[o] & kLooks)) continue;
-        word[o] = (word[o] & ~2u) | ((word[o] & kAltPick) ? 2u : 0u);
-        word[k] = (word[k] & ~2u) | ((word[o] & 2u) ^ 2u);
+        const uint32_t row = (word[k] & 2u) ^ 2u;
+        if ((word[o] & 2u) == row) return false;
+        word[o] = (word[o] & ~2u) | row;
         return true;
     }
     return false;
 }
 
-// SQUARE (the pad's X) picks a fighter's Square look. The game picks with A and START only: a player choosing (state 2)
-// on a fighter with a Square look who presses Square gets an A press that frame instead, right after the pad update and
-// before the select screen reads the buttons, and the pick that follows (Picked) takes the look. Practice picks both
-// fighters with P1's controller
-uint64_t g_square_until[2] = {};
-void SquarePicks(uint64_t) {
+// SQUARE (the pad's X) picks a fighter's Square look, TRIANGLE (the pad's Y) its Triangle look. The game picks with A
+// and START only: a player choosing (state 2) on such a fighter who presses one of them gets, that frame, the press
+// that picks the costume the look is made on (A for the first costume, START for the second), right after the pad
+// update and before the select screen reads the buttons, and the pick that follows (Picked) takes the look. Neither
+// does anything else on the select screen, online too (WHITE, L1, which picked costume 3 in 1.0.17 and 1.0.18, opens
+// the handicap there outside practice, and nobody picks while it is open). Practice picks both fighters with P1's
+// controller
+uint64_t g_square_until[2] = {}, g_triangle_until[2] = {};
+void LookPicks(uint64_t) {
     if (!g_ready.load(std::memory_order_acquire)) return;
     const bool practice = kernel::R32(kGameMode) == kModePractice;
     for (uint32_t p = 0; p < 2; p++) {
         if (kernel::R32(kPlayerState[p]) != 2) continue;
         const uint32_t block = kPlayerBlock + (practice ? 0 : p) * kPlayerStride;
-        if (!(kernel::R32(block + kPlayerPressed) & kButtonSquare)) continue;
+        const uint32_t pressed = kernel::R32(block + kPlayerPressed);
+        if (!(pressed & (kButtonSquare | kButtonTriangle))) continue;
         const uint32_t slot = kernel::R32(kSelectCursor[p]);
         if (slot >= kGridSlots) continue;
         const Fighter* f = Find(kernel::R32(kGrid + slot * kGridStride));
-        if (!f || !f->HasSquare()) continue;
-        kernel::W32(block + kPlayerCurrent, kernel::R32(block + kPlayerCurrent) | kButtonA);
-        kernel::W32(block + kPlayerPressed, kernel::R32(block + kPlayerPressed) | kButtonA);
-        g_square_until[p] = Frame() + 1;
+        if (!f) continue;
+        uint64_t* until = (pressed & kButtonSquare) && f->HasSquare()     ? &g_square_until[p]
+                          : (pressed & kButtonTriangle) && f->HasTriangle() ? &g_triangle_until[p]
+                                                                         : nullptr;
+        if (!until) continue;
+        const uint32_t pick = f->second ? kButtonStart : kButtonA;
+        kernel::W32(block + kPlayerCurrent, kernel::R32(block + kPlayerCurrent) | pick);
+        kernel::W32(block + kPlayerPressed, kernel::R32(block + kPlayerPressed) | pick);
+        *until = Frame() + 1;
+        // practice: P1's controller picks the opponent too, a pick the game may take as P2's
+        if (practice) {
+            uint64_t* both = until == &g_square_until[p] ? g_square_until : g_triangle_until;
+            both[1 - p] = *until;
+        }
     }
 }
-const bool g_square_registered = (OnPadsRead(SquarePicks), true);
+const bool g_looks_registered = (OnPadsRead(LookPicks), true);
 
 }  // namespace
 
@@ -1029,20 +1023,24 @@ void Picked(uint32_t player) {
     uint32_t w = kernel::R32(va) & ~kLooks;
     const Fighter* f = Find(kernel::R32(kCharacter[player]));
     const bool square = g_square_until[player] && Frame() <= g_square_until[player];
-    g_square_until[player] = 0;
-    // a look of the costume picked (not the other colours, should LT be held too); the row it goes in settles at the
-    // select screen's end: SQUARE the Square look; WHITE held costume 3 (A for one made on the first costume, START on
-    // the second)
-    if (f && bool(w & 1) == f->second && square && f->HasSquare()) {
-        w = (w & ~kAltPick) | kFourth;
+    const bool triangle = g_triangle_until[player] && Frame() <= g_triangle_until[player];
+    g_square_until[player] = g_triangle_until[player] = 0;
+    // a look of the costume the button picked (LookPicks), in its side's row (LookRow; not the other colours, should
+    // LT be held too): SQUARE its Square look, TRIANGLE its Triangle look; any other pick the game's own costume
+    const bool on_looks = f && bool(w & 1) == f->second;
+    if (on_looks && square && f->HasSquare()) {
+        w = (w & ~(kAltPick | 2u)) | LookRow(player) | kFourth;
         LOGR("costumes: P%u picked %s with SQUARE: its Square look (costume word %X)", player + 1, f->name, w);
-    } else if (f && bool(w & 1) == f->second && f->HasThird() && ThirdHeld(player)) {
-        w = (w & ~kAltPick) | kThird;
-        LOGR("costumes: P%u picked %s holding WHITE: costume 3 (costume word %X)", player + 1, f->name, w);
+    } else if (on_looks && triangle && f->HasTriangle()) {
+        w = (w & ~(kAltPick | 2u)) | LookRow(player) | kThird;
+        LOGR("costumes: P%u picked %s with TRIANGLE: its Triangle look (costume word %X)", player + 1, f->name, w);
+    } else if (on_looks) {
+        LOGR("costumes: P%u picked %s's %s costume, the game's (costume word %X)", player + 1, f->name,
+             f->second ? "second" : "first", w);
     }
     kernel::W32(va, w);
-    // the other player already picked this fighter: the rows as the select screen's end will have them, before this
-    // pick's model loads (a task on the next frames)
+    // the other player already picked this fighter: the plain one in the row the look leaves, before this pick's model
+    // loads (a task on the next frames)
     const uint32_t other = 1 - player, ova = kernel::R32(kCostume[other]);
     if (!f || !ova || kernel::R32(kPlayerState[other]) != 3 ||
         kernel::R32(kCharacter[other]) != kernel::R32(kCharacter[player]))
@@ -1053,7 +1051,7 @@ void Picked(uint32_t player) {
     if (!Share(word)) return;
     kernel::W32(va, word[player]);
     kernel::W32(ova, word[other]);
-    LOGR("costumes: %s's looks and the costume they are made on: P1 %s, P2 %s", f->name,
+    LOGR("costumes: %s's look and the plain costume beside it: P1 %s, P2 %s", f->name,
          word[0] & 2 ? "other colours" : "own colours", word[1] & 2 ? "other colours" : "own colours");
 }
 
@@ -1061,20 +1059,17 @@ int Settle(uint32_t word[2]) {
     for (int k = 0; k < 2; k++) {
         const Fighter* f = Find(kernel::R32(kCharacter[k]));
         if (!f || bool(word[k] & 1) != f->second) word[k] &= ~kLooks;
-        if (!f || !f->HasThird()) word[k] &= ~kThird;
+        if (!f || !f->HasTriangle()) word[k] &= ~kThird;
         if (!f || !f->HasSquare()) word[k] &= ~kFourth;
+        // a look in its side's row: Picked put it there (a word from anywhere else as well)
+        if (word[k] & kLooks) word[k] = (word[k] & ~2u) | LookRow(uint32_t(k));
     }
     const uint32_t character = kernel::R32(kCharacter[0]), a = word[0] & kLooks, b = word[1] & kLooks;
-    if (character == kernel::R32(kCharacter[1]) && a && a == b) {
-        // both in one look of a fighter's costume: P2 the costume it is made on, in its own colours; P1 the other row
-        word[1] &= ~(kLooks | 2u);
-        word[0] |= 2u;
-        LOGR("costumes: both players picked the same look of %s: P2 the costume itself", Find(character)->name);
-    } else if (character == kernel::R32(kCharacter[1]) && Share(word)) {
-        LOGR("costumes: %s's looks and the costume they are made on: P1 %s, P2 %s", Find(character)->name,
+    if (character == kernel::R32(kCharacter[1]) && Share(word))
+        LOGR("costumes: %s's look and the plain costume beside it: P1 %s, P2 %s", Find(character)->name,
              word[0] & 2 ? "other colours" : "own colours", word[1] & 2 ? "other colours" : "own colours");
-    }
-    return a && !b ? 0 : 1;
+    // the side the mirror rule may turn: never a look (two looks, or a look and a plain costume, are rows apart by now)
+    return b && !a ? 0 : 1;
 }
 
 void SelectEnds(uint32_t word[2]) {
