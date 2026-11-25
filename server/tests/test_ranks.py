@@ -109,10 +109,13 @@ async def test_a_new_player_starts_a_beginner_and_a_record_from_the_old_start_st
     assert elo.INITIAL == 475
     start = {"elo": 475, "title": "Beginner", "wins": 0, "losses": 0}
     prof = await c.request({"type": "profile"})
-    # every game's Kombat; Online Practice keeps no record, and the side modes left ranked (1.0.15)
-    assert all(prof["stats"][game]["kombat"]["ranked"] == start for game in P.GAMES)
-    assert all("ranked" not in prof["stats"].get(game, {}).get(mode, {}) for game, modes in P.GAMES.items()
-               for mode in modes if mode not in P.RANKED_MODES)
+    # every game's Kombat (of this launcher's product: an MK3D profile has the three MK3D games, not the arcade
+    # ones); Online Practice keeps no record, and the side modes left ranked (1.0.15)
+    games = P.PRODUCTS[P.DEFAULT_PRODUCT]
+    assert sorted(prof["stats"]) == sorted(games)
+    assert all(prof["stats"][game]["kombat"]["ranked"] == start for game in games)
+    assert all("ranked" not in prof["stats"].get(game, {}).get(mode, {}) for game in games
+               for mode in P.GAMES[game] if mode not in P.RANKED_MODES)
     set_rating(server, "Goro", 1516)  # played ranked while everyone started at 1500
     set_rating(server, "Goro", 1300, mode="chess")  # an old chess record stays in the database, unshown
     prof = await c.request({"type": "profile"})

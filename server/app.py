@@ -168,6 +168,7 @@ class Session:
         self.ip: str = peer[0]
         self.hello = False
         self.client_version = ""
+        self.product = P.DEFAULT_PRODUCT  # which app (P.PRODUCTS), from its hello
         self.features: set[str] = set()  # what its launcher can do beyond the protocol's start (hello, P.FEATURES)
         self.crash_reports = 0
         self.desync_reports = 0
@@ -847,26 +848,35 @@ class Server:
             s.close()
             return
         version = str(msg.get("version", "0"))
-        update = self._update_for(version)
-        if not P.version_at_least(version, self.cfg.min_client):
+        product = msg.get("product", P.DEFAULT_PRODUCT)
+        if product not in P.PRODUCTS:
+            s.send(self._error("bad_product", f"This server knows the apps {', '.join(P.PRODUCTS)}.", msg))
+            s.close()
+            return
+        mk3d = product == P.DEFAULT_PRODUCT
+        # MK3D's oldest launcher and its update file are MK3D's; another app has its own oldest version, no updates
+        min_client = self.cfg.min_client if mk3d else P.PRODUCT_MIN_CLIENT.get(product, "0")
+        update = self._update_for(version) if mk3d else None
+        if not P.version_at_least(version, min_client):
             # launchers before 0.1.7 show only the message: it says where the release is
             page = update["page"] if update else P.RELEASES_PAGE
-            reply = {**self._error("client_outdated", f"Update the launcher to {self.cfg.min_client} or newer: {page}",
-                                   msg), "min_client": self.cfg.min_client}
-            if update and P.version_at_least(update["version"], self.cfg.min_client):
+            reply = {**self._error("client_outdated", f"Update the launcher to {min_client} or newer: {page}",
+                                   msg), "min_client": min_client}
+            if update and P.version_at_least(update["version"], min_client):
                 reply["update"] = update  # a launcher with the updater installs it from here
             s.send(reply)
             s.close()
             return
         s.hello = True
         s.client_version = version
+        s.product = product
         features = msg.get("features")
         if isinstance(features, list):
             s.features = {f for f in features if isinstance(f, str) and f in P.FEATURES}
         welcome = {
             "type": "welcome", "proto": P.PROTO, "server": P.SERVER_NAME, "version": P.SERVER_VERSION,
-            "udp_port": self.udp_port, "motd": self.cfg.motd, "online": len(self.by_account),
-            "min_client": self.cfg.min_client, "games": {g: list(m) for g, m in P.GAMES.items()},
+            "udp_port": self.udp_port, "motd": self.cfg.motd, "online": self._online_count(product),
+            "min_client": min_client, "games": {g: list(P.GAMES[g]) for g in P.PRODUCTS[product]},
             "regions": list(P.REGIONS), "direct_above_ms": self.cfg.direct_above_ms,
             "ranks": elo.ladder(),  # the ranked titles by Elo (0.1.21)
             "features": list(P.FEATURES),  # King of the Hill lobbies and their Respect Points
@@ -920,7 +930,8 @@ class Server:
             return
         offered = 0
         for s in list(self.sessions):
-            if s.hello and not P.version_at_least(s.client_version, latest["version"]):
+            if (s.hello and s.product == P.DEFAULT_PRODUCT
+                    and not P.version_at_least(s.client_version, latest["version"])):
                 s.send({"type": "update", **latest})
                 offered += 1
         log.info("release %s announced to %d connected launcher(s)", version, offered)
@@ -1025,7 +1036,7 @@ class Server:
         self.by_account[account_id] = s
         self._reply(s, msg, {
             "type": "account", "name": s.name, "token": token, "token_expires": int(expires or 0),
-            "udp_token": s.udp_token, "admin": s.admin, "profile": self._profile(row),
+            "udp_token": s.udp_token, "admin": s.admin, "profile": self._profile(row, s.product),
         })
         series = self.series_of.get(account_id)
         sp = series.player_for(account_id) if series is not None else None
@@ -1115,13 +1126,15 @@ class Server:
         self._detach_account(s)
         self._reply(s, msg, {"type": "logged_out"})
 
-    def _profile(self, row: Any) -> dict[str, Any]:
+    def _profile(self, row: Any, product: str = P.DEFAULT_PRODUCT) -> dict[str, Any]:
+        """An account's records in the games of one app (the asking session's product)."""
         assert self.db is not None
-        stats = self.db.stats(int(row["id"]))
+        games = P.PRODUCTS.get(product, ())
+        stats = {g: v for g, v in self.db.stats(int(row["id"])).items() if g in games}
         # a mode never played ranked comes with the rating it starts from: the launcher's own default is the old start's
         start = {"elo": elo.INITIAL, "title": elo.title(elo.INITIAL), "wins": 0, "losses": 0}
-        for game, modes in P.GAMES.items():
-            for mode in modes:
+        for game in games:
+            for mode in P.GAMES[game]:
                 if mode in P.RANKED_MODES:  # Online Practice keeps no records, the side modes no ranked one (1.0.15)
                     stats.setdefault(game, {}).setdefault(mode, {}).setdefault("ranked", dict(start))
         for modes in stats.values():  # a side mode's ranked record from before 1.0.15 stays in the database, unshown
@@ -1130,7 +1143,8 @@ class Server:
                     kinds.pop("ranked", None)
         # King of the Hill: the Respect Points spectators gave them in each game and mode they have any
         for (game, mode), respect in self.db.respect_all(int(row["id"])).items():
-            stats.setdefault(game, {}).setdefault(mode, {})["respect"] = respect
+            if game in games:
+                stats.setdefault(game, {}).setdefault(mode, {})["respect"] = respect
         return {"name": row["name"], "created": int(row["created"]), "stats": stats}
 
     def on_profile(self, s: Session, msg: dict[str, Any]) -> None:
@@ -1146,27 +1160,35 @@ class Server:
             if s.account_id is None:
                 raise P.ProtocolError("not_logged_in", "Log in first.")
             row = self.db.account(s.account_id)
-        self._reply(s, msg, {"type": "profile", **self._profile(row)})
+        self._reply(s, msg, {"type": "profile", **self._profile(row, s.product)})
 
     # --- online count, notices, keepalive ---------------------------------------------------------
 
-    def _online_payload(self) -> dict[str, Any]:
-        queues = collections.Counter(e.queue_name for e in self.queue.values())
-        playing = sum(len(m.players) for m in self.matches.values() if m.state != "found")
-        return {"type": "online", "count": len(self.by_account), "connected": len(self.sessions),
-                "queued": len(self.queue), "playing": playing, "queues": dict(sorted(queues.items())),
-                "games": self._game_counts(), "searchers": self._searchers()}
+    def _online_count(self, product: str) -> int:
+        """Signed-in players of one app."""
+        return sum(1 for sess in self.by_account.values() if getattr(sess, "product", P.DEFAULT_PRODUCT) == product)
 
-    def _searchers(self, limit: int = 40) -> list[dict[str, str]]:
+    def _online_payload(self, product: str = P.DEFAULT_PRODUCT) -> dict[str, Any]:
+        """The online counts one app's launchers see: its own players, searches, matches and games."""
+        games = P.PRODUCTS.get(product, ())
+        entries = [e for e in self.queue.values() if e.game in games]
+        queues = collections.Counter(e.queue_name for e in entries)
+        playing = sum(len(m.players) for m in self.matches.values() if m.state != "found" and m.game in games)
+        connected = sum(1 for sess in self.sessions if sess.product == product)
+        return {"type": "online", "count": self._online_count(product), "connected": connected,
+                "queued": len(entries), "playing": playing, "queues": dict(sorted(queues.items())),
+                "games": self._game_counts(games), "searchers": self._searchers(games)}
+
+    def _searchers(self, games: tuple[str, ...], limit: int = 40) -> list[dict[str, str]]:
         """Who searches, for which game and queue, the longest waiting first (the matchmaking pages list them)."""
-        entries = sorted(self.queue.values(), key=lambda e: (e.since, e.name))[:limit]
+        entries = sorted((e for e in self.queue.values() if e.game in games), key=lambda e: (e.since, e.name))[:limit]
         return [{"name": e.name, "game": e.game, "queue": e.queue_name} for e in entries]
 
-    def _game_counts(self) -> dict[str, dict[str, int]]:
+    def _game_counts(self, games: tuple[str, ...]) -> dict[str, dict[str, int]]:
         """Each game's players: searching, in its matches (a series between two matches too), in its lobbies
         (spectators too), and `playing`, any of those, each player once."""
         who: dict[str, dict[str, set[int]]] = {
-            g: {"searching": set(), "matches": set(), "lobbies": set()} for g in P.GAMES}
+            g: {"searching": set(), "matches": set(), "lobbies": set()} for g in games}
 
         def add(game: str, kind: str, accounts: Any) -> None:
             if game in who:
@@ -1192,17 +1214,23 @@ class Server:
         if not self._online_dirty or now - self._online_last < self.cfg.online_push_interval:
             return
         self._online_dirty = False
-        payload = self._online_payload()
-        if payload == self._online_payload_last:
-            return
-        self._online_last = now
-        self._online_payload_last = payload
-        for s in list(self.sessions):
-            if s.hello:
-                s.send(dict(payload))
+        last = self._online_payload_last if isinstance(self._online_payload_last, dict) else {}
+        pushed = False
+        for product in P.PRODUCTS:  # each app's launchers get their own counts, when they changed
+            payload = self._online_payload(product)
+            if payload == last.get(product):
+                continue
+            last[product] = payload
+            pushed = True
+            for s in list(self.sessions):
+                if s.hello and s.product == product:
+                    s.send(dict(payload))
+        self._online_payload_last = last
+        if pushed:
+            self._online_last = now
 
     def on_online(self, s: Session, msg: dict[str, Any]) -> None:
-        self._reply(s, msg, self._online_payload())
+        self._reply(s, msg, self._online_payload(s.product))
 
     def on_ping(self, s: Session, msg: dict[str, Any]) -> None:
         self._reply(s, msg, {"type": "pong", "t": time.time()})
@@ -1222,11 +1250,18 @@ class Server:
             if other.hello:
                 other.send({"type": "notice", "text": text, "level": level})
 
+    def _game_mode(self, s: Session, msg: dict[str, Any]) -> tuple[str, str]:
+        """The request's game and mode, which must be one of the games of the session's app (P.PRODUCTS)."""
+        game, mode = P.get_game_mode(msg)
+        if game not in P.PRODUCTS.get(s.product, ()):
+            raise P.ProtocolError("bad_game", f"Unknown game {game!r}.")
+        return game, mode
+
     # --- queue ------------------------------------------------------------------------------------
 
     def on_queue_join(self, s: Session, msg: dict[str, Any]) -> None:
         assert self.db is not None and s.account_id is not None and s.name is not None
-        game, mode = P.get_game_mode(msg)
+        game, mode = self._game_mode(s, msg)
         if mode in P.LOBBY_ONLY_MODES:
             raise P.ProtocolError("bad_mode", "Online Practice is played in a lobby: share its code with a friend.")
         ranked = P.get_bool(msg, "ranked", default=False)
@@ -2493,7 +2528,7 @@ class Server:
     def on_lobby_create(self, s: Session, msg: dict[str, Any]) -> None:
         if s.queue is not None or s.lobby is not None or s.match is not None:
             raise P.ProtocolError("busy", "Leave the queue, lobby or match first.")
-        game, mode = P.get_game_mode(msg)
+        game, mode = self._game_mode(s, msg)
         self._quit_series(s)
         default_name = f"{s.name}'s lobby"
         name = P.get_str(msg, "name", default=default_name, max_len=128).strip()[: P.LOBBY_NAME_MAX] or default_name
@@ -2528,11 +2563,13 @@ class Server:
 
     def on_lobby_list(self, s: Session, msg: dict[str, Any]) -> None:
         game = msg.get("game")
-        if game is not None and game not in P.GAMES:
+        games = P.PRODUCTS.get(s.product, ())
+        if game is not None and game not in games:
             raise P.ProtocolError("bad_game", f"Unknown game {game!r}.")
-        # an Online Practice lobby is found by its code only
+        # an Online Practice lobby is found by its code only; another app's lobbies are not listed
         items = [lb.summary() for lb in sorted(self.lobbies.values(), key=lambda lb: lb.created)
-                 if (game is None or lb.game == game) and lb.mode not in P.LOBBY_ONLY_MODES]
+                 if (lb.game == game if game is not None else lb.game in games)
+                 and lb.mode not in P.LOBBY_ONLY_MODES]
         self._reply(s, msg, {"type": "lobbies", "lobbies": items})
 
     def on_lobby_join(self, s: Session, msg: dict[str, Any]) -> None:
@@ -2540,7 +2577,7 @@ class Server:
             raise P.ProtocolError("busy", "Leave the queue, lobby or match first.")
         code = P.get_str(msg, "lobby", max_len=16).strip().upper()
         lobby = self.lobbies.get(code)
-        if lobby is None:
+        if lobby is None or lobby.game not in P.PRODUCTS.get(s.product, ()):  # another app's lobby: not for it
             raise P.ProtocolError("no_such_lobby", "No lobby with that code.")
         spectate = P.get_bool(msg, "spectate", default=False)
         if lobby.mode in P.LOBBY_ONLY_MODES and (spectate or len(lobby.players()) >= 2):
@@ -2912,7 +2949,7 @@ class Server:
 
     def on_leaderboard(self, s: Session, msg: dict[str, Any]) -> None:
         assert self.db is not None
-        game, mode = P.get_game_mode(msg)
+        game, mode = self._game_mode(s, msg)
         limit = P.get_int(msg, "limit", lo=1, hi=200, default=100)
         offset = P.get_int(msg, "offset", lo=0, hi=1_000_000, default=0)
         by = msg.get("by", "elo")

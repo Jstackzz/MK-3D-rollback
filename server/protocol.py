@@ -22,7 +22,21 @@ GAMES: dict[str, tuple[str, ...]] = {
     "mkda": ("kombat", "sparring"),
     "mkd": ("kombat", "chess", "puzzle", "sparring"),
     "mka": ("kombat", "motor", "sparring"),
+    # MK Arcade Online (2026-11-24): the arcade boards' games, fights picked on their own select screens
+    "mk": ("kombat", "sparring"),
+    "mk2": ("kombat", "sparring"),
+    "mk3": ("kombat", "sparring"),
+    "umk3": ("kombat", "sparring"),
 }
+# Each app is a product with its own games: its hello says which ("product"; MK3D launchers name none). A session
+# sees only its product's games (welcome, online counts, lobby lists, profiles) and can only search, host or look up
+# those; accounts are shared. MK3D's oldest launcher is the server's --min-client and its update file is MK3D's.
+PRODUCTS: dict[str, tuple[str, ...]] = {
+    "mk3d": ("mkda", "mkd", "mka"),
+    "mkarcade": ("mk", "mk2", "mk3", "umk3"),
+}
+DEFAULT_PRODUCT = "mk3d"
+PRODUCT_MIN_CLIENT: dict[str, str] = {"mkarcade": "0.1.0"}
 # the modes whose players can pick on the game's own select screen (the launcher's "-"): a series' next match goes
 # back there in them
 SELECT_SCREEN_MODES: frozenset[str] = frozenset({"kombat", "sparring"})
