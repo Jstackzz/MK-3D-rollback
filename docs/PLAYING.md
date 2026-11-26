@@ -378,8 +378,9 @@ whether to trust it: compare it with your host's.
   - Sonya: Square, Forest (a deep green jacket, a black top, grey cuffs, her
     brass belt); Triangle, Black (a black jacket, a light grey top and cuffs,
     silver belt pieces); both on her first costume (from 1.0.21).
-  - Reptile: Square, dark green and black (on his first costume's other
-    colours: a deep green gi, black scales, his tan throat, grey metal; from
+  - Reptile: Square, dark green and black on his first costume, with its
+    gold (a deep green gi, black scales, his tan throat; from 1.0.22);
+    Triangle, the same on its other colours, with grey metal (on Square in
     1.0.21).
   - Nitara: Square, black and red (her first costume: a black jacket, a
     crimson top, lining and wings); Triangle, the same in dark purple and

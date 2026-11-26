@@ -78,6 +78,8 @@ constexpr Rule kIvoryFlat{110, 30, 50, 0.2, 42, 0.3, 1.2, 0.17};
 // Reptile's scales black: the teal green of his first costume's other colours, the yellow green of his damaged faces
 // (his tan throat, eyes and teeth kept)
 constexpr Rule kScalesBlack{110, 50, 65, 0.12, 100, 0.0, 0.3, 0.0};
+// his first costume's own colours: their yellow green (hue 45 to 90; the tan throat, 15 to 40, kept)
+constexpr Rule kYellowScalesBlack{95, 40, 55, 0.15, 100, 0.0, 0.3, 0.0};
 // Nitara: the red of her boots black (Square) or dark purple (Triangle); her wings' brown a deep red (their black ribs
 // stay dark), or first their darkest colours, the ribs and edges, purple (Triangle)
 constexpr Rule kRedToBlack{355, 25, 40, 0.3, 0, 0.0, 0.45, 0.0};
@@ -106,6 +108,8 @@ constexpr Rule kCrimsonMarkings{0, 180, 180, 0.42, 356, 1.0, 0.8, 0.75};
 constexpr Except kCrimsonMaskBase{0, 180, 180, 0.5, 0.0, 42, 0.17, 1.05};
 // his gold in his white and gold, a wider band (hue 18 to 70, its pale and dark shades too): fewer white specks in it
 constexpr Except kKeepGoldWide{44, 26, 34, 0.15, 0.12, 0, 0.0, 0.0};
+// Reptile's bronze kept, the grey of his shoulder guards and the clasps beside it near black
+constexpr Except kKeepBronze{35, 15, 25, 0.3, 0.1, 0, 0.0, 0.3};
 // Sonya's first costume: her olive jacket (hue 73 to 100, saturation about 0.23) a deep green or black (its patches,
 // other colours, kept); her crop top (light grey, unsaturated) black or a cool light grey, her skin (hue about 31,
 // saturated) kept
@@ -658,7 +662,7 @@ const std::vector<Rebuild> kFrostDeepBlue = {
      .ramp_count = 2},
     {.texture = "FR_pants", .rename = "FD_pants", .map = &kFrostPants, .ramps = {&kRampJet}, .ramp_count = 1}};
 
-// Reptile's dark green and black (SQUARE), the concept's, made on his first costume's other colours (the game's teal,
+// Reptile's dark green and black (TRIANGLE; SQUARE in 1.0.21), the concept's, made on his first costume's other colours (the game's teal,
 // grey metal): his gi (its front panels, hip panels, wrist guards, knee and shoulder plates) deep forest green, its
 // inner shirt, edges and his sash black, his scales black (his damaged faces' too; his tan throat kept), his shin plates
 // black; the grey metal (trims, belt medallion) and his black quilted shorts as they are. The maps are his first
@@ -672,6 +676,18 @@ const std::vector<Recolouring> kReptileDarkGreen = {
     {"ap_neck", &kScalesBlack, "rx_neck"},           {"ap_face", &kScalesBlack, "rx_face"},
     {"#13", &kScalesBlack, nullptr},                 {"#14", &kScalesBlack, nullptr},
     {"#15", &kScalesBlack, nullptr}};
+// the same outfit on his first costume's own colours (SQUARE): its gi deep forest green, inner shirt, edges, sash and
+// shin plates black, his yellow green scales black (his damaged faces' too; his tan throat kept), the bronze (trims,
+// belt medallion) as it is, the grey of his shoulder guards near black
+const std::vector<Rebuild> kReptileGoldRebuild = {
+    {"cloth", "rpoth", &kReptileCloth, {&kRampForest, &kRampJet}, 2},
+    {"trim", "rpim", &kReptileTrim, {&kRampJet, &kRampForest}, 2},
+    {"metal_dull", "rptal_dull", &kReptileMetal, {&kRampForest, &kRampJet, &kRampScales}, 3}};
+const std::vector<Recolouring> kReptileGold = {
+    {"hand_feet", &kYellowScalesBlack, "rpnd_feet"}, {"arm_chest_tail", &kYellowScalesBlack, "rpm_chest_tail"},
+    {"neck", &kYellowScalesBlack, "rpck"},           {"face", &kYellowScalesBlack, "rpce"},
+    {"#13", &kYellowScalesBlack, nullptr},           {"#14", &kYellowScalesBlack, nullptr},
+    {"#15", &kYellowScalesBlack, nullptr},           {"bronze", nullptr, "rponze", &kKeepBronze}};
 // Nitara's black and red (SQUARE), the concept's, on her first costume: her jacket and sleeves black (its collar too),
 // her top and lower garment crimson, her coat-tails' lining crimson with black edges, her wings deep red, her boots
 // black with crimson cuffs (her choker black); her tights, the brown strap on her thigh and the gold as they are
@@ -754,10 +770,12 @@ std::vector<Fighter> g_fighters = {
       {false, true, Shown::Square, "FROST_JET_BLACK_IN_COLOURS.SEC", kFrostJetBlack, {}},
       {false, false, Shown::Triangle, "FROST_DEEP_BLUE.SEC", kFrostDeepBlue, {}},
       {false, true, Shown::Triangle, "FROST_DEEP_BLUE_IN_COLOURS.SEC", kFrostDeepBlue, {}}}},
-    // SQUARE dark green and black, made on his first costume's other colours
+    // dark green and black: SQUARE on his first costume (its gold), TRIANGLE on its other colours (grey metal)
     {kReptile, "REPTILE", false, "reptile.ssf", {}, "x_reptile.ssf",
-     {{true, false, Shown::Square, "REPTILE_DARK_GREEN.SEC", kReptileDarkGreenRebuild, kReptileDarkGreen},
-      {true, true, Shown::Square, "REPTILE_DARK_GREEN_IN_COLOURS.SEC", kReptileDarkGreenRebuild, kReptileDarkGreen}}},
+     {{false, false, Shown::Square, "REPTILE_DARK_GREEN_GOLD.SEC", kReptileGoldRebuild, kReptileGold},
+      {false, true, Shown::Square, "REPTILE_DARK_GREEN_GOLD_IN_COLOURS.SEC", kReptileGoldRebuild, kReptileGold},
+      {true, false, Shown::Triangle, "REPTILE_DARK_GREEN.SEC", kReptileDarkGreenRebuild, kReptileDarkGreen},
+      {true, true, Shown::Triangle, "REPTILE_DARK_GREEN_IN_COLOURS.SEC", kReptileDarkGreenRebuild, kReptileDarkGreen}}},
     // SQUARE black and red, TRIANGLE dark purple and crimson, on her first costume
     {kNitara, "NITARA", false, "vamp_f.ssf", {}, "x_vamp_f.ssf",
      {{false, false, Shown::Square, "NITARA_BLACK_RED.SEC", kNitaraBlackRedRebuild, kNitaraBlackRed},
