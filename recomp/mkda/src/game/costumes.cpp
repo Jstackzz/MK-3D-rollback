@@ -20,6 +20,7 @@
 #include "app/app.h"
 #include "core/log.h"
 #include "cpu/x86_ops.h"
+#include "game/autopilot.h"
 #include "game/events.h"
 #include "game/frame.h"
 #include "kernel/kernel.h"
@@ -40,8 +41,8 @@ constexpr uint32_t kTable = 0x243B40, kStride = 0x110, kFirst = 0x00, kSecond = 
 // the fighter's shared section's entry (sh_drahmin.sec: his mask's model, Dmask), every costume's; the loader reads it
 // right after the fighter's costume lookup (sub_00103250 -> sub_00103230)
 constexpr uint32_t kShared = 0x80;
-constexpr uint32_t kScorpion = 0, kJax = 1, kShangTsung = 2, kRaiden = 10, kFrost = 11, kDrahmin = 18,
-                   kBoRaiCho = 20;
+constexpr uint32_t kScorpion = 0, kJax = 1, kShangTsung = 2, kSonya = 9, kRaiden = 10, kFrost = 11, kReptile = 16,
+                   kNitara = 17, kDrahmin = 18, kBoRaiCho = 20;
 // the game's logical buttons (frame.h): A and START (the picks), X and Y (square and triangle)
 constexpr uint32_t kButtonA = 0x40, kButtonStart = 0x800, kButtonSquare = 0x80, kButtonTriangle = 0x10;
 // the select screen: each player's cursor slot (P1, P2), the grid of slots (a character index each, 0x18 its end)
@@ -64,12 +65,25 @@ constexpr Rule kRed{185, 35, 60, 0.2, 356, 1.0, 1.25, 0.85};
 // Scorpion: the gold rims of his gear (sc_armor: shoulder pads, the plates on his thighs, knee guards; sc_pads: shin
 // and forearm guards) orange
 constexpr Rule kScorpionGearOrange{45, 18, 30, 0.3, 30, 1.2, 1.3, 0.9};
-// Bo' Rai Cho's second costume: its red pants (hue about 352) black; the yellow belt and the gold stay
+// Bo' Rai Cho's second costume: its red pants (hue about 352) black; the yellow belt and the gold stay (SQUARE). Or
+// first the yellow and gold of the pants black, then their red Scorpion's yellow (sc_gold: hue 40, saturation 0.74, value
+// about twice the pants', TRIANGLE)
 constexpr Rule kBoBlackPants{352, 20, 35, 0.3, 0, 0.0, 0.5, 0.0};
+constexpr Rule kBoYellowToBlack{52, 18, 28, 0.35, 0, 0.0, 0.25, 0.0};
+constexpr Rule kBoRedToYellow{352, 20, 35, 0.3, 40, 0.9, 2.0, 0.7};
 // every colour a dark grey, a quarter of its value (Jax's hood in his two looks: light grey cloth, his cap black already)
 constexpr Rule kAllDark{0, 180, 180, -0.1, 0, 0.0, 0.25, 0.0};
 // Drahmin: the green of his mask's flat parts (Dflat) ivory (Crimson)
 constexpr Rule kIvoryFlat{110, 30, 50, 0.2, 42, 0.3, 1.2, 0.17};
+// Reptile's scales black: the teal green of his first costume's other colours, the yellow green of his damaged faces
+// (his tan throat, eyes and teeth kept)
+constexpr Rule kScalesBlack{110, 50, 65, 0.12, 100, 0.0, 0.3, 0.0};
+// Nitara: the red of her boots black (Square) or dark purple (Triangle); her wings' brown a deep red (their black ribs
+// stay dark), or first their darkest colours, the ribs and edges, purple (Triangle)
+constexpr Rule kRedToBlack{355, 25, 40, 0.3, 0, 0.0, 0.45, 0.0};
+constexpr Rule kRedToPurple{355, 25, 40, 0.3, 280, 0.6, 0.8, 0.45};
+constexpr Rule kWingsRed{25, 30, 45, 0.15, 356, 1.4, 0.95, 0.6};
+constexpr Rule kWingRibsPurple{25, 90, 120, -0.1, 282, 1.0, 1.9, 0.5, 0.07};
 
 
 // every colour OUTSIDE a kept band (hue within inner of center, fading out at outer; saturation and value above s_min
@@ -90,8 +104,20 @@ constexpr Except kBronzeWraps{355, 18, 30, 2.0, 0.12, 30, 0.08, 0.28};
 // ivory
 constexpr Rule kCrimsonMarkings{0, 180, 180, 0.42, 356, 1.0, 0.8, 0.75};
 constexpr Except kCrimsonMaskBase{0, 180, 180, 0.5, 0.0, 42, 0.17, 1.05};
+// his gold in his white and gold, a wider band (hue 18 to 70, its pale and dark shades too): fewer white specks in it
+constexpr Except kKeepGoldWide{44, 26, 34, 0.15, 0.12, 0, 0.0, 0.0};
+// Sonya's first costume: her olive jacket (hue 73 to 100, saturation about 0.23) a deep green or black (its patches,
+// other colours, kept); her crop top (light grey, unsaturated) black or a cool light grey, her skin (hue about 31,
+// saturated) kept
+constexpr Rule kOliveToForest{88, 20, 30, 0.05, 118, 1.0, 1.0, 0.45};
+constexpr Rule kOliveToBlack{88, 20, 30, 0.05, 0, 0.0, 0.38, 0.0};
+constexpr Except kSonyaTopBlack{30, 15, 25, 0.28, 0.0, 0, 0.0, 0.22};
+constexpr Except kSonyaTopGrey{30, 15, 25, 0.28, 0.0, 220, 0.05, 0.85};
 // Shang Tsung's robe, sashes, belt, boots (and hair) black, his gold (hue 23 to 69, saturated, not too dark) kept
 constexpr Except kBlackButGold{46, 23, 26, 0.45, 0.2, 0, 0.0, 0.22};
+// every colour black or dark purple (Nitara's jacket)
+constexpr Except kAllBlack{0, 180, 180, 2.0, 0.0, 0, 0.0, 0.32};
+constexpr Except kAllPurple{0, 180, 180, 2.0, 0.0, 280, 0.58, 0.55};
 
 // A texture made again by a map of its texels (costumes_maps.h, from its UV layout): each texel of a ramp's class keeps
 // its brightness on that ramp of a new palette (64 entries each, 48 with four ramps), each kept texel (255, or a class
@@ -100,11 +126,19 @@ struct Ramp {
     uint8_t dark[3], light[3];  // B G R as the palette holds them (the game's light makes them brighter)
 };
 constexpr Ramp kRampBlack{{4, 4, 5}, {58, 54, 50}}, kRampOrange{{0, 24, 70}, {10, 140, 255}},
-               kRampGloveRed{{6, 6, 105}, {40, 45, 250}}, kRampWhite{{150, 153, 156}, {246, 248, 250}},
+               kRampGloveRed{{4, 4, 52}, {24, 26, 160}}, kRampWhite{{150, 153, 156}, {246, 248, 250}},
                kRampDeepBlack{{3, 3, 3}, {34, 32, 30}}, kRampGold{{5, 45, 70}, {80, 200, 250}};
 // Frost: her gi's deep sapphire (narrow: one even colour), the darker blue of Deep Blue's lines, jet black, bronze
 constexpr Ramp kRampSapphire{{88, 26, 14}, {122, 40, 21}}, kRampFrostLines{{50, 12, 6}, {160, 48, 22}},
                kRampJet{{4, 4, 4}, {44, 42, 40}}, kRampBronze{{14, 24, 30}, {100, 150, 175}};
+// Reptile: his gi's deep forest green, his black scales; Nitara: crimson, dark purple (Kazuya's)
+constexpr Ramp kRampForest{{4, 14, 3}, {48, 132, 40}}, kRampScales{{3, 3, 3}, {60, 64, 60}},
+               kRampCrimson{{10, 4, 55}, {60, 45, 215}}, kRampPurple{{18, 5, 12}, {118, 50, 92}};
+// Shang Tsung: a robe's white, mid grey in its folds
+constexpr Ramp kRampRobeWhite{{112, 114, 118}, {242, 244, 246}};
+// Sonya: her jacket's lining in deep green, the cuffs' light grey, silver
+constexpr Ramp kRampSonyaGreen{{10, 22, 10}, {58, 118, 54}}, kRampCuffGrey{{88, 88, 90}, {212, 212, 216}},
+               kRampSilver{{70, 70, 72}, {236, 236, 240}};
 constexpr uint8_t kKeep = 255;
 struct Rebuild {
     const char* texture;
@@ -237,7 +271,15 @@ bool ReadTexture(const Bytes& d, size_t base, size_t end, Texture& t) {
     t.pixels = t.palette + 1024 + 4;
     return U32(d, t.palette + 1024) == t.w * t.h && t.pixels + size_t(t.w) * t.h <= end;
 }
+// an unnamed texture by its item number (1 the first), as the select screen's pictures have them
+bool FindItem(const Bytes& d, size_t at, const std::vector<Item>& items, size_t number, Texture& t) {
+    if (number < 1 || number > items.size() || (items[number - 1].type != 2 && items[number - 1].type != 3)) return false;
+    const Item& it = items[number - 1];
+    return ReadTexture(d, at + it.offset, at + it.offset + it.size, t);
+}
+// a texture by its name, or "#13" an unnamed one by its item number (a fighter's damaged faces)
 bool FindTexture(const Bytes& d, size_t at, const std::vector<Item>& items, const std::string& name, Texture& t) {
+    if (name.size() > 1 && name[0] == '#') return FindItem(d, at, items, size_t(std::atoi(name.c_str() + 1)), t);
     for (const Item& it : items) {
         if (it.type != 3) continue;
         const size_t base = at + it.offset;
@@ -245,12 +287,6 @@ bool FindTexture(const Bytes& d, size_t at, const std::vector<Item>& items, cons
         return ReadTexture(d, base, base + it.size, t);
     }
     return false;
-}
-// an unnamed texture by its item number (1 the first), as the select screen's pictures have them
-bool FindItem(const Bytes& d, size_t at, const std::vector<Item>& items, size_t number, Texture& t) {
-    if (number < 1 || number > items.size() || (items[number - 1].type != 2 && items[number - 1].type != 3)) return false;
-    const Item& it = items[number - 1];
-    return ReadTexture(d, at + it.offset, at + it.offset + it.size, t);
 }
 
 // a texture's name and every material of the section's models naming it ([u32 padded length][ff ff 00 08][name]),
@@ -533,13 +569,19 @@ const std::vector<Recolouring> kScorpionGearToOrange = {{"sc_armor", &kScorpionG
                                                         {"sc_pads", &kScorpionGearOrange, "s4_pads"}};
 // Bo' Rai Cho's second costume with black pants (SQUARE)
 const std::vector<Recolouring> kBoRaiChoBlackPants = {{"AltBRC_pants", &kBoBlackPants, "BlkBRC_pants"}};
+// Bo' Rai Cho's second costume with Scorpion's yellow pants (TRIANGLE): his Square look's black pants Scorpion's yellow,
+// their yellow belt, trims and gold black; his top as the game's
+const std::vector<Recolouring> kBoRaiChoYellowPants = {{"AltBRC_pants", &kBoYellowToBlack, "YlwBRC_pants"},
+                                                       {"YlwBRC_pants", &kBoRedToYellow, nullptr}};
 
-// Jax, on his second costume's other colours (the game's red jacket): SQUARE the belt white, the undershirt and its
-// hood black (his cap black already), his own black gloves; TRIANGLE the same with the gloves red. Every texture a look
-// changes is renamed (the game's own sections of that costume keep the names)
-const std::vector<Rebuild> kJaxBlackGlovesRebuild = {{"altJx_boot", "blgJx_belt", &kJaxBelt, {&kRampWhite}, 1},
-                                                     {"ap-alt_vest", "bg-alt_vest", &kJaxShirt, {&kRampBlack}, 1}};
-const std::vector<Recolouring> kJaxBlackGlovesRecolour = {{"altJX_hoodie", &kAllDark, "bglJX_hoodie"}};
+// Jax, on his second costume's other colours (the game's red jacket): SQUARE his jacket white, his gloves dark red with
+// the wide band at the base of each glove white, the belt white, the undershirt and its hood black (his cap black
+// already); TRIANGLE the red jacket with dark red gloves, the belt white, the undershirt and hood black. Every texture a
+// look changes is renamed (the game's own sections of that costume keep the names)
+const std::vector<Rebuild> kJaxWhiteRebuild = {
+    {"altJx_boot", "blgJx_belt", &kJaxWhiteBoot, {&kRampGloveRed, &kRampGloveRed, &kRampWhite, &kRampWhite}, 4},
+    {"ap-alt_vest", "bg-alt_vest", &kJaxVest, {&kRampBlack, &kRampWhite}, 2}};
+const std::vector<Recolouring> kJaxWhiteRecolour = {{"altJX_hoodie", &kAllDark, "bglJX_hoodie"}};
 const std::vector<Rebuild> kJaxRedGlovesRebuild = {
     {"altJx_boot", "redJx_belt", &kJaxGloveBelt, {&kRampGloveRed, &kRampGloveRed, &kRampWhite}, 3},
     {"ap-alt_vest", "c3-alt_vest", &kJaxShirt, {&kRampBlack}, 1}};
@@ -565,6 +607,28 @@ const std::vector<Recolouring> kDrahminCrimsonMask = {
 const std::vector<Rebuild> kShangBlackGoldRebuild = {
     {"ShangTsungTexture1", "ShangTsungTexturY1", &kShangHands, {&kRampDeepBlack, &kRampDeepBlack}, 2, &kBlackButGold, 1}};
 const std::vector<Recolouring> kShangBlackGold = {{"ShangTsungTexture2", nullptr, "ShangTsungTexturY2", &kBlackButGold}};
+// Shang Tsung's white and gold (TRIANGLE): his Square look with its black white: his robe, sashes, sleeves, armour,
+// pants, gloves, boots and greaves white (kShangHands, kShangRobe), every gold kept; his hair and face untouched
+// Sonya's Forest (SQUARE) and Black (TRIANGLE), the concept's, on her first costume: Forest a deep green jacket (its
+// lining too), a black crop top, grey cuffs, her brass belt as it is; Black a black jacket, a light grey crop top,
+// cuffs and lining, the metal of her belt, pouches and gloves silver. Both keep her patches, black pants, fingerless
+// gloves, choker and boots
+const std::vector<Rebuild> kSonyaForestRebuild = {
+    {"inner_vest", "sfner_vest", &kSonyaInnerVest, {&kRampSonyaGreen, &kRampCuffGrey}, 2}};
+const std::vector<Recolouring> kSonyaForest = {{"vest", &kOliveToForest, "sfst"},
+                                               {"vest_2", &kOliveToForest, "sfst_2"},
+                                               {"sleeve", &kOliveToForest, "sfeeve"},
+                                               {"torso", nullptr, "sfrso", &kSonyaTopBlack}};
+const std::vector<Rebuild> kSonyaBlackRebuild = {
+    {"inner_vest", "skner_vest", &kSonyaInnerVest, {&kRampCuffGrey, &kRampCuffGrey}, 2},
+    {"hair", "skir", &kSonyaMetal, {&kRampSilver}, 1}};
+const std::vector<Recolouring> kSonyaBlack = {{"vest", &kOliveToBlack, "skst"},
+                                              {"vest_2", &kOliveToBlack, "skst_2"},
+                                              {"sleeve", &kOliveToBlack, "skeeve"},
+                                              {"torso", nullptr, "skrso", &kSonyaTopGrey}};
+const std::vector<Rebuild> kShangWhiteGoldRebuild = {
+    {"ShangTsungTexture1", "ShangTsungTexturZ1", &kShangHands, {&kRampRobeWhite, &kRampRobeWhite}, 2, &kKeepGoldWide, 1},
+    {"ShangTsungTexture2", "ShangTsungTexturZ2", &kShangRobe, {&kRampRobeWhite}, 1, &kKeepGoldWide, 0}};
 
 // Frost's All Black (Jet Black, SQUARE) and Deep Blue (TRIANGLE), the concept's, both made on her first costume: her
 // gi (the straps, the front panel, the mask) one deep sapphire blue, its marks gone (made of the nearest cloth,
@@ -594,6 +658,43 @@ const std::vector<Rebuild> kFrostDeepBlue = {
      .ramp_count = 2},
     {.texture = "FR_pants", .rename = "FD_pants", .map = &kFrostPants, .ramps = {&kRampJet}, .ramp_count = 1}};
 
+// Reptile's dark green and black (SQUARE), the concept's, made on his first costume's other colours (the game's teal,
+// grey metal): his gi (its front panels, hip panels, wrist guards, knee and shoulder plates) deep forest green, its
+// inner shirt, edges and his sash black, his scales black (his damaged faces' too; his tan throat kept), his shin plates
+// black; the grey metal (trims, belt medallion) and his black quilted shorts as they are. The maps are his first
+// costume's: its other colours have the same layout
+const std::vector<Rebuild> kReptileDarkGreenRebuild = {
+    {"ap_cloth", "rx_cloth", &kReptileCloth, {&kRampForest, &kRampJet}, 2},
+    {"ap_trim", "rx_trim", &kReptileTrim, {&kRampJet, &kRampForest}, 2},
+    {"ap_metal_dull", "rx_metal_dull", &kReptileMetal, {&kRampForest, &kRampJet, &kRampScales}, 3}};
+const std::vector<Recolouring> kReptileDarkGreen = {
+    {"ap_hand_feet", &kScalesBlack, "rx_hand_feet"}, {"ap_arm_chest_tail", &kScalesBlack, "rx_arm_chest_tail"},
+    {"ap_neck", &kScalesBlack, "rx_neck"},           {"ap_face", &kScalesBlack, "rx_face"},
+    {"#13", &kScalesBlack, nullptr},                 {"#14", &kScalesBlack, nullptr},
+    {"#15", &kScalesBlack, nullptr}};
+// Nitara's black and red (SQUARE), the concept's, on her first costume: her jacket and sleeves black (its collar too),
+// her top and lower garment crimson, her coat-tails' lining crimson with black edges, her wings deep red, her boots
+// black with crimson cuffs (her choker black); her tights, the brown strap on her thigh and the gold as they are
+const std::vector<Rebuild> kNitaraBlackRedRebuild = {
+    {"torso_bra", "nbrso_bra", &kNitaraTorso, {&kRampJet, &kRampCrimson}, 2},
+    {"vampi_face", "nbmpi_face", &kNitaraFace, {&kRampJet, &kRampCrimson}, 2},
+    {"alt_skirt_lining", "nbt_skirt_lining", &kNitaraLining, {&kRampJet, &kRampCrimson}, 2},
+    {"legs_tights", "nbgs_tights", &kNitaraLegs, {&kRampCrimson}, 1}};
+const std::vector<Recolouring> kNitaraBlackRed = {{"dress", nullptr, "nbess", &kAllBlack},
+                                                  {"hair_shoes", &kRedToBlack, "nbir_shoes"},
+                                                  {"wings", &kWingsRed, "nbngs"}};
+// Nitara's dark purple and crimson (TRIANGLE), the concept's (Kazuya's purple): her Square look with its black dark
+// purple (her jacket and collar, her coat-tails' edges, her boots and choker) and her wings' dark ribs and edges purple
+const std::vector<Rebuild> kNitaraPurpleRebuild = {
+    {"torso_bra", "ntrso_bra", &kNitaraTorso, {&kRampPurple, &kRampCrimson}, 2},
+    {"vampi_face", "ntmpi_face", &kNitaraFace, {&kRampPurple, &kRampCrimson}, 2},
+    {"alt_skirt_lining", "ntt_skirt_lining", &kNitaraLining, {&kRampPurple, &kRampCrimson}, 2},
+    {"legs_tights", "ntgs_tights", &kNitaraLegs, {&kRampCrimson}, 1}};
+const std::vector<Recolouring> kNitaraPurple = {{"dress", nullptr, "ntess", &kAllPurple},
+                                                {"hair_shoes", &kRedToPurple, "ntir_shoes"},
+                                                {"wings", &kWingRibsPurple, "ntngs"},
+                                                {"ntngs", &kWingsRed, nullptr}};
+
 std::vector<Fighter> g_fighters = {
     // SQUARE his first costume in a deeper blue; TRIANGLE red, made from it (his own colours, A, and other colours,
     // LT and A, the game's teal and purple)
@@ -610,16 +711,19 @@ std::vector<Fighter> g_fighters = {
       {false, false, Shown::Triangle, "SCORPION_BLACK_ORANGE.SEC", kScorpionBlackOrange, kScorpionGearToOrange},
       {false, true, Shown::Triangle, "SCORPION_BLACK_ORANGE_IN_COLOURS.SEC", kScorpionBlackOrange,
        kScorpionGearToOrange}}},
-    // SQUARE his second costume with black pants (its other colours, LT and START, the game's purple)
+    // SQUARE his second costume with black pants, TRIANGLE with Scorpion's yellow pants (its other colours, LT and
+    // START, the game's purple)
     {kBoRaiCho, "BO' RAI CHO", true, "alt_drunkenfighter.ssf", {}, "x_drunkenfighter2.ssf",
      {{false, false, Shown::Square, "BO_RAI_CHO_BLACK_PANTS.SEC", {}, kBoRaiChoBlackPants},
-      {false, true, Shown::Square, "BO_RAI_CHO_BLACK_PANTS_IN_COLOURS.SEC", {}, kBoRaiChoBlackPants}}},
-    // on his second costume's other colours (the game's red jacket): SQUARE with the belt white and the undershirt and
-    // its hood black, his own black gloves; TRIANGLE that look with red gloves (his own gloves, on his own model: the
-    // same collision)
+      {false, true, Shown::Square, "BO_RAI_CHO_BLACK_PANTS_IN_COLOURS.SEC", {}, kBoRaiChoBlackPants},
+      {false, false, Shown::Triangle, "BO_RAI_CHO_YELLOW_PANTS.SEC", {}, kBoRaiChoYellowPants},
+      {false, true, Shown::Triangle, "BO_RAI_CHO_YELLOW_PANTS_IN_COLOURS.SEC", {}, kBoRaiChoYellowPants}}},
+    // on his second costume's other colours (the game's red jacket): SQUARE a white jacket, red gloves white at their
+    // base, the belt white and the undershirt and its hood black; TRIANGLE the red jacket with dark red gloves (his own
+    // gloves, on his own model: the same collision)
     {kJax, "JAX", true, "alt_jax.ssf", {}, "x_jax.ssf",
-     {{true, false, Shown::Square, "JAX_BLACK_GLOVES.SEC", kJaxBlackGlovesRebuild, kJaxBlackGlovesRecolour},
-      {true, true, Shown::Square, "JAX_BLACK_GLOVES_IN_COLOURS.SEC", kJaxBlackGlovesRebuild, kJaxBlackGlovesRecolour},
+     {{true, false, Shown::Square, "JAX_WHITE.SEC", kJaxWhiteRebuild, kJaxWhiteRecolour},
+      {true, true, Shown::Square, "JAX_WHITE_IN_COLOURS.SEC", kJaxWhiteRebuild, kJaxWhiteRecolour},
       {true, false, Shown::Triangle, "JAX_RED_GLOVES.SEC", kJaxRedGlovesRebuild, kJaxRedGlovesRecolour},
       {true, true, Shown::Triangle, "JAX_RED_GLOVES_IN_COLOURS.SEC", kJaxRedGlovesRebuild, kJaxRedGlovesRecolour}}},
     // the concept's Bronze and Crimson, on his second costume: SQUARE Bronze (charcoal wraps, his green mask, bronze
@@ -632,16 +736,34 @@ std::vector<Fighter> g_fighters = {
        "DRAHMIN_CRIMSON_MASK.SEC", kDrahminCrimsonMask},
       {false, true, Shown::Triangle, "DRAHMIN_CRIMSON_IN_COLOURS.SEC", kDrahminCrimsonRebuild, kDrahminCrimson,
        "DRAHMIN_CRIMSON_MASK_2.SEC", kDrahminCrimsonMask}}},
-    // SQUARE black and gold on his first costume
+    // SQUARE black and gold, TRIANGLE white and gold, on his first costume
     {kShangTsung, "SHANG TSUNG", false, "shangtsung.ssf", {}, "x_shangtsung.ssf",
      {{false, false, Shown::Square, "SHANG_TSUNG_BLACK_GOLD.SEC", kShangBlackGoldRebuild, kShangBlackGold},
-      {false, true, Shown::Square, "SHANG_TSUNG_BLACK_GOLD_IN_COLOURS.SEC", kShangBlackGoldRebuild, kShangBlackGold}}},
+      {false, true, Shown::Square, "SHANG_TSUNG_BLACK_GOLD_IN_COLOURS.SEC", kShangBlackGoldRebuild, kShangBlackGold},
+      {false, false, Shown::Triangle, "SHANG_TSUNG_WHITE_GOLD.SEC", kShangWhiteGoldRebuild, {}},
+      {false, true, Shown::Triangle, "SHANG_TSUNG_WHITE_GOLD_IN_COLOURS.SEC", kShangWhiteGoldRebuild, {}}}},
+    // on her first costume: SQUARE Forest, TRIANGLE Black
+    {kSonya, "SONYA", false, "sonya.ssf", {}, "x_sonya.ssf",
+     {{false, false, Shown::Square, "SONYA_FOREST.SEC", kSonyaForestRebuild, kSonyaForest},
+      {false, true, Shown::Square, "SONYA_FOREST_IN_COLOURS.SEC", kSonyaForestRebuild, kSonyaForest},
+      {false, false, Shown::Triangle, "SONYA_BLACK.SEC", kSonyaBlackRebuild, kSonyaBlack},
+      {false, true, Shown::Triangle, "SONYA_BLACK_IN_COLOURS.SEC", kSonyaBlackRebuild, kSonyaBlack}}},
     // on her first costume: SQUARE All Black (Jet Black), TRIANGLE Deep Blue
     {kFrost, "FROST", false, "subzerette.ssf", {}, "x_subzerette.ssf",
      {{false, false, Shown::Square, "FROST_JET_BLACK.SEC", kFrostJetBlack, {}},
       {false, true, Shown::Square, "FROST_JET_BLACK_IN_COLOURS.SEC", kFrostJetBlack, {}},
       {false, false, Shown::Triangle, "FROST_DEEP_BLUE.SEC", kFrostDeepBlue, {}},
       {false, true, Shown::Triangle, "FROST_DEEP_BLUE_IN_COLOURS.SEC", kFrostDeepBlue, {}}}},
+    // SQUARE dark green and black, made on his first costume's other colours
+    {kReptile, "REPTILE", false, "reptile.ssf", {}, "x_reptile.ssf",
+     {{true, false, Shown::Square, "REPTILE_DARK_GREEN.SEC", kReptileDarkGreenRebuild, kReptileDarkGreen},
+      {true, true, Shown::Square, "REPTILE_DARK_GREEN_IN_COLOURS.SEC", kReptileDarkGreenRebuild, kReptileDarkGreen}}},
+    // SQUARE black and red, TRIANGLE dark purple and crimson, on her first costume
+    {kNitara, "NITARA", false, "vamp_f.ssf", {}, "x_vamp_f.ssf",
+     {{false, false, Shown::Square, "NITARA_BLACK_RED.SEC", kNitaraBlackRedRebuild, kNitaraBlackRed},
+      {false, true, Shown::Square, "NITARA_BLACK_RED_IN_COLOURS.SEC", kNitaraBlackRedRebuild, kNitaraBlackRed},
+      {false, false, Shown::Triangle, "NITARA_PURPLE.SEC", kNitaraPurpleRebuild, kNitaraPurple},
+      {false, true, Shown::Triangle, "NITARA_PURPLE_IN_COLOURS.SEC", kNitaraPurpleRebuild, kNitaraPurple}}},
 };
 
 struct Served {
@@ -1018,6 +1140,27 @@ void LookPicks(uint64_t) {
 }
 const bool g_looks_registered = (OnPadsRead(LookPicks), true);
 
+// the other player has picked (practice's dummy pick comes before its caller sets the states, events.h
+// kPracticePicker: there the other side's fighter being in is its pick)
+bool HasPicked(uint32_t other) {
+    return kernel::R32(kPlayerState[other]) == 3 ||
+           (kernel::R32(kGameMode) == kModePractice && kernel::R32(kCharacter[other]) != kNoCharacter);
+}
+
+// the look (kThird or kFourth, 0 none) the other player picked fighter f in: online their pick as it came from their
+// game (before this game's stand-in pick takes it), else their pick in this game
+uint32_t OtherLook(uint32_t player, const Fighter& f) {
+    const uint32_t other = 1 - player;
+    int character = -1, arena = -1;
+    uint32_t costume = 0;
+    if (autopilot::AgreedPick(int(other), character, costume, arena))
+        return uint32_t(character) == f.character && bool(costume & 1) == f.second ? costume & kLooks : 0;
+    const uint32_t ova = kernel::R32(kCostume[other]);
+    if (!ova || !HasPicked(other) || kernel::R32(kCharacter[other]) != f.character) return 0;
+    const uint32_t ow = kernel::R32(ova);
+    return bool(ow & 1) == f.second ? ow & kLooks : 0;
+}
+
 }  // namespace
 
 void Picked(uint32_t player) {
@@ -1032,25 +1175,26 @@ void Picked(uint32_t player) {
     // a look of the costume the button picked (LookPicks), in its side's row (LookRow; not the other colours, should
     // LT be held too): SQUARE its Square look, TRIANGLE its Triangle look; any other pick the game's own costume
     const bool on_looks = f && bool(w & 1) == f->second;
-    if (on_looks && square && f->HasSquare()) {
-        w = (w & ~(kAltPick | 2u)) | LookRow(player) | kFourth;
-        LOGR("costumes: P%u picked %s with SQUARE: its Square look (costume word %X)", player + 1, f->name, w);
-    } else if (on_looks && triangle && f->HasTriangle()) {
-        w = (w & ~(kAltPick | 2u)) | LookRow(player) | kThird;
-        LOGR("costumes: P%u picked %s with TRIANGLE: its Triangle look (costume word %X)", player + 1, f->name, w);
+    uint32_t look = on_looks && square && f->HasSquare() ? kFourth : on_looks && triangle && f->HasTriangle() ? kThird : 0;
+    // the other player picked this fighter in that look already: the second to pick wears its other look (a fighter
+    // with both). Online the word this game sends has it; both picks made before either reached the other game are
+    // settled at the select screen's end (Settle)
+    const bool second = look && f->HasSquare() && f->HasTriangle() && OtherLook(player, *f) == look;
+    if (second) look ^= kLooks;
+    if (look) {
+        w = (w & ~(kAltPick | 2u)) | LookRow(player) | look;
+        LOGR("costumes: P%u picked %s with %s: its %s look%s (costume word %X)", player + 1, f->name,
+             square ? "SQUARE" : "TRIANGLE", look == kFourth ? "Square" : "Triangle",
+             second ? ", the other player wearing the one picked" : "", w);
     } else if (on_looks) {
         LOGR("costumes: P%u picked %s's %s costume, the game's (costume word %X)", player + 1, f->name,
              f->second ? "second" : "first", w);
     }
     kernel::W32(va, w);
     // the other player already picked this fighter: the plain one in the row the look leaves, before this pick's model
-    // loads (a task on the next frames). Practice's dummy pick comes before its caller sets the states (events.h
-    // kPracticePicker): there the other side's fighter being in is its pick.
+    // loads (a task on the next frames)
     const uint32_t other = 1 - player, ova = kernel::R32(kCostume[other]);
-    const bool other_picked = kernel::R32(kPlayerState[other]) == 3 ||
-                              (kernel::R32(kGameMode) == kModePractice &&
-                               kernel::R32(kCharacter[other]) != kNoCharacter);
-    if (!f || !ova || !other_picked || kernel::R32(kCharacter[other]) != kernel::R32(kCharacter[player])) return;
+    if (!f || !ova || !HasPicked(other) || kernel::R32(kCharacter[other]) != kernel::R32(kCharacter[player])) return;
     uint32_t word[2];
     word[player] = w;
     word[other] = kernel::R32(ova);
@@ -1070,7 +1214,17 @@ int Settle(uint32_t word[2]) {
         // a look in its side's row: Picked put it there (a word from anywhere else as well)
         if (word[k] & kLooks) word[k] = (word[k] & ~2u) | LookRow(uint32_t(k));
     }
-    const uint32_t character = kernel::R32(kCharacter[0]), a = word[0] & kLooks, b = word[1] & kLooks;
+    const uint32_t character = kernel::R32(kCharacter[0]);
+    // both in one fighter's same look (both picked before either pick reached the other's game; Picked turns the
+    // second's otherwise): P2 wears its other look, in its row, the same in both games
+    if (const Fighter* f = Find(character); f && f->HasSquare() && f->HasTriangle() &&
+                                            character == kernel::R32(kCharacter[1]) && (word[0] & kLooks) &&
+                                            (word[0] & kLooks) == (word[1] & kLooks) && (word[0] & 1) == (word[1] & 1)) {
+        word[1] ^= kLooks;
+        LOGR("costumes: both players in %s's %s look: P2 its %s look", f->name,
+             word[0] & kFourth ? "Square" : "Triangle", word[1] & kFourth ? "Square" : "Triangle");
+    }
+    const uint32_t a = word[0] & kLooks, b = word[1] & kLooks;
     if (character == kernel::R32(kCharacter[1]) && Share(word))
         LOGR("costumes: %s's look and the plain costume beside it: P1 %s, P2 %s", Find(character)->name,
              word[0] & 2 ? "other colours" : "own colours", word[1] & 2 ? "other colours" : "own colours");

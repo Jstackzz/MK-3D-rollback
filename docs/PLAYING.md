@@ -365,18 +365,34 @@ whether to trust it: compare it with your host's.
   - Raiden: Square, a deeper blue; Triangle, red.
   - Scorpion: Square, black with his own costume's gold; Triangle, black and
     orange.
-  - Bo' Rai Cho: Square, his second costume with black pants.
-  - Jax: Square, his red jacket with a white belt and black gloves; Triangle,
-    the same with red gloves.
+  - Bo' Rai Cho: Square, his second costume with black pants; Triangle,
+    the same with Scorpion's yellow pants and a black belt (from 1.0.21).
+  - Jax: Square, a white jacket with red gloves (white at their base) and a
+    white belt (from 1.0.21; before, his red jacket with black gloves);
+    Triangle, his red jacket with a white belt and dark red gloves.
   - Drahmin: Square, Bronze (black wraps, a bronze club and shoulder pads, a
     red banner); Triangle, Crimson.
-  - Shang Tsung: Square, black and gold.
+  - Shang Tsung: Square, black and gold; Triangle, white and gold (from
+    1.0.21).
   - Frost: Square, All Black; Triangle, Deep Blue.
+  - Sonya: Square, Forest (a deep green jacket, a black top, grey cuffs, her
+    brass belt); Triangle, Black (a black jacket, a light grey top and cuffs,
+    silver belt pieces); both on her first costume (from 1.0.21).
+  - Reptile: Square, dark green and black (on his first costume's other
+    colours: a deep green gi, black scales, his tan throat, grey metal; from
+    1.0.21).
+  - Nitara: Square, black and red (her first costume: a black jacket, a
+    crimson top, lining and wings); Triangle, the same in dark purple and
+    crimson (from 1.0.21).
 
   When both players pick one fighter, a look stays as picked and a plain
   costume of that fighter takes whichever of its two colours the look does
-  not use; the same look picked twice is worn by both. In practice the dummy
-  gets a look the same way: Square or Triangle as you pick it (from 1.0.20).
+  not use. When both pick the same look of a fighter that has two, the
+  second to pick wears the other one (Square for Triangle, Triangle for
+  Square; when both picks cross online, player 2 does); a fighter with a
+  Square look only wears it on both (from 1.0.21; before, both wore the
+  same look). In practice the dummy gets a look the same way: Square or
+  Triangle as you pick it (from 1.0.20).
 - Sound: **Settings → SOUND** has a slider for the master level and for the
   music, sound effects, fighter voices, announcer and the arenas' own sounds
   (environment), each a percent of the game's own level (100 %: as the game
