@@ -26,6 +26,13 @@
 // left) and it missed, the opponent stood up and the rest began a new combo (the user's clip, against Li Mei: 2 hits,
 // then 5). Its strikes from the second on, the daggers' too, are larger while the opponent reels.
 //
+// Jax's string ... 4, 4, style change (Judo into tonfa), its two swings: a juggle. Once the Judo 4 starts, the kicks and
+// the swings come on fixed frames, and each only reaches the falling opponent at the right height (7 of 70 timings of
+// the launch and the 4 landed all 10 hits, on Frost). MK3D Online 0.1.29 to 1.0.11 made those strikes' spheres 2.5 times
+// larger (the first kick) and 4.5 times (the rest) while the opponent reels; 1.0.12 took that out. Since 1.0.21 they
+// are 2% of that growth: 1 + 0.02 x 1.5 = 1.03 times and 1 + 0.02 x 3.5 = 1.07 times (DA test 32). His early button
+// after the style change stays the Xbox game's (noinfinites.cpp: 2% of its 20 frames is no whole frame).
+//
 // A fighter slipping in Bo' Rai Cho's Puke Puddle cannot block (MK3D Online 0.1.24). The slip (state 0x4207, the
 // scripted reaction 0x11AE80) sets the slipping fighter's +0x15C, which keeps a hit from being blocked, until it
 // stands again. The end of the other fighter's move (sub_000558E0, the recovery 0x55AC0) or of its reaction's
@@ -49,7 +56,7 @@ namespace {
 constexpr uint32_t kSelf = 0x320A18, kOpponent = 0x320A0C;  // the fighter whose task runs, the other one
 constexpr uint32_t kCharacterId = 0x144, kState = 0x194, kComboHits = 0x1A0;
 constexpr uint32_t kBlock = 0x9F0, kCommand = 0x9F8;  // its move's script block, the command it is at
-constexpr uint32_t kBoRaiCho = 0x14, kFrost = 0x0B;
+constexpr uint32_t kBoRaiCho = 0x14, kJax = 0x01, kFrost = 0x0B;
 constexpr uint32_t kPuddleSlip = 0x4207;  // slipping in Bo' Rai Cho's puddle
 
 struct Hit {
@@ -77,6 +84,13 @@ constexpr Hit kFrostHits[] = {{"tongbei_1", 0x2C8, 2, 2.5f},
                               {"double_entry_1", 0x380, 6, 2.5f},
                               {"double_entry_1", 0x428, 7, 2.5f},
                               {"double_entry_1", 0x4C8, 8, 2.5f}};
+// 2% of the growth 0.1.29 gave (2.5 and 4.5 times)
+constexpr Hit kJaxHits[] = {{"judo_4", 0x78C, 1, 1.03f},
+                            {"judo_4", 0x840, 1, 1.03f},
+                            {"judo_4", 0x860, 2, 1.07f},
+                            {"tonfa_entry_4neutral", 0x170, 3, 1.07f},
+                            {"tonfa_entry_4neutral", 0x240, 4, 1.07f},
+                            {"tonfa_entry_4neutral", 0x264, 4, 1.07f}};
 
 bool BlockIs(uint32_t block, const char* name) {
     const uint32_t n = uint32_t(std::strlen(name)) + 1;  // with its zero
@@ -90,19 +104,22 @@ void BeforeHitTest(X86Context& ctx) {
     const uint32_t self = kernel::R32(kSelf), opp = kernel::R32(kOpponent);
     if (!self || !opp) return;
     const uint32_t character = kernel::R32(self + kCharacterId);
-    if (character != kBoRaiCho && character != kFrost) return;
+    if (character != kBoRaiCho && character != kJax && character != kFrost) return;
     // still reeling from the string's last hit
     if ((kernel::R32(opp + kState) & 0xFF00) != 0x0600 || !kernel::R32(opp + kComboHits)) return;
     const uint32_t block = kernel::R32(self + kBlock), command = kernel::R32(self + kCommand) - block;
-    const Hit* const first = character == kFrost ? kFrostHits : kHits;
-    const size_t count = character == kFrost ? std::size(kFrostHits) : std::size(kHits);
+    const Hit* const first = character == kJax ? kJaxHits : character == kFrost ? kFrostHits : kHits;
+    const size_t count = character == kJax     ? std::size(kJaxHits)
+                         : character == kFrost ? std::size(kFrostHits)
+                                               : std::size(kHits);
     for (size_t i = 0; i < count; i++) {
         const Hit& h = first[i];
         if (command != h.command || !BlockIs(block, h.block)) continue;
         float scale;
         std::memcpy(&scale, kernel::HostPtr(ctx.esp + 8), sizeof scale);
         LOGR_FIRST(16, "combos: %s string, hit %d: its spheres %.2f times larger (scale %.2f)",
-                   character == kFrost ? "Frost's" : "Bo' Rai Cho's", h.number, h.grow, scale);
+                   character == kJax ? "Jax's" : character == kFrost ? "Frost's" : "Bo' Rai Cho's", h.number, h.grow,
+                   scale);
         scale *= h.grow;
         std::memcpy(kernel::HostPtr(ctx.esp + 8), &scale, sizeof scale);
         return;
